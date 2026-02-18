@@ -295,10 +295,12 @@ class SidebarUI {
             if (!name || !name.trim()) return;
 
             const arrayBuffer = await file.arrayBuffer();
+            // Convert to plain Array so it survives chrome.runtime.sendMessage serialization
+            const data = Array.from(new Uint8Array(arrayBuffer));
             const response = await this.sendMessage({
                 action: 'importFromBlob',
                 name: name.trim(),
-                data: arrayBuffer
+                data
             });
 
             if (response.success) {

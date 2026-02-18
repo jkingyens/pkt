@@ -51,49 +51,48 @@ async function handleMessage(request, sender, sendResponse) {
         await initializeSQLite();
 
         switch (request.action) {
-            case 'listCollections':
+            case 'listCollections': {
                 const collections = sqliteManager.listCollections();
                 sendResponse({ success: true, collections });
                 break;
-
-            case 'createCollection':
+            }
+            case 'createCollection': {
                 await sqliteManager.initDatabase(request.name);
-                // Auto-save checkpoint so it persists across service worker restarts
                 await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
-
-            case 'importFromBlob':
-                await sqliteManager.importFromBlob(request.name, request.data);
-                // Auto-save checkpoint so it persists across service worker restarts
+            }
+            case 'importFromBlob': {
+                // data arrives as a plain Array (ArrayBuffer can't survive sendMessage serialization)
+                const importData = new Uint8Array(request.data).buffer;
+                await sqliteManager.importFromBlob(request.name, importData);
                 await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
-
-            case 'exportToBlob':
+            }
+            case 'exportToBlob': {
                 const blob = await sqliteManager.exportToBlob(request.name);
                 const arrayBuffer = await blob.arrayBuffer();
                 sendResponse({ success: true, data: Array.from(new Uint8Array(arrayBuffer)) });
                 break;
-
-            case 'saveCheckpoint':
+            }
+            case 'saveCheckpoint': {
                 await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
-
-            case 'restoreCheckpoint':
+            }
+            case 'restoreCheckpoint': {
                 const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true, restored });
                 break;
-
-            case 'deleteCollection':
+            }
+            case 'deleteCollection': {
                 sqliteManager.closeDatabase(request.name);
-                // Also remove from storage so it doesn't come back on restart
                 await chrome.storage.local.remove(`checkpoint_${request.name}`);
                 sendResponse({ success: true });
                 break;
-
-            case 'executeSQL':
+            }
+            case 'executeSQL': {
                 const db = sqliteManager.getDatabase(request.name);
                 if (!db) {
                     sendResponse({ success: false, error: 'Database not found' });
@@ -102,22 +101,22 @@ async function handleMessage(request, sender, sendResponse) {
                 const result = db.exec(request.sql);
                 sendResponse({ success: true, result });
                 break;
-
-            case 'getSchema':
+            }
+            case 'getSchema': {
                 const schema = sqliteManager.getSchema(request.name);
                 sendResponse({ success: true, schema });
                 break;
-
-            case 'getEntries':
+            }
+            case 'getEntries': {
                 const entries = sqliteManager.getEntries(request.name, request.tableName);
                 sendResponse({ success: true, entries });
                 break;
-
-            case 'setSchema':
+            }
+            case 'setSchema': {
                 await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
-
+            }
             default:
                 sendResponse({ success: false, error: 'Unknown action' });
         }
