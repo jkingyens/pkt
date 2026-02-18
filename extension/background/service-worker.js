@@ -27,6 +27,8 @@ async function initializeSQLite() {
         if (restored.length > 0) {
             console.log(`Auto-restored collections: ${restored.join(', ')}`);
         }
+        await sqliteManager.ensurePacketsCollection(chrome.storage.local);
+        await sqliteManager.ensureSchemasCollection(chrome.storage.local);
     } catch (error) {
         console.error('Failed to auto-restore checkpoints:', error);
     }
@@ -115,6 +117,127 @@ async function handleMessage(request, sender, sendResponse) {
             case 'setSchema': {
                 await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local);
                 sendResponse({ success: true });
+                break;
+            }
+            case 'playPacket': {
+                try {
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+
+                    const result = db.exec(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
+                    if (!result.length || !result[0].values.length) {
+                        throw new Error('Packet not found');
+                    }
+
+                    const [name, urlsJson] = result[0].values[0];
+                    const urls = JSON.parse(urlsJson);
+
+                    if (!urls.length) {
+                        sendResponse({ success: true, message: 'No URLs in packet' });
+                        break;
+                    }
+
+                    // Create tabs
+                    const tabIds = [];
+                    for (const url of urls) {
+                        const tab = await chrome.tabs.create({ url, active: false });
+                        tabIds.push(tab.id);
+                    }
+
+                    // Group them
+                    const groupId = await chrome.tabs.group({ tabIds });
+                    await chrome.tabGroups.update(groupId, { title: name });
+
+                    // Focus the first tab
+                    await chrome.tabs.update(tabIds[0], { active: true });
+
+                    sendResponse({ success: true });
+                } catch (error) {
+                    console.error('Failed to play packet:', error);
+                    sendResponse({ success: false, error: error.message });
+                }
+                break;
+            }
+            case 'getCurrentTab': {
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (!tab) {
+                    sendResponse({ success: false, error: 'No active tab found' });
+                } else {
+                    sendResponse({ success: true, tab: { id: tab.id, title: tab.title, url: tab.url } });
+                }
+                break;
+            }
+            case 'savePacket': {
+                try {
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+                    const urlsJson = JSON.stringify(request.urls);
+                    // Use escaped string literals — sql.js parameterized run() can be unreliable
+                    const escapedName = request.name.replace(/'/g, "''");
+                    const escapedUrls = urlsJson.replace(/'/g, "''");
+                    db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('savePacket error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'deletePacket': {
+                try {
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+                    const id = parseInt(request.id, 10);
+                    db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('deletePacket error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'saveSchema': {
+                try {
+                    const db = sqliteManager.getDatabase('schemas');
+                    if (!db) throw new Error('Schemas database not found');
+                    const escapedName = request.name.replace(/'/g, "''");
+                    const escapedSql = request.sql.replace(/'/g, "''");
+                    db.exec(`INSERT INTO schemas (name, sql) VALUES ('${escapedName}', '${escapedSql}')`);
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('saveSchema error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'deleteSchema': {
+                try {
+                    const db = sqliteManager.getDatabase('schemas');
+                    if (!db) throw new Error('Schemas database not found');
+                    const id = parseInt(request.id, 10);
+                    db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('deleteSchema error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'listSchemas': {
+                try {
+                    const db = sqliteManager.getDatabase('schemas');
+                    if (!db) throw new Error('Schemas database not found');
+                    const result = db.exec(`SELECT rowid, name, sql FROM schemas ORDER BY created DESC`);
+                    const rows = result.length > 0 ? result[0].values : [];
+                    sendResponse({ success: true, schemas: rows.map(([id, name, sql]) => ({ id, name, sql })) });
+                } catch (err) {
+                    console.error('listSchemas error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
                 break;
             }
             default:

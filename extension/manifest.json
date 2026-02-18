@@ -5,7 +5,9 @@
     "description": "Manage SQLite databases with import/export and checkpoint support",
     "permissions": [
         "storage",
-        "sidePanel"
+        "sidePanel",
+        "tabs",
+        "tabGroups"
     ],
     "background": {
         "service_worker": "background/service-worker.js"

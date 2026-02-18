@@ -35,7 +35,8 @@ try {
     // - Add global self.SQLiteManager assignment for the service worker
     let managerSrc = readFileSync(join(__dirname, 'src/sqlite-manager.js'), 'utf8');
     managerSrc = managerSrc.replace(/^export class /m, 'class ');
-    managerSrc += '\n// Expose globally for importScripts usage in service worker\nif (typeof self !== \'undefined\') { self.SQLiteManager = SQLiteManager; }\n';
+    managerSrc = managerSrc.replace(/^export const /gm, 'const ');
+    // No need to append global self.SQLiteManager assignment - sqlite-manager.js now handles it
 
     const destSrcDir = join(targetDir, 'src');
     if (!existsSync(destSrcDir)) mkdirSync(destSrcDir, { recursive: true });

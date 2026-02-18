@@ -72,6 +72,53 @@
     </section>
   </div>
 
+  <!-- ===== CONSTRUCTOR VIEW ===== -->
+  <div id="constructorView" class="view">
+    <header class="detail-header">
+      <button id="constructorBackBtn" class="back-btn">← Packets</button>
+      <h2 class="detail-title">New Packet</h2>
+    </header>
+
+    <div class="constructor-body">
+
+      <button id="addCurrentTabBtn" class="btn btn-primary add-tab-btn">
+        <span>➕</span> Add Current Tab
+      </button>
+
+      <div id="constructorList" class="constructor-list">
+        <p class="hint constructor-empty">No tabs added yet. Click "Add Current Tab" to start.</p>
+      </div>
+
+      <div class="constructor-actions">
+        <button id="savePacketBtn" class="btn btn-primary btn-sm">💾 Save Packet</button>
+        <button id="discardPacketBtn" class="btn btn-secondary btn-sm">✕ Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SCHEMA CONSTRUCTOR VIEW ===== -->
+  <div id="schemaConstructorView" class="view">
+    <header class="detail-header">
+      <button id="schemaConstructorBackBtn" class="back-btn">← Schemas</button>
+      <h2 class="detail-title">New Schema</h2>
+    </header>
+
+    <div class="constructor-body">
+      <div class="constructor-name-row">
+        <input id="schemaRepoNameInput" class="constructor-name-input" type="text" placeholder="Schema name…"
+          autocomplete="off" />
+      </div>
+
+      <textarea id="schemaRepoSqlInput" class="schema-repo-sql-textarea" spellcheck="false"
+        placeholder="CREATE TABLE items (&#10;  id INTEGER PRIMARY KEY,&#10;  title TEXT NOT NULL,&#10;  created_at TEXT&#10;);"></textarea>
+
+      <div class="constructor-actions">
+        <button id="saveSchemaRepoBtn" class="btn btn-primary btn-sm">💾 Save Schema</button>
+        <button id="discardSchemaRepoBtn" class="btn btn-secondary btn-sm">✕ Discard</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== SCHEMA EDIT MODAL ===== -->
   <div id="schemaModal" class="modal-overlay hidden">
     <div class="modal">
@@ -90,6 +137,7 @@
           <button class="preset-btn" data-preset="taskwarrior">taskwarrior</button>
           <button class="preset-btn" data-preset="miniflux">miniflux</button>
         </div>
+        <button id="fromRepoBtn" class="btn btn-secondary btn-sm from-repo-btn">📂 From Repository</button>
       </div>
 
       <textarea id="schemaTextarea" class="schema-textarea" spellcheck="false"
@@ -118,6 +166,32 @@
       </div>
     </div>
   </template>
+
+  <!-- ===== SCHEMA PICKER MODAL ===== -->
+  <div id="schemaPickerOverlay" class="schema-picker-overlay hidden">
+    <div class="schema-picker-modal">
+      <div class="schema-picker-header">
+        <h3>📂 Schema Repository</h3>
+        <button id="schemaPickerCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <div id="schemaPickerList" class="schema-picker-list">
+        <p class="schema-picker-empty">No schemas saved yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SCHEMA SQL VIEWER MODAL ===== -->
+  <div id="schemaSqlViewerOverlay" class="schema-picker-overlay hidden">
+    <div class="schema-picker-modal">
+      <div class="schema-picker-header">
+        <h3 id="schemaSqlViewerTitle">Schema SQL</h3>
+        <button id="schemaSqlViewerCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <div class="schema-sql-viewer-body">
+        <pre id="schemaSqlViewerContent" class="schema-sql-viewer-pre"></pre>
+      </div>
+    </div>
+  </div>
 
   <script src="sidebar.js"></script>
 </body>

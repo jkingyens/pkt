@@ -3,6 +3,24 @@
  * Provides import/export and save/restore checkpoint functionality
  */
 
+export const PACKETS_COLLECTION = 'packets';
+export const PACKETS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS packets (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  name    TEXT NOT NULL,
+  urls    TEXT NOT NULL,  -- JSON array of URL strings
+  created TEXT NOT NULL DEFAULT (datetime('now'))
+);`;
+
+export const SCHEMAS_COLLECTION = 'schemas';
+export const SCHEMAS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS schemas (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  name    TEXT NOT NULL,
+  sql     TEXT NOT NULL,
+  created TEXT NOT NULL DEFAULT (datetime('now'))
+);`;
+
 export class SQLiteManager {
   constructor(SQL) {
     this.SQL = SQL;
@@ -157,6 +175,36 @@ export class SQLiteManager {
   }
 
   /**
+   * Ensure the 'packets' system collection exists with the correct schema
+   * @param {Object} storage - Storage interface
+   */
+  async ensurePacketsCollection(storage) {
+    let db = this.databases.get(PACKETS_COLLECTION);
+    if (!db) {
+      db = await this.initDatabase(PACKETS_COLLECTION);
+    }
+    db.run(PACKETS_SCHEMA);
+    if (storage) {
+      await this.saveCheckpoint(PACKETS_COLLECTION, storage);
+    }
+  }
+
+  /**
+   * Ensure the 'schemas' system collection exists with the correct schema
+   * @param {Object} storage - Storage interface
+   */
+  async ensureSchemasCollection(storage) {
+    let db = this.databases.get(SCHEMAS_COLLECTION);
+    if (!db) {
+      db = await this.initDatabase(SCHEMAS_COLLECTION);
+    }
+    db.run(SCHEMAS_SCHEMA);
+    if (storage) {
+      await this.saveCheckpoint(SCHEMAS_COLLECTION, storage);
+    }
+  }
+
+  /**
    * List all active collections
    * @returns {Array<string>} Array of collection names
    */
@@ -255,7 +303,6 @@ export class SQLiteManager {
     const existing = this.getSchema(collectionName);
     const existingNames = new Set(existing.map(t => t.name));
 
-    // Drop tables that are no longer in the new schema
     for (const name of existingNames) {
       if (!newTableNames.has(name)) {
         db.run(`DROP TABLE IF EXISTS "${name}"`);
@@ -301,4 +348,11 @@ export class SQLiteManager {
     }
     return bytes;
   }
+}
+
+// Expose globally for importScripts usage in service worker
+if (typeof self !== 'undefined') {
+  self.SQLiteManager = SQLiteManager;
+  self.PACKETS_COLLECTION = PACKETS_COLLECTION;
+  self.PACKETS_SCHEMA = PACKETS_SCHEMA;
 }
