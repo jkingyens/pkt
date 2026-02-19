@@ -7,7 +7,8 @@
         "storage",
         "sidePanel",
         "tabs",
-        "tabGroups"
+        "tabGroups",
+        "bookmarks"
     ],
     "background": {
         "service_worker": "background/service-worker.js"

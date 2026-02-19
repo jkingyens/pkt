@@ -10,6 +10,26 @@ let sqliteManager = null;
 let SQL = null;
 let initialized = false; // track full initialization including restore
 
+// Bookmarks cache for synchronous access from WASM
+let bookmarkCache = null;
+
+async function syncBookmarkCache() {
+    try {
+        bookmarkCache = await chrome.bookmarks.getTree();
+        console.log('[BookmarksCache] Synced', bookmarkCache.length, 'root nodes:', JSON.stringify(bookmarkCache).substring(0, 100) + '...');
+    } catch (e) {
+        console.error('[BookmarksCache] Sync failed:', e);
+    }
+}
+
+// Keep cache in sync
+chrome.bookmarks.onCreated.addListener(syncBookmarkCache);
+chrome.bookmarks.onRemoved.addListener(syncBookmarkCache);
+chrome.bookmarks.onChanged.addListener(syncBookmarkCache);
+chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
+chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
+chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
+
 // Initialize SQL.js and auto-restore all checkpoints
 async function initializeSQLite() {
     if (initialized) return sqliteManager;
@@ -30,6 +50,9 @@ async function initializeSQLite() {
         await sqliteManager.ensurePacketsCollection(chrome.storage.local);
         await sqliteManager.ensureSchemasCollection(chrome.storage.local);
         await sqliteManager.ensureWitsCollection(chrome.storage.local);
+
+        // Also sync bookmarks cache
+        await syncBookmarkCache();
     } catch (error) {
         console.error('Failed to auto-restore checkpoints:', error);
     }
@@ -66,7 +89,6 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'importFromBlob': {
-                // data arrives as a plain Array (ArrayBuffer can't survive sendMessage serialization)
                 const importData = new Uint8Array(request.data).buffer;
                 await sqliteManager.importFromBlob(request.name, importData);
                 await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
@@ -138,15 +160,11 @@ async function handleMessage(request, sender, sendResponse) {
                         break;
                     }
 
-                    // Filter for link items only
                     const links = items.filter(item => {
-                        // Backward compatibility: string items are links
                         if (typeof item === 'string') return true;
-                        // New format: check type
                         return item.type === 'link';
                     }).map(item => typeof item === 'string' ? item : item.url);
 
-                    // Create tabs (only for links)
                     const tabIds = [];
                     for (const url of links) {
                         const tab = await chrome.tabs.create({ url, active: false });
@@ -154,31 +172,18 @@ async function handleMessage(request, sender, sendResponse) {
                     }
 
                     if (tabIds.length === 0) {
-                        // If packet only has WASM items, we still want to show it as active?
-                        // Actually, without tabs, we can't make a tab group. 
-                        // User might want to just access the WASM functions.
-                        // For now, if no tabs, just return success (sidebar will show details).
-                        // But wait, active detection relies on tab group ID. 
-                        // If no group, we can't track it as 'active'.
-                        // Let's create a placeholder tab? No, that's annoying.
-                        // Let's just create an 'about:blank' tab if only WASM items exist, or just fail to group.
-                        // Decision: If no links, open a single 'about:blank' to hold the group.
                         const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
                         tabIds.push(tab.id);
                     }
 
-                    // Group them
                     const groupId = await chrome.tabs.group({ tabIds });
                     await chrome.tabGroups.update(groupId, { title: name, color: 'blue' });
 
-                    // Store groupId → packetRowId mapping in session storage
                     const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
                     activeGroups[groupId] = request.id;
                     await chrome.storage.session.set({ activeGroups });
 
-                    // Focus the first tab
                     await chrome.tabs.update(tabIds[0], { active: true });
-
                     sendResponse({ success: true, groupId });
                 } catch (error) {
                     console.error('Failed to play packet:', error);
@@ -200,7 +205,6 @@ async function handleMessage(request, sender, sendResponse) {
                     const db = sqliteManager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
                     const urlsJson = JSON.stringify(request.urls);
-                    // Use escaped string literals — sql.js parameterized run() can be unreliable
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
                     db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
@@ -285,7 +289,6 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'getActivePacket': {
-                // Called by sidebar on init to check if already inside a packet group
                 try {
                     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                     if (!tab || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
@@ -306,10 +309,8 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'openTabInGroup': {
-                // Open or focus a URL inside the given tab group
                 try {
                     const { url, groupId, packetId } = request;
-
                     let targetGroupId = groupId;
                     let groupExists = false;
                     try {
@@ -317,10 +318,9 @@ async function handleMessage(request, sender, sendResponse) {
                             await chrome.tabGroups.get(targetGroupId);
                             groupExists = true;
                         }
-                    } catch (e) { /* group doesn't exist */ }
+                    } catch (e) { }
 
                     if (groupExists) {
-                        // Check if a tab with this URL already exists in the group
                         const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
                         const existing = tabsInGroup.find(t => t.url === url || t.pendingUrl === url);
                         if (existing) {
@@ -331,11 +331,8 @@ async function handleMessage(request, sender, sendResponse) {
                         }
                         sendResponse({ success: true });
                     } else {
-                        // Group doesn't exist -> Resurrection
                         const newTab = await chrome.tabs.create({ url, active: true });
                         targetGroupId = await chrome.tabs.group({ tabIds: [newTab.id] });
-
-                        // Attempt to get packet name
                         let packetName = 'Packet';
                         if (packetId) {
                             try {
@@ -346,18 +343,14 @@ async function handleMessage(request, sender, sendResponse) {
                                         packetName = result[0].values[0][0];
                                     }
                                 }
-                            } catch (e) { console.warn('Failed to fetch packet name for resurrection:', e); }
+                            } catch (e) { }
                         }
-
                         await chrome.tabGroups.update(targetGroupId, { title: packetName, color: 'blue' });
-
-                        // Update session storage
                         if (packetId) {
                             const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
                             activeGroups[targetGroupId] = packetId;
                             await chrome.storage.session.set({ activeGroups });
                         }
-
                         sendResponse({ success: true, newGroupId: targetGroupId });
                     }
                 } catch (err) {
@@ -367,46 +360,170 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'runWasmPacketItem': {
                 try {
-                    const { name, data } = request.item; // data is base64 string
-                    // 1. Decode Base64 to ArrayBuffer
-                    const binaryString = atob(data);
+                    const { name, data } = request.item;
+                    let binaryString = atob(data);
+
+                    // Check for WASM magic word (0x00 0x61 0x73 0x6d)
+                    // If not found, and it looks like Base64 (starts with "AGFz"), try decoding again.
+                    // This handles cases where user provides Base64-encoded text as a file.
+                    if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
+                        try {
+                            binaryString = atob(binaryString);
+                        } catch (e) { /* fallback to original if not valid b64 */ }
+                    }
+
+
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
 
-                    // 2. Instantiate WASM
-                    // We use minimal imports for now. 
-                    // Use 'console' for logging if needed.
+                    class WasmRuntime {
+                        constructor() {
+                            this.instance = null;
+                            this.memory = null;
+                        }
+                        setInstance(instance) {
+                            this.instance = instance;
+                            this.memory = instance.exports.memory;
+                        }
+                        getView() {
+                            // Always create a fresh DataView on the latest buffer
+                            return new DataView(this.memory.buffer);
+                        }
+                        readString(ptr, len) {
+                            const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+                            return new TextDecoder().decode(bytes);
+                        }
+                        alloc(size, align) {
+                            if (!this.instance.exports.cabi_realloc) {
+                                throw new Error("WASM module missing 'cabi_realloc' export");
+                            }
+                            return this.instance.exports.cabi_realloc(0, 0, align, size);
+                        }
+                        writeString(str) {
+                            const bytes = new TextEncoder().encode(str);
+                            const ptr = this.alloc(bytes.length, 1);
+                            const dest = new Uint8Array(this.memory.buffer, ptr, bytes.length);
+                            dest.set(bytes);
+                            return { ptr, len: bytes.length };
+                        }
+                        encodeBookmarkNode(node) {
+                            const ptr = this.alloc(52, 4);
+
+                            const idStr = this.writeString(node.id);
+                            let view = this.getView();
+                            view.setUint32(ptr + 0, idStr.ptr, true);
+                            view.setUint32(ptr + 4, idStr.len, true);
+
+                            if (node.parentId) {
+                                const pIdStr = this.writeString(node.parentId);
+                                view = this.getView();
+                                view.setUint32(ptr + 8, 1, true);
+                                view.setUint32(ptr + 12, pIdStr.ptr, true);
+                                view.setUint32(ptr + 16, pIdStr.len, true);
+                            } else {
+                                this.getView().setUint32(ptr + 8, 0, true);
+                            }
+
+                            const titleStr = this.writeString(node.title || '');
+                            view = this.getView();
+                            view.setUint32(ptr + 20, titleStr.ptr, true);
+                            view.setUint32(ptr + 24, titleStr.len, true);
+
+                            if (node.url) {
+                                const urlStr = this.writeString(node.url);
+                                view = this.getView();
+                                view.setUint32(ptr + 28, 1, true);
+                                view.setUint32(ptr + 32, urlStr.ptr, true);
+                                view.setUint32(ptr + 36, urlStr.len, true);
+                            } else {
+                                this.getView().setUint32(ptr + 28, 0, true);
+                            }
+
+                            if (node.children && node.children.length > 0) {
+                                const childPtrs = node.children.map(c => this.encodeBookmarkNode(c));
+                                const listPtr = this.alloc(childPtrs.length * 4, 4);
+                                view = this.getView();
+                                try {
+                                    const listBytes = new Uint32Array(this.memory.buffer, listPtr, childPtrs.length);
+                                    listBytes.set(childPtrs);
+                                } catch (e) {
+                                    console.error(`[Runtime] Failed to create listBytes: ptr=${listPtr}, len=${childPtrs.length}, bufLen=${this.memory.buffer.byteLength}`);
+                                    throw e;
+                                }
+                                view.setUint32(ptr + 40, 1, true);
+                                view.setUint32(ptr + 44, listPtr, true);
+                                view.setUint32(ptr + 48, node.children.length, true);
+                            } else {
+                                this.getView().setUint32(ptr + 40, 0, true);
+                            }
+                            return ptr;
+                        }
+                        encodeBookmarkList(nodes) {
+                            const ptrs = nodes.map(n => this.encodeBookmarkNode(n));
+                            const listPtr = this.alloc(ptrs.length * 4, 4);
+                            console.log(`[Runtime] encodeBookmarkList: ptrs=${ptrs.length}, listPtr=${listPtr}, bufLen=${this.memory.buffer.byteLength}`);
+                            const listBytes = new Uint32Array(this.memory.buffer, listPtr, ptrs.length);
+                            listBytes.set(ptrs);
+                            return { ptr: listPtr, len: ptrs.length };
+                        }
+                    }
+
+                    const runtime = new WasmRuntime();
+
                     const importObject = {
                         env: {
-                            log: (arg) => console.log('WASM Log:', arg)
+                            log: (ptr, len) => console.log('WASM Log:', runtime.readString(ptr, len))
                         },
-                        console: {
-                            log: (arg) => console.log(arg)
+                        "chrome:bookmarks/bookmarks": {
+                            "get-tree": () => {
+                                console.log('[Host] get-tree called');
+                                try {
+                                    if (!bookmarkCache) throw new Error("Cache not ready");
+                                    const encoded = runtime.encodeBookmarkList(bookmarkCache);
+                                    const resultPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(resultPtr, 0, true);
+                                    view.setUint32(resultPtr + 4, encoded.ptr, true);
+                                    view.setUint32(resultPtr + 8, encoded.len, true);
+                                    console.log(`[Host] get-tree success, resultPtr: ${resultPtr}, len: ${encoded.len}`);
+                                    return resultPtr;
+                                } catch (e) {
+                                    console.error('[Host] get-tree error:', e.message);
+                                    const errStr = runtime.writeString(e.message);
+                                    const resultPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(resultPtr, 1, true);
+                                    view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                    view.setUint32(resultPtr + 8, errStr.len, true);
+                                    return resultPtr;
+                                }
+                            },
+                            "create": (titlePtr, titleLen, urlPtr, urlLen) => {
+                                const errStr = runtime.writeString("Async 'create' requires JSPI.");
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
                         }
                     };
 
                     const { instance } = await WebAssembly.instantiate(bytes, importObject);
+                    runtime.setInstance(instance);
 
-                    // 3. Run main()
                     if (instance.exports.main) {
-                        try {
-                            const result = instance.exports.main();
-                            console.log(`WASM '${name}' main() result:`, result);
-
-                            // Send result back to sidebar (or notification)
-                            // Since this is a message handler, we can just return the result
-                            sendResponse({ success: true, result });
-                        } catch (execErr) {
-                            sendResponse({ success: false, error: `Execution failed: ${execErr.message}` });
-                        }
+                        const result = instance.exports.main();
+                        sendResponse({ success: true, result });
                     } else {
-                        sendResponse({ success: false, error: "Module does not export 'main' function" });
+                        sendResponse({ success: false, error: "No main export" });
                     }
                 } catch (err) {
-                    console.error('WASM execution failed:', err);
-                    sendResponse({ success: false, error: `Load failed: ${err.message}` });
+                    console.error('WASM error:', err);
+                    sendResponse({ success: false, error: err.message });
                 }
                 break;
             }
@@ -419,9 +536,6 @@ async function handleMessage(request, sender, sendResponse) {
     }
 }
 
-// ─── Tab activation listener ────────────────────────────────────────────────
-// When user switches to a tab, check if it's in a known packet group.
-// If so, push a packetFocused event to the sidebar.
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
         const tab = await chrome.tabs.get(tabId);
@@ -436,12 +550,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         if (!result.length || !result[0].values.length) return;
         const [id, name, urlsJson] = result[0].values[0];
         const packet = { id, name, urls: JSON.parse(urlsJson), groupId };
-        // Broadcast to all extension contexts (sidebar)
         chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
-    } catch (e) { /* tab may have been closed */ }
+    } catch (e) { }
 });
 
-// When a tab group is removed, clean up our activeGroups mapping.
 chrome.tabGroups.onRemoved.addListener(async (group) => {
     try {
         const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
@@ -452,10 +564,8 @@ chrome.tabGroups.onRemoved.addListener(async (group) => {
     } catch (e) { }
 });
 
-// Kick off initialization eagerly on service worker startup
 initializeSQLite().then(() => {
     console.log('SQLite Manager initialized');
 }).catch(error => {
     console.error('Failed to initialize SQLite:', error);
 });
-
