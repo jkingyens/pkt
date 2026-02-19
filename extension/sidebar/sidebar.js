@@ -174,6 +174,10 @@ class SidebarUI {
         this.listView = document.getElementById('listView');
         this.detailView = document.getElementById('detailView');
         this.constructorView = document.getElementById('constructorView');
+        this.listView = document.getElementById('listView');
+        this.detailView = document.getElementById('detailView');
+        this.packetDetailView = document.getElementById('packetDetailView');
+        this.constructorView = document.getElementById('constructorView');
         this.schemaConstructorView = document.getElementById('schemaConstructorView');
 
         // List view elements
@@ -204,16 +208,58 @@ class SidebarUI {
 
         // Modal elements
         this.schemaModal = document.getElementById('schemaModal');
-        this.schemaTextarea = document.getElementById('schemaTextarea');
+        // Packet detail view elements
+        this.packetDetailTitle = document.getElementById('packetDetailTitle');
+        this.packetLinkList = document.getElementById('packetLinkList');
+        this.packetDetailCount = document.getElementById('packetDetailCount');
 
         // State
         this.currentCollection = null;
         this.currentSchema = [];
-        this.constructorItems = []; // { title, url }
+        // State
+        this.currentCollection = null;
+        this.currentSchema = [];
+        this.constructorItems = []; // Array of { type: 'link'|'wasm', ... }
+        this.activePacketGroupId = null;
+        this.dragSrcIndex = null;
+        this.activePacketGroupId = null;
         this.dragSrcIndex = null;
 
         this.setupEventListeners();
+        this.setupMessageListener();
         this.loadCollections();
+        this.checkActivePacket(); // check if we opened inside a packet group
+    }
+
+    setupMessageListener() {
+        chrome.runtime.onMessage.addListener((message) => {
+            if (message.type === 'packetFocused') {
+                this.showPacketDetailView(message.packet);
+            }
+        });
+    }
+
+    async checkActivePacket() {
+        try {
+            const resp = await this.sendMessage({ action: 'getActivePacket' });
+            if (resp.success && resp.packet) {
+                // Ensure the packet object includes the groupId from the response context (or we might need to get it specially)
+                // The service worker getActivePacket returns { id, name, urls } but not groupId. 
+                // Wait, I see I handled getActivePacket in SW to just return packet details. 
+                // I need the groupId to support opening tabs in it.
+                // Re-reading SW: getActivePacket returns { id, name, urls }. It usually finds it via tab.groupId. 
+                // I should probably fetch the current tab's groupId here or update SW.
+                // Actually the SW `getActivePacket` finds the group ID active tab is in. 
+                // Let's assume the user is in that group. I'll get the current tab here to be sure.
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (tab && tab.groupId !== -1) {
+                    resp.packet.groupId = tab.groupId;
+                    this.showPacketDetailView(resp.packet);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to check active packet:', e);
+        }
     }
 
     setupEventListeners() {
@@ -226,11 +272,21 @@ class SidebarUI {
         document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
         document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
         document.getElementById('detailSaveBtn').addEventListener('click', () => this.saveCheckpoint(this.currentCollection));
+        // Detail view
+        document.getElementById('backBtn').addEventListener('click', () => this.showListView());
+        document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
+        document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
+        document.getElementById('detailSaveBtn').addEventListener('click', () => this.saveCheckpoint(this.currentCollection));
         document.getElementById('detailDeleteBtn').addEventListener('click', () => this.deleteCollection(this.currentCollection));
+
+        // Packet detail view
+        document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.showDetailView('packets'));
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
         document.getElementById('addCurrentTabBtn').addEventListener('click', () => this.addCurrentTab());
+        document.getElementById('addWasmBtn').addEventListener('click', () => document.getElementById('wasmFileInput').click());
+        document.getElementById('wasmFileInput').addEventListener('change', (e) => this.handleWasmFileSelect(e));
         document.getElementById('savePacketBtn').addEventListener('click', () => this.savePacket());
         document.getElementById('discardPacketBtn').addEventListener('click', () => this.discardPacket());
 
@@ -274,21 +330,116 @@ class SidebarUI {
 
     // ===== NAVIGATION =====
 
-    showListView() {
+    hideAllViews() {
+        this.listView.classList.remove('active');
         this.detailView.classList.remove('active');
+        this.packetDetailView.classList.remove('active');
+        this.constructorView.classList.remove('active');
+        this.schemaConstructorView.classList.remove('active');
+    }
+
+    showListView() {
+        this.hideAllViews();
         this.listView.classList.add('active');
         this.currentCollection = null;
         this.loadCollections();
     }
 
     showDetailView(collectionName) {
+        this.hideAllViews();
         this.currentCollection = collectionName;
         this.detailTitle.textContent = collectionName;
-        this.listView.classList.remove('active');
-        this.constructorView.classList.remove('active');
-        this.schemaConstructorView.classList.remove('active');
         this.detailView.classList.add('active');
         this.loadCollectionDetail(collectionName);
+    }
+
+    showPacketDetailView(packet) {
+        this.activePacketGroupId = packet.groupId;
+        this.packetDetailTitle.textContent = packet.name;
+        this.packetDetailCount.textContent = packet.urls.length;
+
+        // Render card link list
+        this.packetLinkList.innerHTML = '';
+        if (packet.urls.length === 0) {
+            this.packetLinkList.innerHTML = '<p class="hint">No items in this packet.</p>';
+        } else {
+            // packet.urls is now 'items' (mixed array). Keep variable name 'url'/packet.urls for compatibility but treat as items.
+            packet.urls.forEach(item => {
+                // Normalize item
+                let type = 'link';
+                let content = item;
+                if (typeof item === 'object') {
+                    type = item.type || 'link';
+                    content = item.url || item.data; // url for link, data for wasm
+                }
+
+                if (type === 'link') {
+                    const url = typeof item === 'string' ? item : item.url;
+                    const card = document.createElement('div');
+                    card.className = 'packet-link-card';
+                    card.draggable = false;
+
+                    let hostname;
+                    try {
+                        hostname = new URL(url).hostname;
+                    } catch (e) { hostname = 'Unknown'; }
+
+                    const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+
+                    card.innerHTML = `
+                        <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
+                        <div class="packet-link-info">
+                            <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
+                            <div class="packet-link-url">${this.escapeHtml(url)}</div>
+                        </div>
+                    `;
+
+                    card.addEventListener('click', () => {
+                        this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId });
+                    });
+
+                    this.packetLinkList.appendChild(card);
+                } else if (type === 'wasm') {
+                    const card = document.createElement('div');
+                    card.className = 'packet-link-card wasm';
+                    card.draggable = false;
+                    card.title = 'Click to run main()';
+
+                    card.innerHTML = `
+                        <span style="font-size:16px;">🧩</span>
+                        <div class="packet-link-info">
+                            <div class="packet-link-hostname">WASM Module</div>
+                            <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
+                        </div>
+                        <span class="packet-link-arrow">▶</span>
+                    `;
+
+                    card.addEventListener('click', async () => {
+                        const originalHtml = card.innerHTML;
+                        card.style.opacity = '0.7';
+                        try {
+                            const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
+                            if (resp.success) {
+                                this.showNotification(`WASM Result: ${resp.result}`, 'success');
+                                console.log('WASM Result:', resp.result);
+                            } else {
+                                this.showNotification('WASM Execution Failed: ' + resp.error, 'error');
+                            }
+                        } catch (e) {
+                            this.showNotification('WASM Execution Error', 'error');
+                        } finally {
+                            card.style.opacity = '1';
+                        }
+                    });
+
+                    this.packetLinkList.appendChild(card);
+                }
+            });
+        }
+
+        // Switch view
+        this.hideAllViews();
+        this.packetDetailView.classList.add('active');
     }
 
     showConstructorView() {
@@ -299,8 +450,7 @@ class SidebarUI {
         saveBtn.disabled = false;
         saveBtn.textContent = '💾 Save Packet';
         this.renderConstructorItems();
-        this.detailView.classList.remove('active');
-        this.listView.classList.remove('active');
+        this.hideAllViews();
         this.constructorView.classList.add('active');
     }
 
@@ -310,9 +460,7 @@ class SidebarUI {
         const saveBtn = document.getElementById('saveSchemaRepoBtn');
         saveBtn.disabled = false;
         saveBtn.textContent = '💾 Save Schema';
-        this.detailView.classList.remove('active');
-        this.listView.classList.remove('active');
-        this.constructorView.classList.remove('active');
+        this.hideAllViews();
         this.schemaConstructorView.classList.add('active');
         this.schemaRepoNameInput.focus();
     }
@@ -540,10 +688,10 @@ class SidebarUI {
                 }
 
                 const html = rows.map(([rowid, name, urlsJson, created]) => {
-                    let urlCount = 0;
+                    let itemCount = 0;
                     try {
-                        const urls = JSON.parse(urlsJson);
-                        urlCount = urls.length;
+                        const items = JSON.parse(urlsJson);
+                        itemCount = items.length;
                     } catch (e) { }
 
                     const time = new Date(created).toLocaleString();
@@ -551,7 +699,7 @@ class SidebarUI {
                     return `
                     <div class="packet-card">
                         <div class="packet-info">
-                            <span class="packet-name">${this.escapeHtml(name)} <span class="packet-url-count">${urlCount} URLs</span></span>
+                            <span class="packet-name">${this.escapeHtml(name)} <span class="packet-url-count">${itemCount} Items</span></span>
                             <span class="packet-meta">Created ${time}</span>
                         </div>
                         <div class="packet-card-actions">
@@ -794,17 +942,42 @@ class SidebarUI {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
             const { title, url } = resp.tab;
-            // Avoid duplicates
-            if (this.constructorItems.some(item => item.url === url)) {
+            // Avoid duplicates (checking URLs only)
+            if (this.constructorItems.some(item => item.type === 'link' && item.url === url)) {
                 this.showNotification('Tab already added', 'error');
                 return;
             }
-            this.constructorItems.push({ title: title || url, url });
+            this.constructorItems.push({ type: 'link', title: title || url, url });
             this.renderConstructorItems();
         } catch (err) {
             console.error('addCurrentTab failed:', err);
             this.showNotification('Could not get current tab', 'error');
         }
+    }
+
+    async handleWasmFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const binaryString = new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '');
+            const base64 = btoa(binaryString);
+
+            this.constructorItems.push({
+                type: 'wasm',
+                name: file.name,
+                data: base64
+            });
+            this.renderConstructorItems();
+            this.showNotification(`Added ${file.name}`, 'success');
+        } catch (err) {
+            console.error('Failed to read WASM file:', err);
+            this.showNotification('Failed to read WASM file', 'error');
+        }
+
+        // Reset input so same file can be selected again if removed
+        event.target.value = '';
     }
 
     renderConstructorItems() {
@@ -819,13 +992,32 @@ class SidebarUI {
             card.className = 'constructor-card';
             card.draggable = true;
             card.dataset.index = index;
-            card.innerHTML = `
-                <span class="drag-handle" title="Drag to reorder">⠿</span>
-                <div class="constructor-card-info">
-                    <div class="constructor-card-title">${this.escapeHtml(item.title)}</div>
-                    <div class="constructor-card-url">${this.escapeHtml(item.url)}</div>
-                </div>
-                <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
+
+            if (item.type === 'wasm') {
+                card.classList.add('wasm');
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <div class="constructor-card-info">
+                        <div class="constructor-card-title">
+                            <span class="type-badge wasm">WASM</span>
+                            ${this.escapeHtml(item.name)}
+                        </div>
+                        <div class="constructor-card-url" style="color:var(--text-muted);">Binary Module</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
+            } else {
+                // Link
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <div class="constructor-card-info">
+                        <div class="constructor-card-title">
+                            <span class="type-badge web">WEB</span>
+                            ${this.escapeHtml(item.title)}
+                        </div>
+                        <div class="constructor-card-url">${this.escapeHtml(item.url)}</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
+            }
 
             // Drag events
             card.addEventListener('dragstart', (e) => {
@@ -865,17 +1057,19 @@ class SidebarUI {
 
     async savePacket() {
         if (this.constructorItems.length === 0) {
-            this.showNotification('Add at least one tab first', 'error');
+            this.showNotification('Add at least one item first', 'error');
             return;
         }
         const name = window.prompt('Name this packet:');
         if (!name || !name.trim()) return; // user cancelled or left blank
-        const urls = this.constructorItems.map(item => item.url);
+
+        // Pass the whole items array (urls field in name only now)
+        const items = this.constructorItems;
         try {
             const saveBtn = document.getElementById('savePacketBtn');
             saveBtn.disabled = true;
             saveBtn.textContent = '⏳ Saving…';
-            const resp = await this.sendMessage({ action: 'savePacket', name: name.trim(), urls });
+            const resp = await this.sendMessage({ action: 'savePacket', name: name.trim(), urls: items });
             if (!resp || !resp.success) {
                 throw new Error(resp?.error || 'Save failed');
             }

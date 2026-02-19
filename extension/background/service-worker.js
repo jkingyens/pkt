@@ -130,28 +130,55 @@ async function handleMessage(request, sender, sendResponse) {
                     }
 
                     const [name, urlsJson] = result[0].values[0];
-                    const urls = JSON.parse(urlsJson);
+                    const items = JSON.parse(urlsJson);
 
-                    if (!urls.length) {
-                        sendResponse({ success: true, message: 'No URLs in packet' });
+                    if (!items.length) {
+                        sendResponse({ success: true, message: 'No items in packet' });
                         break;
                     }
 
-                    // Create tabs
+                    // Filter for link items only
+                    const links = items.filter(item => {
+                        // Backward compatibility: string items are links
+                        if (typeof item === 'string') return true;
+                        // New format: check type
+                        return item.type === 'link';
+                    }).map(item => typeof item === 'string' ? item : item.url);
+
+                    // Create tabs (only for links)
                     const tabIds = [];
-                    for (const url of urls) {
+                    for (const url of links) {
                         const tab = await chrome.tabs.create({ url, active: false });
+                        tabIds.push(tab.id);
+                    }
+
+                    if (tabIds.length === 0) {
+                        // If packet only has WASM items, we still want to show it as active?
+                        // Actually, without tabs, we can't make a tab group. 
+                        // User might want to just access the WASM functions.
+                        // For now, if no tabs, just return success (sidebar will show details).
+                        // But wait, active detection relies on tab group ID. 
+                        // If no group, we can't track it as 'active'.
+                        // Let's create a placeholder tab? No, that's annoying.
+                        // Let's just create an 'about:blank' tab if only WASM items exist, or just fail to group.
+                        // Decision: If no links, open a single 'about:blank' to hold the group.
+                        const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
                         tabIds.push(tab.id);
                     }
 
                     // Group them
                     const groupId = await chrome.tabs.group({ tabIds });
-                    await chrome.tabGroups.update(groupId, { title: name });
+                    await chrome.tabGroups.update(groupId, { title: name, color: 'blue' });
+
+                    // Store groupId → packetRowId mapping in session storage
+                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                    activeGroups[groupId] = request.id;
+                    await chrome.storage.session.set({ activeGroups });
 
                     // Focus the first tab
                     await chrome.tabs.update(tabIds[0], { active: true });
 
-                    sendResponse({ success: true });
+                    sendResponse({ success: true, groupId });
                 } catch (error) {
                     console.error('Failed to play packet:', error);
                     sendResponse({ success: false, error: error.message });
@@ -240,6 +267,107 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'getPacketByGroupId': {
+                try {
+                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                    const packetId = activeGroups[request.groupId];
+                    if (!packetId) { sendResponse({ success: true, packet: null }); break; }
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
+                    const [id, name, urlsJson] = result[0].values[0];
+                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'getActivePacket': {
+                // Called by sidebar on init to check if already inside a packet group
+                try {
+                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                    if (!tab || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                        sendResponse({ success: true, packet: null }); break;
+                    }
+                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                    const packetId = activeGroups[tab.groupId];
+                    if (!packetId) { sendResponse({ success: true, packet: null }); break; }
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
+                    const [id, name, urlsJson] = result[0].values[0];
+                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'openTabInGroup': {
+                // Open or focus a URL inside the given tab group
+                try {
+                    const { url, groupId } = request;
+                    // Check if a tab with this URL already exists in the group
+                    const tabsInGroup = await chrome.tabs.query({ groupId });
+                    const existing = tabsInGroup.find(t => t.url === url || t.pendingUrl === url);
+                    if (existing) {
+                        await chrome.tabs.update(existing.id, { active: true });
+                    } else {
+                        const newTab = await chrome.tabs.create({ url, active: true });
+                        await chrome.tabs.group({ tabIds: [newTab.id], groupId });
+                    }
+                    sendResponse({ success: true });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'runWasmPacketItem': {
+                try {
+                    const { name, data } = request.item; // data is base64 string
+                    // 1. Decode Base64 to ArrayBuffer
+                    const binaryString = atob(data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // 2. Instantiate WASM
+                    // We use minimal imports for now. 
+                    // Use 'console' for logging if needed.
+                    const importObject = {
+                        env: {
+                            log: (arg) => console.log('WASM Log:', arg)
+                        },
+                        console: {
+                            log: (arg) => console.log(arg)
+                        }
+                    };
+
+                    const { instance } = await WebAssembly.instantiate(bytes, importObject);
+
+                    // 3. Run main()
+                    if (instance.exports.main) {
+                        try {
+                            const result = instance.exports.main();
+                            console.log(`WASM '${name}' main() result:`, result);
+
+                            // Send result back to sidebar (or notification)
+                            // Since this is a message handler, we can just return the result
+                            sendResponse({ success: true, result });
+                        } catch (execErr) {
+                            sendResponse({ success: false, error: `Execution failed: ${execErr.message}` });
+                        }
+                    } else {
+                        sendResponse({ success: false, error: "Module does not export 'main' function" });
+                    }
+                } catch (err) {
+                    console.error('WASM execution failed:', err);
+                    sendResponse({ success: false, error: `Load failed: ${err.message}` });
+                }
+                break;
+            }
             default:
                 sendResponse({ success: false, error: 'Unknown action' });
         }
@@ -248,6 +376,39 @@ async function handleMessage(request, sender, sendResponse) {
         sendResponse({ success: false, error: error.message });
     }
 }
+
+// ─── Tab activation listener ────────────────────────────────────────────────
+// When user switches to a tab, check if it's in a known packet group.
+// If so, push a packetFocused event to the sidebar.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+    try {
+        const tab = await chrome.tabs.get(tabId);
+        const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+        const groupId = tab.groupId;
+        if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) return;
+        const packetId = activeGroups[groupId];
+        await initializeSQLite();
+        const db = sqliteManager.getDatabase('packets');
+        if (!db) return;
+        const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+        if (!result.length || !result[0].values.length) return;
+        const [id, name, urlsJson] = result[0].values[0];
+        const packet = { id, name, urls: JSON.parse(urlsJson), groupId };
+        // Broadcast to all extension contexts (sidebar)
+        chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
+    } catch (e) { /* tab may have been closed */ }
+});
+
+// When a tab group is removed, clean up our activeGroups mapping.
+chrome.tabGroups.onRemoved.addListener(async (group) => {
+    try {
+        const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+        if (activeGroups[group.id]) {
+            delete activeGroups[group.id];
+            await chrome.storage.session.set({ activeGroups });
+        }
+    } catch (e) { }
+});
 
 // Kick off initialization eagerly on service worker startup
 initializeSQLite().then(() => {

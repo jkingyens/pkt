@@ -72,6 +72,23 @@
     </section>
   </div>
 
+  <!-- ===== PACKET DETAIL VIEW (active tab group) ===== -->
+  <div id="packetDetailView" class="view">
+    <header class="detail-header">
+      <button id="packetDetailBackBtn" class="back-btn">← Packets</button>
+      <h2 id="packetDetailTitle" class="detail-title"></h2>
+    </header>
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>🔗 Links</h3>
+        <span id="packetDetailCount" class="badge">0</span>
+      </div>
+      <div id="packetLinkList" class="packet-link-list">
+        <p class="hint">No links in this packet.</p>
+      </div>
+    </section>
+  </div>
+
   <!-- ===== CONSTRUCTOR VIEW ===== -->
   <div id="constructorView" class="view">
     <header class="detail-header">
@@ -80,11 +97,11 @@
     </header>
 
     <div class="constructor-body">
-
-      <button id="addCurrentTabBtn" class="btn btn-primary add-tab-btn">
-        <span>➕</span> Add Current Tab
-      </button>
-
+      <div class="constructor-actions">
+        <button id="addCurrentTabBtn" class="btn btn-secondary">＋ Add Current Tab</button>
+        <button id="addWasmBtn" class="btn btn-secondary">＋ Add WASM</button>
+        <input type="file" id="wasmFileInput" accept=".wasm" style="display: none;">
+      </div>
       <div id="constructorList" class="constructor-list">
         <p class="hint constructor-empty">No tabs added yet. Click "Add Current Tab" to start.</p>
       </div>
