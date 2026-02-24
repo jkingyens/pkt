@@ -3,16 +3,47 @@
   --primary-hover: #4338ca;
   --secondary: #64748b;
   --bg: #f8fafc;
+  --bg-alt: #f1f5f9;
   --surface: #ffffff;
+  --surface-2: #fcfdfe;
+  --surface-hover: #f1f5f9;
   --border: #e2e8f0;
   --text: #1e293b;
   --text-muted: #64748b;
   --success: #10b981;
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --info-bg: #eef2ff;
+  --error-bg: #fee2e2;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.15);
   --radius: 10px;
+}
+
+body.dark-mode {
+  --bg: #0f172a;
+  --bg-alt: #1e293b;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --surface-hover: #334155;
+  --border: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --primary: #818cf8;
+  /* Lighter indigo for better contrast in dark mode */
+  --primary-hover: #a5b4fc;
+  --info-bg: #1e1b4b;
+  --error-bg: #450a0a;
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font-family: inherit;
 }
 
 * {
@@ -56,6 +87,7 @@ h1 {
 .subtitle {
   font-size: 13px;
   color: var(--text-muted);
+  opacity: 0.9;
 }
 
 /* ===== DETAIL HEADER ===== */
@@ -279,14 +311,14 @@ h1 {
 }
 
 .schema-sql {
-  background: #f1f5f9;
+  background: var(--bg-alt);
   border-radius: 6px;
   padding: 8px 10px;
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-all;
-  color: #334155;
+  color: var(--text-muted);
   border: 1px solid var(--border);
 }
 
@@ -432,7 +464,7 @@ h1 {
   border-radius: 8px;
   resize: vertical;
   outline: none;
-  background: #f8fafc;
+  background: var(--bg);
   color: var(--text);
   transition: border-color 0.15s;
 }
@@ -522,7 +554,7 @@ h1 {
 /* System collection styling (packets) */
 .system-collection {
   border-left: 3px solid var(--primary);
-  background: linear-gradient(to right, #f8fafc 0%, #ffffff 100%);
+  background: linear-gradient(to right, var(--bg) 0%, var(--surface) 100%);
 }
 
 .system-collection .collection-name[data-name="packets"]::before {
@@ -548,6 +580,7 @@ h1 {
 
 .system-collection .collection-hint {
   color: var(--primary);
+  filter: brightness(1.2);
   font-weight: 500;
 }
 
@@ -559,7 +592,7 @@ h1 {
 }
 
 .packet-card {
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
@@ -735,7 +768,7 @@ h1 {
 
 .constructor-remove-btn:hover {
   color: var(--danger);
-  background: #fee2e2;
+  background: var(--error-bg);
 }
 
 .constructor-actions {
@@ -770,7 +803,7 @@ h1 {
 
 .packet-delete-btn:hover {
   color: var(--danger);
-  background: #fee2e2;
+  background: var(--error-bg);
 }
 
 /* ===== SCHEMA CONSTRUCTOR VIEW ===== */
@@ -842,7 +875,7 @@ h1 {
 
 .schema-repo-delete-btn:hover {
   color: var(--danger);
-  background: #fee2e2;
+  background: var(--error-bg);
 }
 
 /* ===== SCHEMA PICKER MODAL ===== */
@@ -1018,7 +1051,7 @@ h1 {
 }
 
 .packet-link-card.active {
-  background: #eef2ff;
+  background: var(--info-bg);
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
 }
@@ -1196,7 +1229,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #1e293b;
+  background: var(--bg-alt);
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 12px;
@@ -1232,13 +1265,13 @@ h1 {
 .entry-data-table th {
   background: var(--bg);
   width: 100px;
-  color: var(--text-light);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
 .entry-data-table td {
   color: var(--text);
-  background: white;
+  background: var(--surface);
 }
 
 .entry-row {
@@ -1253,6 +1286,7 @@ h1 {
   color: var(--primary);
   font-weight: 600;
 }
+
 /* Packet Category Sections */
 .packet-section {
   margin-bottom: 24px;
@@ -1265,7 +1299,7 @@ h1 {
 .packet-section-header {
   font-size: 11px;
   font-weight: 700;
-  color: var(--text-light);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 12px;
@@ -1281,6 +1315,23 @@ h1 {
   padding: 1px 6px;
   border-radius: 10px;
   font-size: 10px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
 .packet-section-empty {

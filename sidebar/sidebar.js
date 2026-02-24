@@ -286,6 +286,7 @@ class SidebarUI {
         this.saveSettingsBtn = document.getElementById('saveSettingsBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
+        this.themeSelect = document.getElementById('themeSelect');
 
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
@@ -363,6 +364,7 @@ class SidebarUI {
         this.geminiApiKey = '';
         this.geminiModel = '';
         this.geminiSystemPrompt = '';
+        this.theme = 'light';
         this.activeUrl = null;
 
         this.setupEventListeners();
@@ -414,6 +416,10 @@ class SidebarUI {
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
         this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
+        this.themeSelect.addEventListener('change', () => {
+            this.theme = this.themeSelect.value;
+            this.applyTheme();
+        });
         this.restoreDefaultPromptBtn.addEventListener('click', () => this.restoreDefaultPrompt());
 
         // Detail view
@@ -1744,7 +1750,7 @@ class SidebarUI {
           position: fixed; top: 16px; right: 16px;
           padding: 10px 16px;
           background: ${type === 'success' ? '#10b981' : '#ef4444'};
-          color: white; border-radius: 8px;
+          color: var(--text); border-radius: 8px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           z-index: 1000; font-size: 13px;
           animation: slideIn 0.25s ease-out;
@@ -1761,6 +1767,7 @@ class SidebarUI {
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.settingsView.classList.add('active');
+        this.themeSelect.value = this.theme;
         this.renderModelSelect();
     }
 
@@ -1784,14 +1791,18 @@ class SidebarUI {
         const apiKey = this.geminiApiKeyInput.value.trim();
         const model = this.geminiModelSelect.value;
         const systemPrompt = this.geminiSystemPromptInput.value.trim();
+        const theme = this.themeSelect.value;
         this.geminiApiKey = apiKey;
         this.geminiModel = model;
         this.geminiSystemPrompt = systemPrompt;
+        this.theme = theme;
         await chrome.storage.local.set({
             geminiApiKey: apiKey,
             geminiModel: model,
-            geminiSystemPrompt: systemPrompt
+            geminiSystemPrompt: systemPrompt,
+            theme: theme
         });
+        this.applyTheme();
         this.checkAiFeatureAvailability();
         this.showListView();
     }
@@ -1803,18 +1814,29 @@ class SidebarUI {
     }
 
     async loadSettings() {
-        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt']);
+        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt', 'theme']);
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
         this.geminiSystemPrompt = data.geminiSystemPrompt || '';
+        this.theme = data.theme || 'light';
 
         // Populate UI
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+        this.themeSelect.value = this.theme;
         this.renderModelSelect();
         this.geminiModelSelect.value = this.geminiModel;
 
+        this.applyTheme();
         this.checkAiFeatureAvailability();
+    }
+
+    applyTheme() {
+        if (this.theme === 'dark') {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
     }
 
     async fetchAvailableModels() {
