@@ -618,6 +618,17 @@ async function handleMessage(request, sender, sendResponse) {
                                 // Basic stat for stdout/stderr
                                 view.setUint8(statPtr, 2); // character device
                                 return 0;
+                            },
+                            random_get: (buf_ptr, buf_len) => {
+                                const buffer = new Uint8Array(runtime.memory.buffer, buf_ptr, buf_len);
+                                crypto.getRandomValues(buffer);
+                                return 0;
+                            },
+                            clock_time_get: (id, precision, time_ptr) => {
+                                const view = runtime.getView();
+                                const now = BigInt(Date.now()) * 1000000n; // ns
+                                view.setBigUint64(time_ptr, now, true);
+                                return 0;
                             }
                         }
                     };

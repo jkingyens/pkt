@@ -169,6 +169,90 @@ CREATE TABLE entries (
 );`
 };
 
+const DEFAULT_SYSTEM_INSTRUCTION = `You are an expert Zig developer. 
+Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
+It will run in a host environment with these WIT interfaces available:
+{{WITS_CONTEXT}}
+
+### INSTRUCTIONS:
+1. Output ONLY the raw Zig (.zig) source code. No markdown formatting, no explanations, no HTML tags.
+2. The module MUST export a 'run' function: 'pub export fn run() i32 { ... }'
+3. The module MUST define a dummy 'main' function to satisfy WASI: 'pub fn main() void {}'
+4. You can import host functions using extern block syntax. The module name corresponds to the WIT interface.
+   Example:
+   extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
+   extern "user:sqlite/sqlite" fn execute(db: i32, sql: i32, params: i32) i32;
+
+5. Use the standard library if needed via \`const std = @import("std");\`.
+6. CRITICAL ZIG SYNTAX: When defining pointers to structs or arrays (e.g. for WIT lists or strings), you MUST use valid Zig pointer syntax like \`[*]const T\` or \`*const T\`. NEVER use \`[*const T]\` as that is invalid syntax.
+7. CRITICAL ZIG BUILTINS: You MUST use modern Zig 0.11+ builtins. 
+   - DO NOT use \`@intToPtr(T, addr)\`. Use \`@as(T, @ptrFromInt(addr))\` instead.
+   - DO NOT use \`@ptrFromInt(T, addr)\` with two arguments. \`@ptrFromInt\` takes EXACTLY ONE argument.
+   - DO NOT use \`@ptrCast(T, ptr)\` with two arguments. \`@ptrCast\` takes EXACTLY ONE argument.
+   - DO NOT use \`@intCast(T, int)\` with two arguments. \`@intCast\` takes EXACTLY ONE argument.
+   - DO NOT use \`@ptrToInt(ptr)\`. Use \`@intFromPtr(ptr)\` instead.
+8. CRITICAL ZIG TYPES: \`usize\`, \`u8\`, \`u32\`, \`bool\`, etc are primitive built-in types in Zig. DO NOT redefine them (e.g. do NOT write \`const usize = ...\`).
+9. CRITICAL EXTERN STRUCTS: An \`extern struct\` can ONLY contain extern-compatible types. If you need a union inside an \`extern struct\`, it MUST be declared as an \`extern union\`. NEVER use a plain \`union\` inside an \`extern struct\`.
+10. CRITICAL STRUCT DECLARATIONS: In Zig, structs are assigned to constants. You MUST declare them as \`const MyStruct = struct { ... };\` or \`const MyStruct = extern struct { ... };\`. NEVER use C-style declarations like \`struct MyStruct { ... }\` or \`extern struct MyStruct { ... }\`.
+11. CRITICAL CASTING: Whenever you need to cast a pointer returned by an allocator or an \`anyopaque\` pointer (like from WIT list data_ptr), DO NOT use \`@ptrCast\` or \`@intCast\`. Instead use the \`@as(T, ...)\` builtin. Example: To cast an opaque ptr to a typed ptr: \`const typed_ptr = @as(*const MyStruct, @ptrCast(opaque_ptr));\`
+12. CRITICAL ZIG POINTERS: Zig DOES NOT HAVE A \`*mut\` KEYWORD. Pointers to mutable data are written as \`*T\`. Pointers to constant data are \`*const T\`. NEVER write \`*mut T\` like in Rust!
+13. CRITICAL HOST FUNCTIONS: DO NOT invent your own signatures for host functions. If the template or instructions say \`extern "chrome:bookmarks/bookmarks" fn get_tree() i32;\`, you MUST USE IT EXACTLY AS PROVIDED. Do not add arguments to it!
+14. CRITICAL EXTERN BLOCKS: Zig DOES NOT support Rust-style \`extern "module" { fn f(); }\` blocks. You must declare EACH extern function individually like \`extern "module" fn f() void;\`.
+15. CRITICAL UNUSED VARIABLES: Zig is extremely strict about unused variables. 
+   - DO NOT discard a parameter using \`_ = param;\` if you use it anywhere else in the function. 
+   - BAD: \`_ = x; return x + 1;\` (This causes a "pointless discard" error).
+   - GOOD: \`_ = x; return 1;\` OR just \`return x + 1;\`.
+   - ONLY discard a parameter if it is TRULY NEVER used. Doing both is a fatal error.
+16. CRITICAL HOST POINTERS: Host functions return \`i32\`. To use this as a pointer address in Zig, you MUST cast it to \`usize\` first. 
+    - EXAMPLE: \`const addr = @as(usize, @intCast(get_tree())); const ptr = @as(*const Result, @ptrFromInt(addr));\`
+17. CRITICAL MEMORY ALLOCATION: The host needs to allocate memory in your WASM module to return strings and lists. You MUST export an allocation function exactly named \`cabi_realloc\`.
+    - COPY THIS CODE EXACTLY:
+    pub export fn cabi_realloc(ptr: ?*anyopaque, old_size: usize, align_val: usize, new_size: usize) ?*anyopaque {
+        _ = align_val;
+        if (new_size == 0) return null;
+        const mem = std.heap.page_allocator.alloc(u8, new_size) catch @panic("OOM");
+        if (ptr) |p| {
+            const old_ptr = @as([*]u8, @ptrCast(p));
+            const copy_len = if (old_size < new_size) old_size else new_size;
+            @memcpy(mem[0..copy_len], old_ptr[0..copy_len]);
+        }
+        return mem.ptr;
+    }
+
+18. CRITICAL COMPILER LIMITATION: Our Zig environment does NOT support the \`mod\` instruction for floating-point numbers. 
+    - AVOID using \`std.math.mod\` or the \`%\` operator with \`f32\` or \`f64\` types. 
+    - This will cause a compilation error: "TODO: Implement wasm inst: mod".
+    - Workaround: Use integer operations wherever possible.
+19. RANDOMNESS: To get truly random results, DO NOT use a hardcoded seed like \`42\`.
+    - We support the WASI \`random_get\` and \`clock_time_get\` interfaces.
+    - RECOMMENDED SEEDING:
+    var seed: u64 = 0;
+    _ = std.os.wasi.random_get(@ptrCast(&seed), 8);
+    var prng = std.rand.DefaultPrng.init(seed);
+    const rand = prng.random();
+20. STANDARD LIBRARY OUTPUT: While \`std.debug.print\` and \`std.log\` are now supported via WASI stubs, they are slower than the host \`log\` function.
+    - PREFER using the host \`log\` function for your debug messages: \`extern "env" fn log(ptr: [*]const u8, len: i32) void;\`
+    - If you must use \`std.debug.print\`, ensure you include the newline character \`\\n\` to flush the buffer correctly.
+21. COMPTIME FORMAT STRINGS: Functions like \`std.debug.print\`, \`std.fmt.allocPrint\`, and \`std.fmt.format\` require the format string to be known at compile-time (comptime).
+    - NEVER pass a runtime-known variable as the first argument to these functions. 
+    - The format string MUST be a string literal.
+    - BAD: \`std.debug.print(my_string, .{});\`
+    - GOOD: \`std.debug.print("{s}\\n", .{my_string});\` or \`std.debug.print("Count: {d}\\n", .{count});\`
+
+### EXAMPLE TEMPLATE:
+const std = @import("std");
+
+extern "env" fn log(ptr: [*]const u8, len: i32) void;
+extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
+
+pub export fn run() i32 {
+  var success: bool = true;
+  return if (success) 0 else 1;
+}
+
+pub fn main() void {}
+`;
+
 class SidebarUI {
     constructor() {
         this.listView = document.getElementById('listView');
@@ -190,6 +274,8 @@ class SidebarUI {
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
         this.saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
+        this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
 
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
@@ -262,6 +348,7 @@ class SidebarUI {
         this.dragSrcIndex = null;
         this.geminiApiKey = '';
         this.geminiModel = '';
+        this.geminiSystemPrompt = '';
 
         this.setupEventListeners();
         this.setupMessageListener();
@@ -311,6 +398,7 @@ class SidebarUI {
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
         this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
+        this.restoreDefaultPromptBtn.addEventListener('click', () => this.restoreDefaultPrompt());
 
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
@@ -510,7 +598,7 @@ class SidebarUI {
             if (this.currentWitId) {
                 sql = `UPDATE wits SET name = '${esc(name)}', wit = '${esc(wit)}' WHERE rowid = ${this.currentWitId}`;
             } else {
-                sql = `INSERT INTO wits (name, wit) VALUES ('${esc(name)}', '${esc(wit)}')`;
+                sql = `INSERT INTO wits(name, wit) VALUES('${esc(name)}', '${esc(wit)}')`;
             }
 
             const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
@@ -535,7 +623,7 @@ class SidebarUI {
         const name = this.witNameInput.value;
         if (name === 'chrome:bookmarks') return alert('Cannot delete system WIT');
 
-        if (!confirm(`Delete WIT "${name}"?`)) return;
+        if (!confirm(`Delete WIT "${name}" ? `)) return;
 
         try {
             const sql = `DELETE FROM wits WHERE rowid = ${this.currentWitId}`;
@@ -609,6 +697,7 @@ class SidebarUI {
                         <div class="packet-link-info">
                             <div class="packet-link-hostname">WASM Module</div>
                             <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
+                            ${item.prompt ? `<div class="wasm-prompt">Prompt: "${this.escapeHtml(item.prompt)}"</div>` : ''}
                         </div>
                         <span class="packet-link-arrow">▶</span>
                     `;
@@ -1512,6 +1601,7 @@ class SidebarUI {
     showSettingsView() {
         this.hideAllViews();
         this.geminiApiKeyInput.value = this.geminiApiKey;
+        this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.settingsView.classList.add('active');
         this.renderModelSelect();
     }
@@ -1535,20 +1625,30 @@ class SidebarUI {
     async saveSettings() {
         const apiKey = this.geminiApiKeyInput.value.trim();
         const model = this.geminiModelSelect.value;
+        const systemPrompt = this.geminiSystemPromptInput.value.trim();
         this.geminiApiKey = apiKey;
         this.geminiModel = model;
+        this.geminiSystemPrompt = systemPrompt;
         await chrome.storage.local.set({
             geminiApiKey: apiKey,
-            geminiModel: model
+            geminiModel: model,
+            geminiSystemPrompt: systemPrompt
         });
         this.checkAiFeatureAvailability();
         this.showListView();
     }
 
+    restoreDefaultPrompt() {
+        if (confirm('Restore default system instructions? This will overwrite your current changes.')) {
+            this.geminiSystemPromptInput.value = DEFAULT_SYSTEM_INSTRUCTION;
+        }
+    }
+
     async loadSettings() {
-        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel']);
+        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt']);
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
+        this.geminiSystemPrompt = data.geminiSystemPrompt || '';
         this.checkAiFeatureAvailability();
     }
 
@@ -1661,7 +1761,8 @@ class SidebarUI {
             this.constructorItems.push({
                 type: 'wasm',
                 name: 'ai_generated.wasm',
-                data: base64
+                data: base64,
+                prompt: prompt
             });
             this.renderConstructorItems();
 
@@ -1713,89 +1814,8 @@ class SidebarUI {
         const modelName = this.geminiModel;
         const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${this.geminiApiKey}`;
 
-        const systemInstruction = `You are an expert Zig developer. 
-Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
-It will run in a host environment with these WIT interfaces available:
-${witsContext}
-
-### INSTRUCTIONS:
-1. Output ONLY the raw Zig (.zig) source code. No markdown formatting, no explanations, no HTML tags.
-2. The module MUST export a 'run' function: 'pub export fn run() i32 { ... }'
-3. The module MUST define a dummy 'main' function to satisfy WASI: 'pub fn main() void {}'
-4. You can import host functions using extern block syntax. The module name corresponds to the WIT interface.
-   Example:
-   extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
-   extern "user:sqlite/sqlite" fn execute(db: i32, sql: i32, params: i32) i32;
-
-5. Use the standard library if needed via \`const std = @import("std");\`.
-6. CRITICAL ZIG SYNTAX: When defining pointers to structs or arrays (e.g. for WIT lists or strings), you MUST use valid Zig pointer syntax like \`[*]const T\` or \`*const T\`. NEVER use \`[*const T]\` as that is invalid syntax.
-7. CRITICAL ZIG BUILTINS: You MUST use modern Zig 0.11+ builtins. 
-   - DO NOT use \`@intToPtr(T, addr)\`. Use \`@as(T, @ptrFromInt(addr))\` instead.
-   - DO NOT use \`@ptrFromInt(T, addr)\` with two arguments. \`@ptrFromInt\` takes EXACTLY ONE argument.
-   - DO NOT use \`@ptrCast(T, ptr)\` with two arguments. \`@ptrCast\` takes EXACTLY ONE argument.
-   - DO NOT use \`@intCast(T, int)\` with two arguments. \`@intCast\` takes EXACTLY ONE argument.
-   - DO NOT use \`@ptrToInt(ptr)\`. Use \`@intFromPtr(ptr)\` instead.
-8. CRITICAL ZIG TYPES: \`usize\`, \`u8\`, \`u32\`, \`bool\`, etc are primitive built-in types in Zig. DO NOT redefine them (e.g. do NOT write \`const usize = ...\`).
-9. CRITICAL EXTERN STRUCTS: An \`extern struct\` can ONLY contain extern-compatible types. If you need a union inside an \`extern struct\`, it MUST be declared as an \`extern union\`. NEVER use a plain \`union\` inside an \`extern struct\`.
-10. CRITICAL STRUCT DECLARATIONS: In Zig, structs are assigned to constants. You MUST declare them as \`const MyStruct = struct { ... };\` or \`const MyStruct = extern struct { ... };\`. NEVER use C-style declarations like \`struct MyStruct { ... }\` or \`extern struct MyStruct { ... }\`.
-11. CRITICAL CASTING: Whenever you need to cast a pointer returned by an allocator or an \`anyopaque\` pointer (like from WIT list data_ptr), DO NOT use \`@ptrCast\` or \`@intCast\`. Instead use the \`@as(T, ...)\` builtin. Example: To cast an opaque ptr to a typed ptr: \`const typed_ptr = @as(*const MyStruct, @ptrCast(opaque_ptr));\`
-12. CRITICAL ZIG POINTERS: Zig DOES NOT HAVE A \`*mut\` KEYWORD. Pointers to mutable data are written as \`*T\`. Pointers to constant data are \`*const T\`. NEVER write \`*mut T\` like in Rust!
-13. CRITICAL HOST FUNCTIONS: DO NOT invent your own signatures for host functions. If the template or instructions say \`extern "chrome:bookmarks/bookmarks" fn get_tree() i32;\`, you MUST USE IT EXACTLY AS PROVIDED. Do not add arguments to it!
-14. CRITICAL EXTERN BLOCKS: Zig DOES NOT support Rust-style \`extern "module" { fn f(); }\` blocks. You must declare EACH extern function individually like \`extern "module" fn f() void;\`.
-15. CRITICAL UNUSED VARIABLES: Zig is extremely strict about unused variables. 
-   - DO NOT discard a parameter using \`_ = param;\` if you use it anywhere else in the function. 
-   - BAD: \`_ = x; return x + 1;\` (This causes a "pointless discard" error).
-   - GOOD: \`_ = x; return 1;\` OR just \`return x + 1;\`.
-   - ONLY discard a parameter if it is TRULY NEVER used. Doing both is a fatal error.
-16. CRITICAL HOST POINTERS: Host functions return \`i32\`. To use this as a pointer address in Zig, you MUST cast it to \`usize\` first. 
-    - EXAMPLE: \`const addr = @as(usize, @intCast(get_tree())); const ptr = @as(*const Result, @ptrFromInt(addr));\`
-17. CRITICAL MEMORY ALLOCATION: The host needs to allocate memory in your WASM module to return strings and lists. You MUST export an allocation function exactly named \`cabi_realloc\`.
-    - COPY THIS CODE EXACTLY:
-    pub export fn cabi_realloc(ptr: ?*anyopaque, old_size: usize, align_val: usize, new_size: usize) ?*anyopaque {
-        _ = align_val;
-        if (new_size == 0) return null;
-        const mem = std.heap.page_allocator.alloc(u8, new_size) catch @panic("OOM");
-        if (ptr) |p| {
-            const old_ptr = @as([*]u8, @ptrCast(p));
-            const copy_len = if (old_size < new_size) old_size else new_size;
-            @memcpy(mem[0..copy_len], old_ptr[0..copy_len]);
-        }
-        return mem.ptr;
-    }
-
-18. CRITICAL COMPILER LIMITATION: Our Zig environment does NOT support the \`mod\` instruction for floating-point numbers. 
-    - AVOID using \`std.math.mod\` or the \`%\` operator with \`f32\` or \`f64\` types. 
-    - This will cause a compilation error: "TODO: Implement wasm inst: mod".
-    - Workaround: Use integer operations wherever possible.
-19. RANDOMNESS: If you need random numbers, use \`std.rand.DefaultPrng\`. Since WASI is stubbed, you can seed it with the result of a host call (like bookmark tree length) to get some pseudo-entropy.
-    - EXAMPLE:
-    var prng = std.rand.DefaultPrng.init(42); // Seed with any integer
-    const rand = prng.random();
-    const val = rand.int(u32);
-20. STANDARD LIBRARY OUTPUT: While \`std.debug.print\` and \`std.log\` are now supported via WASI stubs, they are slower than the host \`log\` function.
-    - PREFER using the host \`log\` function for your debug messages: \`extern "env" fn log(ptr: [*]const u8, len: i32) void;\`
-    - If you must use \`std.debug.print\`, ensure you include the newline character \`\\n\` to flush the buffer correctly.
-21. COMPTIME FORMAT STRINGS: Functions like \`std.debug.print\`, \`std.fmt.allocPrint\`, and \`std.fmt.format\` require the format string to be known at compile-time (comptime).
-    - NEVER pass a runtime-known variable as the first argument to these functions. 
-    - The format string MUST be a string literal.
-    - BAD: \`std.debug.print(my_string, .{});\`
-    - GOOD: \`std.debug.print("{s}\\n", .{my_string});\` or \`std.debug.print("Count: {d}\\n", .{count});\`
-
-### EXAMPLE TEMPLATE:
-const std = @import("std");
-
-extern "env" fn log(ptr: [*]const u8, len: i32) void;
-extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
-
-pub export fn run() i32 {
-  var success: bool = true;
-  return if (success) 0 else 1;
-}
-
-pub fn main() void {}
-
-CRITICAL: Output ONLY the Zig code. No markdown (\`\`\`zig) wrappers.
-`;
+        let systemInstruction = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+        systemInstruction = systemInstruction.replace('{{WITS_CONTEXT}}', witsContext);
 
         const response = await fetch(url, {
             method: 'POST',

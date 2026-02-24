@@ -1100,6 +1100,7 @@ h1 {
   background: rgba(217, 70, 239, 0.1);
   color: var(--secondary);
 }
+
 /* AI Generation UI */
 .ai-status {
   display: flex;
@@ -1120,7 +1121,9 @@ h1 {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .hidden {
@@ -1168,6 +1171,15 @@ h1 {
   overflow-y: auto;
   margin: 0 0 10px 0;
   color: #38bdf8;
+}
+
+.wasm-prompt {
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: 4px;
+  line-height: 1.3;
+  opacity: 0.8;
 }
 
 .result-badge {
