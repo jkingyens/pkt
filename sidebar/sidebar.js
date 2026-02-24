@@ -784,7 +784,7 @@ class SidebarUI {
                                 // If it's a Zig module that hasn't been compiled yet, compile now
                                 if (item.zigCode && !item.data) {
                                     if (typeof compileZigCode === 'undefined') {
-                                        throw new Error('Zig compiler not loaded');
+                                        throw new Error('Internal compiler not loaded');
                                     }
                                     this.showNotification('Compiling WASM...', 'info');
                                     const wasmBytes = await compileZigCode(item.zigCode);
@@ -1403,7 +1403,7 @@ class SidebarUI {
                             <span class="type-badge wasm">WASM</span>
                             ${this.escapeHtml(item.name)}
                         </div>
-                        <div class="constructor-card-url" style="color:var(--text-muted);">${item.zigCode ? 'Generated Zig Code' : 'Binary Module'}</div>
+                        <div class="constructor-card-url" style="color:var(--text-muted);">${item.zigCode ? 'AI Generated Logic' : 'Binary Module'}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
             } else {
@@ -1901,7 +1901,7 @@ class SidebarUI {
 
                 // 3. Compile Zig to WASM (Validation)
                 if (typeof compileZigCode === 'undefined') {
-                    throw new Error('Zig compiler not loaded');
+                    throw new Error('Internal compiler not loaded');
                 }
                 this.aiStatusText.textContent = `Validating (Attempt #${attempt})...`;
                 const wasmBytes = await compileZigCode(zigCode, (status) => {

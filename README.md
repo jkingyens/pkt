@@ -1,10 +1,10 @@
 # WildcardCX (✳️)
 
-WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines traditional database management with an AI-native execution environment using WebAssembly (Wasm) and the Zig programming language.
+WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines traditional database management with an AI-native execution environment using WebAssembly (Wasm) and sandboxed, AI-generated modules.
 
 ## 🚀 Key Features
 
-- **AI-Generated Wasm Agents** — Describe the logic you want in natural language, and Gemini will generate optimized Zig code, compile it to Wasm, and execute it directly in your browser.
+- **AI-Generated Wasm Agents** — Describe the logic you want in natural language, and Gemini will generate optimized logic, compile it to Wasm, and execute it directly in your browser.
 - **SQLite Collections** — Create, manage, and persist multiple namesacked SQLite databases using [sql.js](https://github.com/sql-js/sql.js).
 - **WIT Bridging** — Type-safe communication between Wasm modules and Chrome host APIs (like Bookmarks) using WebAssembly Interface Type (WIT) definitions.
 - **Project Overlays (Packets)** — Group URLs and Wasm modules into logical "Packets" that can be restored and executed in a single click.
@@ -24,7 +24,7 @@ WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 │   └── sqlite-manager.js # Shared SQLite management logic
 ├── icons/            # Extension icons
 ├── vendor/           # Third-party dependencies
-└── zig/              # Zig-related assets/scripts
+└── zig/              # Sandboxed execution assets/scripts
 ```
 
 ---
@@ -56,7 +56,7 @@ WildcardCX uses an AI-First development flow:
 1. Click **✨ Generate WASM** in a Packet view.
 2. Describe your goal (e.g., "Find all bookmarks with 'coding' in the title and extract their URLs").
 3. WildcardCX fetches your current database schema and WIT definitions to provide the AI with full context.
-4. The AI generates Zig code which is compiled in-browser and executed.
+4. The AI generates optimized code which is compiled in-browser and executed.
 5. Results and logs are displayed in an interactive modal.
 
 ---

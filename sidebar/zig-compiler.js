@@ -1457,7 +1457,7 @@ export async function compileZigCode(zigCode, statusCallback) {
         }
     }
 
-    if (statusCallback) statusCallback('Compiling Zig...');
+    if (statusCallback) statusCallback('Compiling logic...');
 
     const stderrBuffer = [];
     const wasi = await initZigWASI(stdBufferCache, zigCode, stderrBuffer);
