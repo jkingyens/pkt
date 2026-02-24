@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "WildcardCX",
     "version": "1.0.0",
-    "description": "AI-powered SQLite workspace with Wasm agents and sandboxed code execution.",
+    "description": "AI-powered SQLite workspace with Wasm functions and sandboxed code execution.",
     "permissions": [
         "storage",
         "sidePanel",

@@ -771,7 +771,7 @@ class SidebarUI {
                         card.innerHTML = `
                             <span style="font-size:16px;">🧩</span>
                             <div class="packet-link-info">
-                                <div class="packet-link-hostname">WASM Module</div>
+                                <div class="packet-link-hostname">WASM Function</div>
                                 <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
                                 ${item.prompt ? `<div class="wasm-prompt">Prompt: "${this.escapeHtml(item.prompt)}"</div>` : ''}
                             </div>

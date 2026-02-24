@@ -4,7 +4,7 @@ WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 
 ## 🚀 Key Features
 
-- **AI-Generated Wasm Agents** — Describe the logic you want in natural language, and Gemini will generate optimized logic, compile it to Wasm, and execute it directly in your browser.
+- **AI-Generated Wasm Functions** — Describe the logic you want in natural language, and Gemini will generate optimized logic, compile it to Wasm, and execute it directly in your browser.
 - **SQLite Collections** — Create, manage, and persist multiple namesacked SQLite databases using [sql.js](https://github.com/sql-js/sql.js).
 - **WIT Bridging** — Type-safe communication between Wasm modules and Chrome host APIs (like Bookmarks) using WebAssembly Interface Type (WIT) definitions.
 - **Project Overlays (Packets)** — Group URLs and Wasm modules into logical "Packets" that can be restored and executed in a single click.
@@ -49,7 +49,7 @@ WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 
 ---
 
-## 🏗 Developing Wasm Agents
+## 🏗 Developing Wasm Functions
 
 WildcardCX uses an AI-First development flow:
 
