@@ -100,7 +100,7 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface (e.g., chrome.storage.local or Map for Node.js)
    * @returns {Promise<void>}
    */
-  async saveCheckpoint(collectionName, storage, prefix = 'checkpoint_') {
+  async saveCheckpoint(collectionName, storage, prefix = 'db_') {
     const db = this.databases.get(collectionName);
     if (!db) {
       throw new Error(`Database '${collectionName}' not found`);
@@ -124,7 +124,7 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface
    * @returns {Promise<boolean>} True if restored, false if no checkpoint found
    */
-  async restoreCheckpoint(collectionName, storage, prefix = 'checkpoint_') {
+  async restoreCheckpoint(collectionName, storage, prefix = 'db_') {
     let base64;
 
     if (storage.get) {
@@ -158,7 +158,7 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface
    * @returns {Promise<Array<string>>} Array of restored collection names
    */
-  async restoreAllCheckpoints(storage, prefix = 'checkpoint_') {
+  async restoreAllCheckpoints(storage, prefix = 'db_') {
     const restoredCollections = [];
 
     if (storage.get) {
@@ -364,7 +364,7 @@ interface sqlite {
    * @param {string} fullSQL - One or more CREATE TABLE statements
    * @param {Object} storage - Storage interface for auto-save
    */
-  async applySchema(collectionName, fullSQL, storage, prefix = 'checkpoint_') {
+  async applySchema(collectionName, fullSQL, storage, prefix = 'db_') {
     const db = this.databases.get(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 

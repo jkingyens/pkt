@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "wildcardCX",
+    "name": "WildcardCX",
     "version": "1.0.0",
     "description": "AI-powered SQLite workspace with Wasm agents and Zig compiler support.",
     "permissions": [
@@ -17,7 +17,7 @@
         "default_path": "sidebar/sidebar.html"
     },
     "action": {
-        "default_title": "Open wildcardCX"
+        "default_title": "Open WildcardCX"
     },
     "icons": {
         "16": "icons/icon16.png",

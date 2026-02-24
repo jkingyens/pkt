@@ -1017,6 +1017,16 @@ h1 {
   overflow: hidden;
 }
 
+.packet-link-card.active {
+  background: #eef2ff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+.packet-link-card.active .packet-link-hostname {
+  font-weight: 800;
+}
+
 .packet-link-card:hover {
   background: var(--surface-hover);
   border-color: var(--primary);
@@ -1200,6 +1210,7 @@ h1 {
 .ai-execution-output.hidden {
   display: none;
 }
+
 /* Entry Preview Styles */
 .entry-data-table {
   width: 100%;
@@ -1208,7 +1219,7 @@ h1 {
   table-layout: fixed;
 }
 
-.entry-data-table th, 
+.entry-data-table th,
 .entry-data-table td {
   padding: 8px;
   border: 1px solid var(--border);
@@ -1241,4 +1252,43 @@ h1 {
 .entry-row:hover .entry-label {
   color: var(--primary);
   font-weight: 600;
+}
+/* Packet Category Sections */
+.packet-section {
+  margin-bottom: 24px;
+}
+
+.packet-section:last-child {
+  margin-bottom: 0;
+}
+
+.packet-section-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.packet-section-header .count {
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.packet-section-empty {
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  color: var(--text-light);
+  font-size: 12px;
+  text-align: center;
 }

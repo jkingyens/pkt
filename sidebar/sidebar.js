@@ -363,6 +363,7 @@ class SidebarUI {
         this.geminiApiKey = '';
         this.geminiModel = '';
         this.geminiSystemPrompt = '';
+        this.activeUrl = null;
 
         this.setupEventListeners();
         this.setupMessageListener();
@@ -374,6 +375,7 @@ class SidebarUI {
     setupMessageListener() {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'packetFocused') {
+                this.activeUrl = message.packet.activeUrl || null;
                 this.showPacketDetailView(message.packet);
             }
         });
@@ -658,102 +660,159 @@ class SidebarUI {
         } catch (e) { console.error(e); alert('Error deleting'); }
     }
 
-    showPacketDetailView(packet) {
+    // Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
+    normalizeUrl(url) {
+        if (!url) return '';
+        try {
+            // Remove hash and trailing slash, then lowercase
+            let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
+            // Remove protocol and www.
+            return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
+        } catch (e) { return url; }
+    }
+
+    urlsMatch(u1, u2) {
+        return this.normalizeUrl(u1) === this.normalizeUrl(u2);
+    }
+
+    async showPacketDetailView(packet) {
         this.currentPacket = packet;
         this.activePacketGroupId = packet.groupId || null;
+        if (packet.activeUrl) this.activeUrl = packet.activeUrl;
+
+        // If no groupId provided, try to find one in storage
+        if (this.activePacketGroupId === null) {
+            try {
+                const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                for (const [gid, pid] of Object.entries(activeGroups)) {
+                    if (String(pid) === String(packet.id)) {
+                        this.activePacketGroupId = parseInt(gid, 10);
+                        break;
+                    }
+                }
+            } catch (e) { }
+        }
+
         this.packetDetailTitle.textContent = packet.name;
         this.packetDetailCount.textContent = packet.urls.length;
 
-        // Render card link list
+        // Initialize empty sections
         this.packetLinkList.innerHTML = '';
-        if (packet.urls.length === 0) {
-            this.packetLinkList.innerHTML = '<p class="hint">No items in this packet.</p>';
-        } else {
-            // packet.urls is now 'items' (mixed array). Keep variable name 'url'/packet.urls for compatibility but treat as items.
-            packet.urls.forEach(item => {
-                // Normalize item
-                let type = 'link';
-                let content = item;
-                if (typeof item === 'object') {
-                    type = item.type || 'link';
-                    content = item.url || item.data; // url for link, data for wasm
-                }
 
-                if (type === 'link') {
-                    const url = typeof item === 'string' ? item : item.url;
-                    const card = document.createElement('div');
-                    card.className = 'packet-link-card';
-                    card.draggable = false;
+        const sections = {
+            link: { title: 'Links', items: [] },
+            wasm: { title: 'Functions', items: [] },
+            media: { title: 'Media', items: [] }
+        };
 
-                    let hostname;
-                    try {
-                        hostname = new URL(url).hostname;
-                    } catch (e) { hostname = 'Unknown'; }
+        // Categorize items
+        packet.urls.forEach(item => {
+            let type = 'link';
+            if (typeof item === 'object') {
+                type = item.type || 'link';
+            }
+            if (sections[type]) {
+                sections[type].items.push(item);
+            } else {
+                sections.link.items.push(item);
+            }
+        });
 
-                    const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+        // Helper to render section
+        const renderSection = (type, data) => {
+            const sectionDiv = document.createElement('div');
+            sectionDiv.className = 'packet-section';
 
-                    card.innerHTML = `
-                        <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
-                        <div class="packet-link-info">
-                            <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
-                            <div class="packet-link-url">${this.escapeHtml(url)}</div>
-                        </div>
-                    `;
+            const header = document.createElement('div');
+            header.className = 'packet-section-header';
+            header.innerHTML = `<span>${data.title}</span> <span class="count">${data.items.length}</span>`;
+            sectionDiv.appendChild(header);
 
-                    card.addEventListener('click', async () => {
-                        const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
-                        if (resp && resp.success && resp.newGroupId) {
-                            this.activePacketGroupId = resp.newGroupId;
-                        }
-                    });
+            if (data.items.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'packet-section-empty';
+                empty.textContent = `No ${data.title.toLowerCase()} yet.`;
+                sectionDiv.appendChild(empty);
+            } else {
+                data.items.forEach(item => {
+                    const itemType = type; // closure check
+                    if (itemType === 'link') {
+                        const url = typeof item === 'string' ? item : item.url;
+                        const card = document.createElement('div');
+                        const isActive = this.urlsMatch(url, this.activeUrl);
+                        card.className = `packet-link-card ${isActive ? 'active' : ''}`;
+                        card.draggable = false;
 
-                    this.packetLinkList.appendChild(card);
-                } else if (type === 'wasm') {
-                    const card = document.createElement('div');
-                    card.className = 'packet-link-card wasm';
-                    card.draggable = false;
-                    card.title = 'Click to run main()';
-
-                    card.innerHTML = `
-                        <span style="font-size:16px;">🧩</span>
-                        <div class="packet-link-info">
-                            <div class="packet-link-hostname">WASM Module</div>
-                            <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
-                            ${item.prompt ? `<div class="wasm-prompt">Prompt: "${this.escapeHtml(item.prompt)}"</div>` : ''}
-                        </div>
-                        <span class="packet-link-arrow">▶</span>
-                    `;
-
-                    card.addEventListener('click', async () => {
-                        const originalHtml = card.innerHTML;
-                        card.style.opacity = '0.7';
+                        let hostname;
                         try {
-                            // If it's a Zig module that hasn't been compiled yet, compile now
-                            if (item.zigCode && !item.data) {
-                                if (typeof compileZigCode === 'undefined') {
-                                    throw new Error('Zig compiler not loaded');
-                                }
-                                this.showNotification('Compiling WASM...', 'info');
-                                const wasmBytes = await compileZigCode(item.zigCode);
-                                item.data = this.arrayBufferToBase64(wasmBytes);
-                                // Save the binary back to the collection so we don't compile next time
-                                await this.saveItemBinaryToPacket(item);
+                            hostname = new URL(url).hostname;
+                        } catch (e) { hostname = 'Unknown'; }
+
+                        const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+                        card.innerHTML = `
+                            <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
+                            <div class="packet-link-info">
+                                <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
+                                <div class="packet-link-url">${this.escapeHtml(url)}</div>
+                            </div>
+                        `;
+                        card.addEventListener('click', async () => {
+                            const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
+                            if (resp && resp.success && resp.newGroupId) {
+                                this.activePacketGroupId = resp.newGroupId;
                             }
+                        });
+                        sectionDiv.appendChild(card);
+                    } else if (itemType === 'wasm') {
+                        const card = document.createElement('div');
+                        card.className = 'packet-link-card wasm';
+                        card.draggable = false;
+                        card.title = 'Click to run main()';
+                        card.innerHTML = `
+                            <span style="font-size:16px;">🧩</span>
+                            <div class="packet-link-info">
+                                <div class="packet-link-hostname">WASM Module</div>
+                                <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
+                                ${item.prompt ? `<div class="wasm-prompt">Prompt: "${this.escapeHtml(item.prompt)}"</div>` : ''}
+                            </div>
+                            <span class="packet-link-arrow">▶</span>
+                        `;
+                        card.addEventListener('click', async () => {
+                            const originalHtml = card.innerHTML;
+                            card.style.opacity = '0.7';
+                            try {
+                                // If it's a Zig module that hasn't been compiled yet, compile now
+                                if (item.zigCode && !item.data) {
+                                    if (typeof compileZigCode === 'undefined') {
+                                        throw new Error('Zig compiler not loaded');
+                                    }
+                                    this.showNotification('Compiling WASM...', 'info');
+                                    const wasmBytes = await compileZigCode(item.zigCode);
+                                    item.data = this.arrayBufferToBase64(wasmBytes);
+                                    // Save the binary back to the collection so we don't compile next time
+                                    await this.saveItemBinaryToPacket(item);
+                                }
 
-                            const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
-                            this.showWasmResults(resp.logs, resp.result, resp.success, resp.error);
-                        } catch (e) {
-                            console.error('WASM Execution Error:', e);
-                            this.showNotification('WASM Execution Error: ' + e.message, 'error');
-                        } finally {
-                            card.style.opacity = '1';
-                        }
-                    });
+                                const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
+                                this.showWasmResults(resp.logs, resp.result, resp.success, resp.error);
+                            } catch (e) {
+                                console.error('WASM Execution Error:', e);
+                                this.showNotification('WASM Execution Error: ' + e.message, 'error');
+                            } finally {
+                                card.style.opacity = '1';
+                            }
+                        });
+                        sectionDiv.appendChild(card);
+                    }
+                });
+            }
+            this.packetLinkList.appendChild(sectionDiv);
+        };
 
-                    this.packetLinkList.appendChild(card);
-                }
-            });
-        }
+        // Render sections in order
+        renderSection('link', sections.link);
+        renderSection('wasm', sections.wasm);
+        renderSection('media', sections.media);
 
         // Switch view
         this.hideAllViews();

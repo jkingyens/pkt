@@ -1,6 +1,6 @@
-# wildcardCX (✳️)
+# WildcardCX (✳️)
 
-wildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines traditional database management with an AI-native execution environment using WebAssembly (Wasm) and the Zig programming language.
+WildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines traditional database management with an AI-native execution environment using WebAssembly (Wasm) and the Zig programming language.
 
 ## 🚀 Key Features
 
@@ -41,7 +41,7 @@ wildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 4. Click **Load unpacked** and select the root directory of this repository.
 
 ### Initial Setup
-1. Open the **wildcardCX** sidebar from the extension bar.
+1. Open the **WildcardCX** sidebar from the extension bar.
 2. Click the ⚙️ (Settings) icon.
 3. Enter your **Gemini API Key**.
 4. Click **Fetch Models** and select a model (e.g., `gemini-1.5-pro`).
@@ -51,11 +51,11 @@ wildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 
 ## 🏗 Developing Wasm Agents
 
-wildcardCX uses an AI-First development flow:
+WildcardCX uses an AI-First development flow:
 
 1. Click **✨ Generate WASM** in a Packet view.
 2. Describe your goal (e.g., "Find all bookmarks with 'coding' in the title and extract their URLs").
-3. wildcardCX fetches your current database schema and WIT definitions to provide the AI with full context.
+3. WildcardCX fetches your current database schema and WIT definitions to provide the AI with full context.
 4. The AI generates Zig code which is compiled in-browser and executed.
 5. Results and logs are displayed in an interactive modal.
 

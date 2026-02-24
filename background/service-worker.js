@@ -8,7 +8,11 @@ self.importScripts('../sql-wasm.js', '../src/sqlite-manager.js');
 
 let sqliteManager = null;
 let SQL = null;
-let initialized = false; // track full initialization including restore
+let initialized = false;
+let initializing = null; // Lock for initialization
+
+// In-memory cache for synchronous mapping access
+let tabToUrlMapCached = {};
 
 // Bookmarks cache for synchronous access from WASM
 let bookmarkCache = null;
@@ -29,6 +33,39 @@ chrome.bookmarks.onChanged.addListener(syncBookmarkCache);
 chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
 chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
 chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
+
+// Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
+function normalizeUrl(url) {
+    if (!url) return '';
+    try {
+        // Remove hash and trailing slash, then lowercase
+        let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
+        // Remove protocol and www.
+        return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
+    } catch (e) { return url; }
+}
+
+function urlsMatch(u1, u2) {
+    return normalizeUrl(u1) === normalizeUrl(u2);
+}
+
+async function setTabMapping(tabId, url) {
+    try {
+        tabToUrlMapCached[tabId] = url;
+        await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
+    } catch (e) { }
+}
+
+function getMappedUrlSync(tabId) {
+    return tabToUrlMapCached[tabId];
+}
+
+async function removeTabMapping(tabId) {
+    try {
+        delete tabToUrlMapCached[tabId];
+        await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
+    } catch (e) { }
+}
 
 // WasmRuntime helper for Canonical ABI encoding/decoding
 class WasmRuntime {
@@ -131,32 +168,48 @@ class WasmRuntime {
 // Initialize SQL.js and auto-restore all checkpoints
 async function initializeSQLite() {
     if (initialized) return sqliteManager;
+    if (initializing) return initializing;
 
-    if (!SQL) {
-        SQL = await initSqlJs({
-            locateFile: file => chrome.runtime.getURL(file)
-        });
-        sqliteManager = new SQLiteManager(SQL);
-    }
+    initializing = (async () => {
+        try {
+            if (!SQL) {
+                SQL = await initSqlJs({
+                    locateFile: file => chrome.runtime.getURL(file)
+                });
+                sqliteManager = new SQLiteManager(SQL);
+            }
 
-    // Auto-restore all saved checkpoints before handling any messages
-    try {
-        const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local, 'db_');
-        if (restored.length > 0) {
-            console.log(`Auto-restored collections: ${restored.join(', ')}`);
+            // Auto-restore all saved checkpoints before handling any messages
+            const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local);
+            if (restored.length > 0) {
+                console.log(`[AutoRestore] Restored collections: ${restored.join(', ')}`);
+            } else {
+                console.log('[AutoRestore] No checkpoints found starting with "db_"');
+                // Debug: list all keys in storage
+                const all = await chrome.storage.local.get(null);
+                console.log('[AutoRestore] All storage keys:', Object.keys(all));
+            }
+
+            await sqliteManager.ensurePacketsCollection();
+            await sqliteManager.ensureSchemasCollection();
+            await sqliteManager.ensureWitsCollection();
+
+            // Load tab mappings into memory cache
+            const { tabToUrlMap = {} } = await chrome.storage.local.get('tabToUrlMap');
+            tabToUrlMapCached = tabToUrlMap;
+
+            // Also sync bookmarks cache
+            await syncBookmarkCache();
+            initialized = true;
+            return sqliteManager;
+        } catch (error) {
+            console.error('Initialization failed:', error);
+            initializing = null;
+            throw error;
         }
-        await sqliteManager.ensurePacketsCollection();
-        await sqliteManager.ensureSchemasCollection();
-        await sqliteManager.ensureWitsCollection();
+    })();
 
-        // Also sync bookmarks cache
-        await syncBookmarkCache();
-    } catch (error) {
-        console.error('Failed to auto-restore checkpoints:', error);
-    }
-
-    initialized = true;
-    return sqliteManager;
+    return initializing;
 }
 
 // Open side panel when extension icon is clicked
@@ -200,18 +253,18 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'saveCheckpoint': {
-                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local, request.prefix || 'checkpoint_');
+                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
                 sendResponse({ success: true });
                 break;
             }
             case 'restoreCheckpoint': {
-                const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local, request.prefix || 'checkpoint_');
+                const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
                 sendResponse({ success: true, restored });
                 break;
             }
             case 'deleteCollection': {
                 sqliteManager.closeDatabase(request.name);
-                await chrome.storage.local.remove([`checkpoint_${request.name}`, `db_${request.name}`]);
+                await chrome.storage.local.remove([`db_${request.name}`]);
                 sendResponse({ success: true });
                 break;
             }
@@ -277,6 +330,27 @@ async function handleMessage(request, sender, sendResponse) {
                         break;
                     }
 
+                    // Check if this packet already has an active tab group
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                    const groups = await chrome.tabGroups.query({});
+                    let existingGroupId = null;
+                    for (const g of groups) {
+                        if (String(activeGroups[g.id]) === String(request.id)) {
+                            existingGroupId = g.id;
+                            break;
+                        }
+                    }
+
+                    if (existingGroupId !== null) {
+                        // Focus the existing group
+                        const tabsInGroup = await chrome.tabs.query({ groupId: existingGroupId });
+                        if (tabsInGroup.length > 0) {
+                            await chrome.tabs.update(tabsInGroup[0].id, { active: true });
+                            sendResponse({ success: true, groupId: existingGroupId });
+                            return; // Use return instead of break to avoid falling through
+                        }
+                    }
+
                     const tabIds = [];
                     for (const url of links) {
                         const tab = await chrome.tabs.create({ url, active: false });
@@ -286,9 +360,10 @@ async function handleMessage(request, sender, sendResponse) {
                     const groupId = await chrome.tabs.group({ tabIds });
                     await chrome.tabGroups.update(groupId, { title: name, color: 'blue' });
 
-                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
-                    activeGroups[groupId] = request.id;
-                    await chrome.storage.session.set({ activeGroups });
+                    const groupData = await chrome.storage.local.get('activeGroups');
+                    const updatedActiveGroups = groupData.activeGroups || {};
+                    updatedActiveGroups[groupId] = request.id;
+                    await chrome.storage.local.set({ activeGroups: updatedActiveGroups });
 
                     await chrome.tabs.update(tabIds[0], { active: true });
                     sendResponse({ success: true, groupId });
@@ -315,7 +390,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
                     db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local, 'db_');
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('savePacket error:', err);
@@ -329,7 +404,7 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!db) throw new Error('Packets database not found');
                     const id = parseInt(request.id, 10);
                     db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local, 'db_');
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deletePacket error:', err);
@@ -344,7 +419,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedSql = request.sql.replace(/'/g, "''");
                     db.exec(`INSERT INTO schemas (name, sql) VALUES ('${escapedName}', '${escapedSql}')`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local, 'db_');
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('saveSchema error:', err);
@@ -358,7 +433,7 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!db) throw new Error('Schemas database not found');
                     const id = parseInt(request.id, 10);
                     db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local, 'db_');
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deleteSchema error:', err);
@@ -381,7 +456,7 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'getPacketByGroupId': {
                 try {
-                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                     const packetId = activeGroups[request.groupId];
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
                     const db = sqliteManager.getDatabase('packets');
@@ -401,7 +476,7 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!tab || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
                         sendResponse({ success: true, packet: null }); break;
                     }
-                    const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                     const packetId = activeGroups[tab.groupId];
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
                     const db = sqliteManager.getDatabase('packets');
@@ -419,6 +494,31 @@ async function handleMessage(request, sender, sendResponse) {
                 try {
                     const { url, groupId, packetId } = request;
                     let targetGroupId = groupId;
+
+                    // Always try to find existing group by packetId if we have it
+                    if (packetId) {
+                        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                        const groups = await chrome.tabGroups.query({});
+
+                        // Check if the provided targetGroupId still actually belongs to this packet
+                        let providedIsGood = false;
+                        if (targetGroupId !== undefined && targetGroupId !== null) {
+                            if (String(activeGroups[targetGroupId]) === String(packetId)) {
+                                providedIsGood = true;
+                            }
+                        }
+
+                        if (!providedIsGood) {
+                            // Search all groups for one mapped to this packet
+                            for (const g of groups) {
+                                if (String(activeGroups[g.id]) === String(packetId)) {
+                                    targetGroupId = g.id;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     let groupExists = false;
                     try {
                         if (targetGroupId !== undefined && targetGroupId !== null) {
@@ -429,12 +529,29 @@ async function handleMessage(request, sender, sendResponse) {
 
                     if (groupExists) {
                         const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
-                        const existing = tabsInGroup.find(t => t.url === url || t.pendingUrl === url);
+
+                        // Look for existing tab using both current URL and mapped URL (for redirects)
+                        let existing = null;
+                        for (const t of tabsInGroup) {
+                            const mapped = getMappedUrlSync(t.id);
+                            if (mapped && urlsMatch(mapped, url)) {
+                                existing = t;
+                                break;
+                            }
+                            const turl = t.url || t.pendingUrl;
+                            if (turl && urlsMatch(turl, url)) {
+                                existing = t;
+                                break;
+                            }
+                        }
+
                         if (existing) {
                             await chrome.tabs.update(existing.id, { active: true });
+                            await setTabMapping(existing.id, url);
                         } else {
                             const newTab = await chrome.tabs.create({ url, active: true });
                             await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGroupId });
+                            await setTabMapping(newTab.id, url);
                         }
                         sendResponse({ success: true });
                     } else {
@@ -454,13 +571,15 @@ async function handleMessage(request, sender, sendResponse) {
                         }
                         await chrome.tabGroups.update(targetGroupId, { title: packetName, color: 'blue' });
                         if (packetId) {
-                            const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                             activeGroups[targetGroupId] = packetId;
-                            await chrome.storage.session.set({ activeGroups });
+                            await chrome.storage.local.set({ activeGroups });
                         }
+                        await setTabMapping(newTab.id, url);
                         sendResponse({ success: true, newGroupId: targetGroupId });
                     }
                 } catch (err) {
+                    console.error('openTabInGroup error:', err);
                     sendResponse({ success: false, error: err.message });
                 }
                 break;
@@ -679,7 +798,7 @@ async function handleMessage(request, sender, sendResponse) {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
         const tab = await chrome.tabs.get(tabId);
-        const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
         const groupId = tab.groupId;
         if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) return;
         const packetId = activeGroups[groupId];
@@ -689,17 +808,48 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
         if (!result.length || !result[0].values.length) return;
         const [id, name, urlsJson] = result[0].values[0];
-        const packet = { id, name, urls: JSON.parse(urlsJson), groupId };
+
+        // Use mapping if available to persist highlight through redirects
+        const mappedUrl = getMappedUrlSync(tabId);
+        const packet = { id, name, urls: JSON.parse(urlsJson), groupId, activeUrl: mappedUrl || tab.url };
         chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
     } catch (e) { }
 });
 
+// Also track when a tab is updated (e.g. navigation within a group)
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' || changeInfo.url) {
+        try {
+            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+            const groupId = tab.groupId;
+            if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) return;
+            const packetId = activeGroups[groupId];
+            await initializeSQLite();
+            const db = sqliteManager.getDatabase('packets');
+            if (!db) return;
+            const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+            if (!result.length || !result[0].values.length) return;
+            const [id, name, urlsJson] = result[0].values[0];
+
+            // Use mapping if available to persist highlight through redirects
+            const mappedUrl = getMappedUrlSync(tabId);
+            const packet = { id, name, urls: JSON.parse(urlsJson), groupId, activeUrl: mappedUrl || tab.url };
+            chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
+        } catch (e) { }
+    }
+});
+
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    await removeTabMapping(tabId);
+});
+
 chrome.tabGroups.onRemoved.addListener(async (group) => {
     try {
-        const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
         if (activeGroups[group.id]) {
             delete activeGroups[group.id];
-            await chrome.storage.session.set({ activeGroups });
+            await chrome.storage.local.set({ activeGroups });
         }
     } catch (e) { }
 });
