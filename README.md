@@ -17,17 +17,14 @@ wildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 
 ```
 .
-├── extension/            # The Chrome extension (load this directory)
-│   ├── manifest.json     # Extension configuration
-│   ├── background/       # Service worker (handles SQL management & Wasm execution)
-│   ├── sidebar/          # UI (Sidebar, CSS, and UI controllers)
-│   │   ├── zig-compiler.js # Browser-based Zig compiler bridge
-│   │   └── sidebar.js      # Main UI logic and Gemini integration
-│   ├── src/
-│   │   └── sqlite-manager.js # Shared SQLite management logic
-│   └── vendor/           # Third-party dependencies
-├── src/                  # Source of shared logic (sqlite-manager)
-└── test/                 # Node.js test suite for SQLiteManager
+├── manifest.json     # Extension configuration
+├── background/       # Service worker (handles SQL management & Wasm execution)
+├── sidebar/          # UI (Sidebar, CSS, and UI controllers)
+├── src/
+│   └── sqlite-manager.js # Shared SQLite management logic
+├── icons/            # Extension icons
+├── vendor/           # Third-party dependencies
+└── zig/              # Zig-related assets/scripts
 ```
 
 ---
@@ -35,16 +32,13 @@ wildcardCX is a powerful, AI-augmented SQLite workspace for Chrome. It combines 
 ## ⚡️ Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) v18+
 - Google Chrome
 
 ### Installation
 1. Clone the repository.
-2. Run `npm install`.
-3. Run `npm run build` to sync shared logic into the extension folder.
-4. Open `chrome://extensions/` in Chrome.
-5. Enable **Developer mode**.
-6. Click **Load unpacked** and select the `extension/` directory.
+2. Open `chrome://extensions/` in Chrome.
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the root directory of this repository.
 
 ### Initial Setup
 1. Open the **wildcardCX** sidebar from the extension bar.

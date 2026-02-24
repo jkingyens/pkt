@@ -100,7 +100,7 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface (e.g., chrome.storage.local or Map for Node.js)
    * @returns {Promise<void>}
    */
-  async saveCheckpoint(collectionName, storage) {
+  async saveCheckpoint(collectionName, storage, prefix = 'checkpoint_') {
     const db = this.databases.get(collectionName);
     if (!db) {
       throw new Error(`Database '${collectionName}' not found`);
@@ -111,10 +111,10 @@ class SQLiteManager {
 
     if (storage.set) {
       // Chrome storage API
-      await storage.set({ [`checkpoint_${collectionName}`]: base64 });
+      await storage.set({ [`${prefix}${collectionName}`]: base64 });
     } else {
       // Simple Map for testing
-      storage.set(`checkpoint_${collectionName}`, base64);
+      storage.set(`${prefix}${collectionName}`, base64);
     }
   }
 
@@ -124,17 +124,17 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface
    * @returns {Promise<boolean>} True if restored, false if no checkpoint found
    */
-  async restoreCheckpoint(collectionName, storage) {
+  async restoreCheckpoint(collectionName, storage, prefix = 'checkpoint_') {
     let base64;
 
     if (storage.get) {
       // Chrome storage API
-      const key = `checkpoint_${collectionName}`;
+      const key = `${prefix}${collectionName}`;
       const result = await storage.get([key]);
       base64 = result[key];
     } else {
       // Simple Map for testing
-      base64 = storage.get(`checkpoint_${collectionName}`);
+      base64 = storage.get(`${prefix}${collectionName}`);
     }
 
     if (base64 === null || base64 === undefined) {
@@ -158,7 +158,7 @@ class SQLiteManager {
    * @param {Object} storage - Storage interface
    * @returns {Promise<Array<string>>} Array of restored collection names
    */
-  async restoreAllCheckpoints(storage) {
+  async restoreAllCheckpoints(storage, prefix = 'checkpoint_') {
     const restoredCollections = [];
 
     if (storage.get) {
@@ -166,10 +166,10 @@ class SQLiteManager {
       const allItems = await storage.get(null);
 
       for (const key of Object.keys(allItems)) {
-        if (key.startsWith('checkpoint_')) {
-          const collectionName = key.replace('checkpoint_', '');
+        if (key.startsWith(prefix)) {
+          const collectionName = key.replace(prefix, '');
           try {
-            const restored = await this.restoreCheckpoint(collectionName, storage);
+            const restored = await this.restoreCheckpoint(collectionName, storage, prefix);
             if (restored) {
               restoredCollections.push(collectionName);
             }
@@ -187,37 +187,31 @@ class SQLiteManager {
    * Ensure the 'packets' system collection exists with the correct schema
    * @param {Object} storage - Storage interface
    */
-  async ensurePacketsCollection(storage) {
+  async ensurePacketsCollection() {
     let db = this.databases.get(PACKETS_COLLECTION);
     if (!db) {
       db = await this.initDatabase(PACKETS_COLLECTION);
     }
     db.exec(PACKETS_SCHEMA);
-    if (storage) {
-      await this.saveCheckpoint(PACKETS_COLLECTION, storage);
-    }
   }
 
   /**
    * Ensure the 'schemas' system collection exists with the correct schema
    * @param {Object} storage - Storage interface
    */
-  async ensureSchemasCollection(storage) {
+  async ensureSchemasCollection() {
     let db = this.databases.get(SCHEMAS_COLLECTION);
     if (!db) {
       db = await this.initDatabase(SCHEMAS_COLLECTION);
     }
     db.exec(SCHEMAS_SCHEMA);
-    if (storage) {
-      await this.saveCheckpoint(SCHEMAS_COLLECTION, storage);
-    }
   }
 
   /**
    * Ensure the 'wits' system collection exists with the correct schema and default entry
    * @param {Object} storage - Storage interface
    */
-  async ensureWitsCollection(storage) {
+  async ensureWitsCollection() {
     let db = this.databases.get(WITS_COLLECTION);
     if (!db) {
       db = await this.initDatabase(WITS_COLLECTION);
@@ -266,10 +260,6 @@ interface sqlite {
         db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['user:sqlite', sqliteWit]);
       }
     } catch (e) { console.error('Error ensuring default wits:', e); }
-
-    if (storage) {
-      await this.saveCheckpoint(WITS_COLLECTION, storage);
-    }
   }
 
   /**
@@ -343,6 +333,29 @@ interface sqlite {
   }
 
   /**
+   * Get full data for a specific entry
+   * @param {string} collectionName
+   * @param {string} tableName
+   * @param {number|string} rowId
+   * @returns {Object|null} Entry data or null
+   */
+  getEntry(collectionName, tableName, rowId) {
+    const db = this.databases.get(collectionName);
+    if (!db) throw new Error(`Database '${collectionName}' not found`);
+
+    const result = db.exec(`SELECT * FROM "${tableName}" WHERE rowid = ?`, [rowId]);
+    if (!result.length || !result[0].values.length) return null;
+
+    const columns = result[0].columns;
+    const values = result[0].values[0];
+    const data = {};
+    columns.forEach((col, i) => {
+      data[col] = values[i];
+    });
+    return data;
+  }
+
+  /**
    * Apply a full schema to a collection.
    * Parses all CREATE TABLE statements from the provided SQL,
    * drops any existing tables NOT in the new schema, then
@@ -351,7 +364,7 @@ interface sqlite {
    * @param {string} fullSQL - One or more CREATE TABLE statements
    * @param {Object} storage - Storage interface for auto-save
    */
-  async applySchema(collectionName, fullSQL, storage) {
+  async applySchema(collectionName, fullSQL, storage, prefix = 'checkpoint_') {
     const db = this.databases.get(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
@@ -394,7 +407,7 @@ interface sqlite {
 
     // Auto-save checkpoint so schema persists
     if (storage) {
-      await this.saveCheckpoint(collectionName, storage);
+      await this.saveCheckpoint(collectionName, storage, prefix);
     }
   }
 
