@@ -1836,6 +1836,8 @@ class SidebarUI {
                 }
 
                 const zigCode = await this.callGeminiApi(finalPrompt, wits, dbContext);
+                console.log('%c[AI Generated Zig Code]', 'color: #10b981; font-weight: bold; font-size: 12px;');
+                console.log(zigCode);
                 lastCode = zigCode;
 
                 // 3. Compile Zig to WASM (Validation)
