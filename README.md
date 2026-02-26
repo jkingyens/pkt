@@ -1,4 +1,4 @@
-# WildcardCX (✳️)
+# ✳️ WildcardCX 
 
 WildcardCX is a powerful, AI-optional SQLite workspace for Chrome. It combines traditional database management with a Wasm-based execution environment using WebAssembly and sandboxed, AI-generated modules.
 
