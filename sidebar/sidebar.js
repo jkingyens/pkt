@@ -832,8 +832,11 @@ class SidebarUI {
                 linkList.appendChild(card);
             } else if (type === 'media') {
                 mediaCount++;
+                const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                const isActive = this.urlsMatch(mediaUrl, this.activeUrl);
+
                 const card = document.createElement('div');
-                card.className = 'packet-media-card';
+                card.className = `packet-media-card ${isActive ? 'active' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
@@ -854,10 +857,9 @@ class SidebarUI {
                 card.className = 'packet-link-card wasm';
                 card.innerHTML = `
                     <div class="packet-link-info">
-                        <div class="packet-link-title">🧩 ${this.escapeHtml(item.prompt || item.name)}</div>
-                        <div class="packet-link-url">Wasm Module</div>
+                        <div class="packet-link-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
-                    <button class="play-btn">Run</button>
+                    <button class="play-btn">▶</button>
                 `;
                 card.querySelector('.play-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -1213,7 +1215,7 @@ class SidebarUI {
                             <span class="packet-meta">Created ${time}</span>
                         </div>
                         <div class="packet-card-actions">
-                            <button class="play-btn" title="Open Packet" data-id="${rowid}">▶</button>
+                            <button class="play-btn" title="Open Packet" data-id="${rowid}">⬆</button>
                             <button class="packet-delete-btn" title="Delete Packet" data-id="${rowid}">🗑</button>
                         </div>
                     </div>`;

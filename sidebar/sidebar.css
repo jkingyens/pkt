@@ -824,6 +824,12 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.packet-media-card.active {
+  border-color: var(--primary);
+  background: var(--info-bg);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
 .packet-media-preview {
   width: 48px;
   height: 48px;
