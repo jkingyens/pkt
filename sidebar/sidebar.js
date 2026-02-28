@@ -336,6 +336,7 @@ class SidebarUI {
         this.aiStatusText = document.getElementById('aiStatusText');
         this.aiGenerateBtn = document.getElementById('aiGenerateBtn');
         this.aiGenerateWasmBtn = document.getElementById('aiGenerateWasmBtn');
+        this.aiGenerateWasmDetailBtn = document.getElementById('aiGenerateWasmDetailBtn');
 
         // WASM Result Modal elements
         this.wasmResultModal = document.getElementById('wasmResultModal');
@@ -582,6 +583,9 @@ class SidebarUI {
         document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAiPromptModal());
         document.getElementById('aiCancelBtn').addEventListener('click', () => this.closeAiPromptModal());
         this.aiGenerateBtn.addEventListener('click', () => this.generateWasmWithAi());
+        if (this.aiGenerateWasmDetailBtn) {
+            this.aiGenerateWasmDetailBtn.addEventListener('click', () => this.openAiPromptModal());
+        }
 
         // Entry Preview Modal
         this.entryPreviewCloseBtn.addEventListener('click', () => this.entryPreviewModal.classList.add('hidden'));
@@ -2113,8 +2117,10 @@ class SidebarUI {
     checkAiFeatureAvailability() {
         if (this.geminiApiKey) {
             this.aiGenerateWasmBtn.classList.remove('hidden');
+            if (this.aiGenerateWasmDetailBtn) this.aiGenerateWasmDetailBtn.classList.remove('hidden');
         } else {
             this.aiGenerateWasmBtn.classList.add('hidden');
+            if (this.aiGenerateWasmDetailBtn) this.aiGenerateWasmDetailBtn.classList.add('hidden');
         }
     }
 
@@ -2170,17 +2176,30 @@ class SidebarUI {
                 // Convert binary to base64 for storage
                 const base64 = this.arrayBufferToBase64(wasmBytes);
 
-                // Add to constructor as a Zig module with pre-compiled binary
-                this.constructorItems.push({
+                const newWasmItem = {
                     type: 'wasm',
                     name: 'ai_generated.zig',
                     zigCode: zigCode,
                     data: base64,
                     prompt: originalPrompt
-                });
-                this.renderConstructorItems();
+                };
 
-                this.showNotification('WASM logic generated, validated, and added to packet!', 'success');
+                // Add to the appropriate place depending on current view
+                if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
+                    this.currentPacket.urls.push(newWasmItem);
+                    await this.sendMessage({
+                        action: 'savePacket',
+                        id: this.currentPacket.id,
+                        name: this.currentPacket.name,
+                        urls: this.currentPacket.urls
+                    });
+                    this.showPacketDetailView(this.currentPacket);
+                } else {
+                    this.constructorItems.push(newWasmItem);
+                    this.renderConstructorItems();
+                }
+
+                this.showNotification('WASM logic generated, validated, and added!', 'success');
                 this.closeAiPromptModal();
                 return; // Success!
 

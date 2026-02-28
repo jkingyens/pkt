@@ -160,7 +160,10 @@
     <section class="detail-section">
       <div class="section-header">
         <h3>🧩 Wasm</h3>
-        <span id="packetWasmCount" class="badge">0</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="aiGenerateWasmDetailBtn" class="btn btn-secondary btn-sm" title="Generate Wasm with AI">✨</button>
+          <span id="packetWasmCount" class="badge">0</span>
+        </div>
       </div>
       <div id="packetWasmList" class="packet-wasm-list">
         <p class="hint">No Wasm modules in this packet.</p>
