@@ -23,7 +23,7 @@
         loading.remove();
 
         // Update title
-        document.title = `${name} - Wildcard CX`;
+        document.title = `${name} - Wildcard`;
 
         const info = document.createElement('div');
         info.className = 'info';

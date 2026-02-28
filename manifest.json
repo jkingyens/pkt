@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "Wildcard CX",
+    "name": "Wildcard",
     "version": "1.0.0",
     "description": "Turns your web browser into a web builder",
     "permissions": [
@@ -21,7 +21,7 @@
         "default_path": "sidebar/sidebar.html"
     },
     "action": {
-        "default_title": "Open Wildcard CX",
+        "default_title": "Open Wildcard",
         "default_icon": {
             "16": "icons/icon16.png",
             "19": "icons/icon19.png",
