@@ -867,7 +867,12 @@ class SidebarUI {
                         <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
                         <div class="packet-link-url">${this.escapeHtml(url)}</div>
                     </div>
+                    <button class="constructor-remove-btn" title="Remove link">🗑️</button>
                 `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
                 card.addEventListener('click', async () => {
                     const currentlyActive = this.urlsMatch(url, this.activeUrl);
                     if (currentlyActive) {
@@ -897,7 +902,12 @@ class SidebarUI {
                         <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
                         <div class="packet-media-meta">${item.mimeType} • ${(item.size / 1024 / 1024).toFixed(2)} MB</div>
                     </div>
+                    <button class="constructor-remove-btn" title="Remove media">🗑️</button>
                 `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
                 if (isImage) {
                     this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
                 }
@@ -911,8 +921,15 @@ class SidebarUI {
                     <div class="packet-link-info">
                         <div class="packet-link-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
-                    <button class="play-btn">▶</button>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <button class="constructor-remove-btn" title="Remove function">🗑️</button>
+                        <button class="play-btn">▶</button>
+                    </div>
                 `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
                 card.querySelector('.play-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.runWasm(item);
@@ -928,6 +945,30 @@ class SidebarUI {
         if (linkCount === 0) linkList.innerHTML = '<p class="hint">No links in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
+    }
+
+    async removePacketItem(index) {
+        if (!this.currentPacket) return;
+
+        // Remove the item at the specified index
+        this.currentPacket.urls.splice(index, 1);
+
+        try {
+            // Persist the change
+            await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+
+            // Refresh the view
+            this.showPacketDetailView(this.currentPacket);
+            this.showNotification('Item removed');
+        } catch (e) {
+            console.error('[SidebarUI] Failed to remove item:', e);
+            this.showNotification('Failed to remove item', 'error');
+        }
     }
 
     handleMediaDragOver(e) {
@@ -2432,6 +2473,9 @@ class SidebarUI {
                 });
 
                 this.showPacketDetailView(this.currentPacket);
+
+                // Deactivate clipper UI after successful capture
+                this.updateClipperState(false);
 
                 // Highlight the new item
                 setTimeout(() => {

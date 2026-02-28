@@ -901,8 +901,7 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'CLIPPER_REGION_SELECTED':
             case 'CLIPPER_CANCELLED': {
-                // Forward content script message to the sidebar
-                chrome.runtime.sendMessage(request).catch(() => { });
+                // No need to relay: content scripts broadcast to all extension pages
                 sendResponse({ success: true });
                 break;
             }
