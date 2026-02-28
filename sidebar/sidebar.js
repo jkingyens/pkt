@@ -417,6 +417,11 @@ class SidebarUI {
                 this.handleClipperRegionSelected(message.region);
             } else if (message.type === 'CLIPPER_CANCELLED') {
                 this.handleClipperCancelled();
+            } else if (message.type === 'AUDIO_CLIP_FINISHED') {
+                console.log('[Sidebar] Received AUDIO_CLIP_FINISHED message, dataUrl length:', message.dataUrl?.length);
+                this.handleAudioClipFinished(message.dataUrl);
+            } else if (message.type === 'OFFSCREEN_LOG') {
+                console.log('[Offscreen-Relay]', message.message);
             }
         });
     }
@@ -2447,6 +2452,65 @@ class SidebarUI {
     handleClipperCancelled() {
         this.isClipperManuallyCancelled = true;
         this.setClipperActive(false);
+    }
+
+    async handleAudioClipFinished(dataUrl) {
+        console.log('[Wildcard] handleAudioClipFinished received dataUrl length:', dataUrl.length);
+        try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            console.log('[Wildcard] Audio blob created, size:', blob.size, 'type:', blob.type);
+            const arrayBuffer = await blob.arrayBuffer();
+
+            const saveResp = await this.sendMessage({
+                action: 'saveMediaBlob',
+                data: Array.from(new Uint8Array(arrayBuffer)),
+                type: 'audio/webm'
+            });
+
+            console.log('[Wildcard] saveMediaBlob response:', saveResp);
+
+            if (saveResp && saveResp.success) {
+                const name = `Audio Clip ${new Date().toLocaleString()}`;
+                const newMediaItem = {
+                    type: 'media',
+                    name: name,
+                    mediaId: saveResp.id,
+                    mimeType: 'audio/webm',
+                    size: blob.size
+                };
+
+                if (!this.currentPacket) {
+                    console.warn('[Wildcard] No current packet active, cannot save audio clip');
+                    return;
+                }
+
+                console.log('[Wildcard] Adding audio clip to packet:', this.currentPacket.id);
+                this.currentPacket.urls.push(newMediaItem);
+
+                await this.sendMessage({
+                    action: 'savePacket',
+                    id: this.currentPacket.id,
+                    name: this.currentPacket.name,
+                    urls: this.currentPacket.urls
+                });
+
+                this.showPacketDetailView(this.currentPacket);
+
+                // Highlight the new item
+                setTimeout(() => {
+                    const cards = document.querySelectorAll('.packet-media-card');
+                    const lastCard = cards[cards.length - 1];
+                    if (lastCard) {
+                        lastCard.classList.add('new-clip-animation');
+                        lastCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }, 100);
+            }
+        } catch (err) {
+            console.error('[Wildcard] Audio clip saving failed:', err);
+            this.showNotification('Audio clip saving failed: ' + err.message, 'error');
+        }
     }
 }
 

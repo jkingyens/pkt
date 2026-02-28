@@ -38,7 +38,76 @@ chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
 // Ensure the side panel doesn't intercept the click event so onClicked can fire
 chrome.runtime.onInstalled.addListener(() => {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
+
+    // Create context menu for a guaranteed way to "invoke" the extension on a page
+    chrome.contextMenus.create({
+        id: 'wildcard-record-audio',
+        title: 'Wildcard: Start Audio Recording',
+        contexts: ['all']
+    });
 });
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === 'wildcard-record-audio') {
+        try {
+            console.log('[SW] Context menu invocation, requesting streamId');
+            const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+            await initiateAudioRecording(streamId, tab.id);
+        } catch (e) {
+            console.error('[SW] Context menu invocation failed:', e);
+            chrome.tabs.sendMessage(tab.id, { type: 'RECORDING_ERROR', error: 'Please click the extension icon first.' });
+        }
+    }
+});
+
+chrome.commands.onCommand.addListener(async (command) => {
+    if (command === 'toggle-recording') {
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tab) return;
+        try {
+            console.log('[SW] Command invocation, requesting streamId');
+            const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+            await initiateAudioRecording(streamId, tab.id);
+        } catch (e) {
+            console.error('[SW] Command invocation failed:', e);
+        }
+    }
+});
+
+async function initiateAudioRecording(streamId, targetTabId) {
+    console.log('[SW] initiateAudioRecording for tab:', targetTabId);
+
+    // 1. Ensure clipper is active on that tab
+    await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
+
+    // 2. Create offscreen document if it doesn't exist
+    const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT']
+    });
+
+    if (existingContexts.length === 0) {
+        console.log('[SW] Creating offscreen document');
+        await chrome.offscreen.createDocument({
+            url: 'offscreen/offscreen.html',
+            reasons: ['USER_MEDIA'],
+            justification: 'Capture tab audio for clipping tool'
+        });
+        // Small delay to ensure script is loaded
+        await new Promise(r => setTimeout(r, 500));
+    }
+
+    // 3. Start recording in offscreen
+    console.log('[SW] Sending START_RECORDING to offscreen');
+    chrome.runtime.sendMessage({
+        type: 'START_RECORDING',
+        streamId
+    });
+
+    // 4. Update Island UI (if it's already open, it will receive this)
+    setTimeout(() => {
+        chrome.runtime.sendMessage({ type: 'AUDIO_RECORDING_REMOTE_START', streamId });
+    }, 200);
+}
 
 // Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
 function normalizeUrl(url) {
@@ -235,10 +304,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleMessage(request, sender, sendResponse) {
+    const action = request.action || request.type;
+    console.log('[SW] Message received:', action, request);
     try {
         await initializeSQLite();
 
-        switch (request.action) {
+        switch (action) {
             case 'listCollections': {
                 const collections = sqliteManager.listCollections();
                 sendResponse({ success: true, collections });
@@ -833,6 +904,70 @@ async function handleMessage(request, sender, sendResponse) {
                 // Forward content script message to the sidebar
                 chrome.runtime.sendMessage(request).catch(() => { });
                 sendResponse({ success: true });
+                break;
+            }
+            case 'START_AUDIO_RECORDING': {
+                console.log('[SW] START_AUDIO_RECORDING received, streamId:', request.streamId);
+                try {
+                    let streamId = request.streamId;
+                    let targetTabId = sender.tab?.id;
+
+                    if (!targetTabId) {
+                        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                        targetTabId = tab?.id;
+                    }
+
+                    if (!streamId) {
+                        console.log('[SW] No streamId provided, requesting fallback');
+                        if (!targetTabId) throw new Error('Could not identify active tab');
+                        streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId });
+                        console.log('[SW] Fallback streamId obtained:', streamId);
+                    }
+
+                    await initiateAudioRecording(streamId, targetTabId);
+                    sendResponse({ success: true });
+                } catch (e) {
+                    console.error('[SW] Failed to start audio recording:', e);
+                    sendResponse({ success: false, error: e.message });
+                }
+                break;
+            }
+            case 'STOP_AUDIO_RECORDING': {
+                console.log('[SW] STOP_AUDIO_RECORDING received');
+                chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
+                sendResponse({ success: true });
+                break;
+            }
+            case 'OFFSCREEN_LOG':
+            case 'RECORDING_STARTED':
+            case 'RECORDING_ERROR': {
+                // Relay these to the sidebar and island
+                chrome.runtime.sendMessage(request).catch(() => { });
+                break;
+            }
+            case 'AUDIO_RECORDING_RESULT': {
+                console.log('[SW] AUDIO_RECORDING_RESULT received, dataUrl length:', request.dataUrl?.length);
+                // Forward the result to the sidebar
+                chrome.runtime.sendMessage({
+                    type: 'AUDIO_CLIP_FINISHED',
+                    dataUrl: request.dataUrl
+                }).then(() => {
+                    console.log('[SW] Successfully forwarded AUDIO_CLIP_FINISHED to sidebar');
+                }).catch((err) => {
+                    console.warn('[SW] Failed to forward to sidebar (sidebar might be closed):', err);
+                });
+
+                // Close offscreen document after a short delay
+                setTimeout(async () => {
+                    const existingContexts = await chrome.runtime.getContexts({
+                        contextTypes: ['OFFSCREEN_DOCUMENT']
+                    });
+                    if (existingContexts.length > 0) {
+                        chrome.offscreen.closeDocument().catch(e => {
+                            console.warn('[SW] Error closing offscreen document:', e);
+                        });
+                    }
+                }, 1000);
                 break;
             }
             default:

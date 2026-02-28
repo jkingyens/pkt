@@ -9,11 +9,22 @@
         "tabs",
         "tabGroups",
         "bookmarks",
-        "activeTab"
+        "activeTab",
+        "tabCapture",
+        "offscreen",
+        "contextMenus"
     ],
     "host_permissions": [
         "<all_urls>"
     ],
+    "commands": {
+        "toggle-recording": {
+            "suggested_key": {
+                "default": "Alt+Shift+R"
+            },
+            "description": "Toggle Audio Recording"
+        }
+    },
     "background": {
         "service_worker": "background/service-worker.js"
     },
@@ -50,7 +61,9 @@
     "web_accessible_resources": [
         {
             "resources": [
-                "sql-wasm.wasm"
+                "sql-wasm.wasm",
+                "src/island.html",
+                "src/island.js"
             ],
             "matches": [
                 "<all_urls>"

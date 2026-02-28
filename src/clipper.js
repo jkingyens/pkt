@@ -101,7 +101,7 @@
 
         const rect = selection.getBoundingClientRect();
         if (rect.width > 5 && rect.height > 5) {
-            chrome.runtime.sendMessage({
+            safeSendMessage({
                 type: 'CLIPPER_REGION_SELECTED',
                 region: {
                     x: rect.left,
@@ -120,10 +120,63 @@
 
     function onKeyDown(e) {
         if (e.key === 'Escape' && isActive) {
-            chrome.runtime.sendMessage({ type: 'CLIPPER_CANCELLED' });
+            safeSendMessage({ type: 'CLIPPER_CANCELLED' });
             e.preventDefault();
             e.stopPropagation();
         }
+    }
+
+    function safeSendMessage(message, callback) {
+        try {
+            if (!chrome.runtime?.id) {
+                console.warn('[Wildcard] Extension context invalidated. Please refresh the page.');
+                return;
+            }
+            chrome.runtime.sendMessage(message, callback);
+        } catch (e) {
+            if (e.message.includes('Extension context invalidated')) {
+                console.warn('[Wildcard] Extension context invalidated. Please refresh the page.');
+            } else {
+                console.error('[Wildcard] Send message failed:', e);
+            }
+        }
+    }
+
+    let island = null;
+    let isRecording = false;
+
+    function createDynamicIsland() {
+        if (island) return;
+
+        island = document.createElement('iframe');
+        island.id = 'wildcard-dynamic-island';
+        island.src = chrome.runtime.getURL('src/island.html');
+        Object.assign(island.style, {
+            position: 'fixed',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '150px',
+            height: '40px',
+            border: 'none',
+            borderRadius: '20px',
+            zIndex: '2147483647',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(20px)',
+            pointerEvents: 'auto'
+        });
+
+        shadow.appendChild(island);
+
+        // Listen for messages from the island
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'ISLAND_EXPAND') {
+                island.style.width = event.data.expand ? '200px' : '150px';
+            }
+        });
     }
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -131,8 +184,10 @@
             isActive = message.active;
             if (isActive) {
                 createOverlay();
+                createDynamicIsland();
                 overlay.style.display = 'block';
                 overlay.style.pointerEvents = 'auto';
+                island.style.display = 'block';
                 // Attach listeners to the overlay specifically to capture events before the page
                 overlay.addEventListener('mousedown', onMouseDown, true);
                 overlay.addEventListener('mousemove', onMouseMove, true);
@@ -146,6 +201,11 @@
                     overlay.removeEventListener('mousemove', onMouseMove, true);
                     overlay.removeEventListener('mouseup', onMouseUp, true);
                 }
+                if (island) {
+                    island.style.display = 'none';
+                    // Force stop recording if active
+                    island.contentWindow.postMessage({ type: 'STOP_RECORDING_FORCE' }, '*');
+                }
                 if (selection) {
                     selection.style.display = 'none';
                 }
@@ -155,5 +215,5 @@
         }
     });
 
-    console.log('[WildcardCX] Clipper content script initialized with Shadow DOM');
+    console.log('[Wildcard] Clipper content script initialized with Shadow DOM');
 })();
