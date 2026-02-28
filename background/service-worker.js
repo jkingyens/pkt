@@ -828,7 +828,8 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
-            case 'CLIPPER_REGION_SELECTED': {
+            case 'CLIPPER_REGION_SELECTED':
+            case 'CLIPPER_CANCELLED': {
                 // Forward content script message to the sidebar
                 chrome.runtime.sendMessage(request).catch(() => { });
                 sendResponse({ success: true });
@@ -900,6 +901,23 @@ chrome.tabGroups.onRemoved.addListener(async (group) => {
             await chrome.storage.local.set({ activeGroups });
         }
     } catch (e) { }
+});
+
+// Handle sidebar connection for robust closure detection
+chrome.runtime.onConnect.addListener((port) => {
+    if (port.name === 'sidebar') {
+        port.onDisconnect.addListener(async () => {
+            try {
+                // Sidebar closed! Deactivate clipper on the active tab
+                const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                if (tab) {
+                    chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active: false }).catch(() => { });
+                }
+            } catch (e) {
+                console.error('[ServiceWorker] Failed to deactivate clipper on sidebar close:', e);
+            }
+        });
+    }
 });
 
 initializeSQLite().then(() => {

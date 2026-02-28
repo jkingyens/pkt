@@ -366,9 +366,10 @@ class SidebarUI {
         this.geminiSystemPrompt = '';
         this.theme = 'light';
         this.activeUrl = null;
+        this.isClipperManuallyCancelled = false;
 
         this.setupEventListeners();
-        this.setupMessageListener();
+        this.setupMessageHandlers();
 
         // Global window drag/drop handlers to prevent browser from opening dropped files
         window.addEventListener('dragover', (e) => e.preventDefault(), false);
@@ -377,10 +378,9 @@ class SidebarUI {
         // Consolidated initialization flow
         this.init();
 
-        // Deactivate clipper when sidebar is closed
-        window.addEventListener('unload', () => {
-            this.setClipperActive(false);
-        });
+        // Establish a persistent connection to the background script
+        // This allows the service worker to detect when the sidebar is closed
+        this.port = chrome.runtime.connect({ name: 'sidebar' });
     }
 
     async init() {
@@ -404,7 +404,7 @@ class SidebarUI {
         }
     }
 
-    setupMessageListener() {
+    setupMessageHandlers() {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'packetFocused') {
                 this.activeUrl = message.packet.activeUrl || null;
@@ -414,6 +414,8 @@ class SidebarUI {
                 this.handleTriggerNewPacketWithTab();
             } else if (message.type === 'CLIPPER_REGION_SELECTED') {
                 this.handleClipperRegionSelected(message.region);
+            } else if (message.type === 'CLIPPER_CANCELLED') {
+                this.handleClipperCancelled();
             }
         });
     }
@@ -780,6 +782,7 @@ class SidebarUI {
 
     async showPacketDetailView(packet) {
         this.currentPacket = packet;
+        this.isClipperManuallyCancelled = false; // Reset cancellation when switching packets
         this.activePacketGroupId = packet.groupId || null;
         if (packet.activeUrl) this.activeUrl = packet.activeUrl;
 
@@ -833,6 +836,13 @@ class SidebarUI {
                     </div>
                 `;
                 card.addEventListener('click', async () => {
+                    const currentlyActive = this.urlsMatch(url, this.activeUrl);
+                    if (currentlyActive) {
+                        this.isClipperManuallyCancelled = !this.isClipperManuallyCancelled;
+                        this.updateClipperState();
+                        return;
+                    }
+
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
                     if (resp && resp.success && resp.newGroupId) {
                         this.activePacketGroupId = resp.newGroupId;
@@ -1320,8 +1330,6 @@ class SidebarUI {
                 url: mediaUrl,
                 packetId: this.currentPacket.id
             });
-
-            this.showNotification(`Opening ${item.name} in tab`, 'success');
         } catch (e) {
             console.error('playMedia failed:', e);
             this.showNotification('Failed to open media: ' + e.message, 'error');
@@ -2116,9 +2124,9 @@ class SidebarUI {
                 const dbContext = await this.getDatabaseContext();
 
                 // Augment prompt if this is a retry
-                let finalPrompt = currentPrompt;
+                let finalPrompt = `${originalPrompt}\n\n`;
                 if (attempt > 1 && lastError) {
-                    finalPrompt = `${originalPrompt}\n\nIMPORTANT: Your previous attempt failed to compile. Please fix the errors below.\n\nPREVIOUS CODE:\n\`\`\`zig\n${lastCode}\n\`\`\`\n\nCOMPILER ERROR:\n${lastError}`;
+                    finalPrompt += `IMPORTANT: Your previous attempt failed to compile. Please fix the errors below.\n\nPREVIOUS CODE:\n\`\`\`zig\n${lastCode}\n\`\`\`\n\nCOMPILER ERROR:\n${lastError}`;
                 }
 
                 const zigCode = await this.callGeminiApi(finalPrompt, wits, dbContext);
@@ -2289,7 +2297,7 @@ class SidebarUI {
 
     async updateClipperState() {
         const isDetailView = this.packetDetailView.classList.contains('active');
-        if (!isDetailView || !this.currentPacket) {
+        if (!isDetailView || !this.currentPacket || this.isClipperManuallyCancelled) {
             this.setClipperActive(false);
             return;
         }
@@ -2391,6 +2399,11 @@ class SidebarUI {
             console.error('Clipping failed:', err);
             this.showNotification('Clipping failed: ' + err.message, 'error');
         }
+    }
+
+    handleClipperCancelled() {
+        this.isClipperManuallyCancelled = true;
+        this.setClipperActive(false);
     }
 }
 
