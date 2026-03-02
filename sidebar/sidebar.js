@@ -410,6 +410,21 @@ class SidebarUI {
     connectToBackground() {
         try {
             this.port = chrome.runtime.connect({ name: 'sidebar' });
+            this.port.onMessage.addListener((msg) => {
+                if (msg.type === 'PROXY_KEY_DOWN') {
+                    // Create a synthetic event that handleKeyDown expects
+                    const syntheticEvent = {
+                        key: msg.key,
+                        shiftKey: msg.shiftKey,
+                        altKey: msg.altKey,
+                        ctrlKey: msg.ctrlKey,
+                        metaKey: msg.metaKey,
+                        preventDefault: () => { },
+                        target: { tagName: 'PROXY' } // Avoid input check
+                    };
+                    this.handleKeyDown(syntheticEvent);
+                }
+            });
             this.port.onDisconnect.addListener(() => {
                 console.log('[Sidebar] Background connection lost. Reconnecting in 1s...');
                 this.port = null;
@@ -435,6 +450,8 @@ class SidebarUI {
                 this.activePacketGroupId = message.packet.groupId || null;
                 this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
                 this.showPacketDetailView(message.packet);
+                // Sync navigation index
+                this.lastNavigatedIndex = this.getActiveItemIndex();
                 this.updateClipperState();
             } else if (message.type === 'CLIPPER_ICON_CLICKED') {
                 this.handleToolbarIconClicked(message.tab);
@@ -675,7 +692,7 @@ class SidebarUI {
             if (e.target === this.entryPreviewModal) this.entryPreviewModal.classList.add('hidden');
         });
 
-        // Global keydown for Escape in sidebar
+        // Global keydown for Escape and Navigation in sidebar
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 // Check if any modal is open first
@@ -696,6 +713,8 @@ class SidebarUI {
                 if (isDetailView && !this.isClipperManuallyCancelled) {
                     this.handleClipperCancelled();
                 }
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                this.handleKeyDown(e);
             }
         });
     }
@@ -930,6 +949,8 @@ class SidebarUI {
                 pageCount++;
                 const url = typeof item === 'string' ? item : item.url;
                 const card = document.createElement('div');
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
                 const isActive = this.urlsMatch(url, this.activeUrl);
                 card.className = `packet-page-card ${isActive ? 'active' : ''}`;
 
@@ -954,6 +975,7 @@ class SidebarUI {
                     if (resp && resp.success && resp.newGroupId) {
                         this.activePacketGroupId = resp.newGroupId;
                     }
+                    window.focus(); // Reclaim focus
                 });
                 pageList.appendChild(card);
             } else if (type === 'media') {
@@ -962,6 +984,8 @@ class SidebarUI {
                 const isActive = this.urlsMatch(mediaUrl, this.activeUrl);
 
                 const card = document.createElement('div');
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
                 card.className = `packet-media-card ${isActive ? 'active' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
@@ -985,7 +1009,10 @@ class SidebarUI {
             } else if (type === 'wasm') {
                 wasmCount++;
                 const card = document.createElement('div');
-                card.className = 'packet-page-card wasm';
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
+                const isSelected = (index === this.lastNavigatedIndex);
+                card.className = `packet-page-card wasm ${isSelected ? 'active' : ''}`;
                 card.innerHTML = `
                     <div class="packet-page-info">
                         <div class="packet-page-title">${this.escapeHtml(item.prompt || item.name)}</div>
@@ -1040,6 +1067,135 @@ class SidebarUI {
             console.error('[SidebarUI] Failed to remove item:', e);
             this.showNotification('Failed to remove item', 'error');
         }
+    }
+
+    handleKeyDown(e) {
+        // Only if packet detail view is active
+        if (!this.packetDetailView || !this.packetDetailView.classList.contains('active')) return;
+
+        // Don't interfere if user is typing in an input or textarea
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        // Also ignore if a modal is open (like the AI prompt or sequence result)
+        if (!this.schemaModal.classList.contains('hidden')) return;
+        if (!this.aiPromptModal.classList.contains('hidden')) return;
+        if (!this.wasmResultModal.classList.contains('hidden')) return;
+
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            this.navigatePacketItems(e.key === 'ArrowRight' ? 1 : -1);
+        }
+    }
+
+    getVisualSequence() {
+        if (!this.currentPacket || !this.currentPacket.urls) return [];
+        const itemsWithIndex = this.currentPacket.urls.map((item, originalIndex) => ({ item, originalIndex }));
+
+        const pages = itemsWithIndex.filter(({ item }) => {
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            return type === 'page' || type === 'link';
+        });
+        const media = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'media'));
+        const wasm = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'wasm'));
+
+        return [...pages, ...media, ...wasm];
+    }
+
+    navigatePacketItems(direction) {
+        const visualSeq = this.getVisualSequence();
+        if (visualSeq.length === 0) return;
+
+        let currentOriginalIndex = this.getActiveItemIndex();
+
+        // If no URL accurately matches (e.g. we're on a WASM item), fallback to tracked index
+        if (currentOriginalIndex === -1 && this.lastNavigatedIndex !== undefined) {
+            currentOriginalIndex = this.lastNavigatedIndex;
+        }
+
+        const currentVisualIndex = visualSeq.findIndex(entry => entry.originalIndex === currentOriginalIndex);
+
+        let nextVisualIndex;
+        if (currentVisualIndex === -1) {
+            nextVisualIndex = direction > 0 ? 0 : visualSeq.length - 1;
+        } else {
+            nextVisualIndex = (currentVisualIndex + direction + visualSeq.length) % visualSeq.length;
+        }
+
+        const nextEntry = visualSeq[nextVisualIndex];
+        this.lastNavigatedIndex = nextEntry.originalIndex;
+
+        // Trigger individual UI refresh if we're on a WASM item so it gets the highlight
+        if ((typeof nextEntry.item === 'object') && nextEntry.item.type === 'wasm') {
+            this.showPacketDetailView(this.currentPacket);
+        }
+
+        this.activatePacketItem(nextEntry.item, nextEntry.originalIndex);
+    }
+
+    activatePacketItem(item, index) {
+        const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+
+        // Helper to reclaim focus
+        const reclaimFocus = () => {
+            try {
+                // chrome.sidePanel.open is the most aggressive way to focus the side panel
+                // It requires a windowId, which we can get from the current tab or window
+                chrome.windows.getCurrent(win => {
+                    if (win) {
+                        chrome.sidePanel.open({ windowId: win.id }).catch(() => { });
+                    }
+                });
+
+                // Also focus the specific element in the sidebar
+                if (index !== undefined) {
+                    const selector = `[data-index="${index}"]`;
+                    const el = document.querySelector(selector);
+                    if (el) el.focus();
+                } else {
+                    window.focus();
+                }
+            } catch (e) {
+                window.focus();
+            }
+        };
+
+        if (type === 'page' || type === 'link') {
+            const url = typeof item === 'string' ? item : item.url;
+            this.sendMessage({
+                action: 'openTabInGroup',
+                url,
+                groupId: this.activePacketGroupId,
+                packetId: this.currentPacket.id
+            }).then(resp => {
+                if (resp && resp.success && resp.newGroupId) {
+                    this.activePacketGroupId = resp.newGroupId;
+                }
+                reclaimFocus();
+            });
+        } else if (type === 'media') {
+            this.playMedia(item).then(() => {
+                reclaimFocus();
+            });
+        } else if (type === 'wasm') {
+            this.runWasm(item).then(() => {
+                reclaimFocus();
+            });
+        }
+    }
+
+    getActiveItemIndex() {
+        if (!this.currentPacket || !this.currentPacket.urls) return -1;
+        return this.currentPacket.urls.findIndex(item => {
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            if (type === 'page' || type === 'link') {
+                const url = typeof item === 'string' ? item : item.url;
+                return this.urlsMatch(url, this.activeUrl);
+            } else if (type === 'media') {
+                const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                return this.urlsMatch(mediaUrl, this.activeUrl);
+            }
+            return false;
+        });
     }
 
     handleMediaDragOver(e) {
@@ -1475,6 +1631,7 @@ class SidebarUI {
                 url: mediaUrl,
                 packetId: this.currentPacket.id
             });
+            window.focus(); // Reclaim focus
         } catch (e) {
             console.error('playMedia failed:', e);
             this.showNotification('Failed to open media: ' + e.message, 'error');

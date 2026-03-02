@@ -314,6 +314,20 @@ async function handleMessage(request, sender, sendResponse) {
         await initializeSQLite();
 
         switch (action) {
+            case 'PROXY_KEY_DOWN': {
+                if (sidebarPort) {
+                    sidebarPort.postMessage({
+                        type: 'PROXY_KEY_DOWN',
+                        key: request.key,
+                        shiftKey: request.shiftKey,
+                        altKey: request.altKey,
+                        ctrlKey: request.ctrlKey,
+                        metaKey: request.metaKey
+                    });
+                }
+                sendResponse({ success: true });
+                break;
+            }
             case 'listCollections': {
                 const collections = sqliteManager.listCollections();
                 sendResponse({ success: true, collections });

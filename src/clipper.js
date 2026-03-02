@@ -135,6 +135,17 @@
             safeSendMessage({ type: 'CLIPPER_CANCELLED' });
             e.preventDefault();
             e.stopPropagation();
+        } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            // Keyboard Proxy: Send arrow keys to background even if clipper is not active
+            // The sidebar will decide whether to act on them
+            safeSendMessage({
+                type: 'PROXY_KEY_DOWN',
+                key: e.key,
+                shiftKey: e.shiftKey,
+                altKey: e.altKey,
+                ctrlKey: e.ctrlKey,
+                metaKey: e.metaKey
+            });
         }
     }
 
@@ -227,6 +238,9 @@
             }
         }
     });
+
+    // Always listen for keydown to support keyboard proxying
+    window.addEventListener('keydown', onKeyDown, true);
 
     console.log('[Wildcard] Clipper content script initialized with Shadow DOM');
 })();
