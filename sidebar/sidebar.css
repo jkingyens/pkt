@@ -370,6 +370,47 @@ h1 {
   font-weight: 500;
 }
 
+/* Floating Action Buttons */
+.floating-action-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--success);
+  color: white;
+  border: none;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.floating-action-btn:hover {
+  transform: scale(1.1) rotate(90deg);
+  background: #059669;
+  /* Slightly darker green */
+  box-shadow: 0 6px 15px rgba(16, 185, 129, 0.4);
+}
+
+.floating-action-btn:active {
+  transform: scale(0.95);
+}
+
+.floating-action-btn.hidden {
+  display: none;
+}
+
+/* Floating Edit/Delete Toggle Buttons */
+.floating-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
 /* Detail actions row */
 .detail-actions {
   display: flex;

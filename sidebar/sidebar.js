@@ -276,6 +276,7 @@ class SidebarUI {
         this.collectionsList = document.getElementById('collectionsList');
         this.template = document.getElementById('collectionTemplate');
         this.settingsBtn = document.getElementById('settingsBtn');
+        this.importBtn = document.getElementById('importBtn');
 
         // Settings view elements
         this.geminiApiKeyInput = document.getElementById('geminiApiKeyInput');
@@ -293,6 +294,7 @@ class SidebarUI {
         this.schemaContent = document.getElementById('schemaContent');
         this.entriesContent = document.getElementById('entriesContent');
         this.entryCount = document.getElementById('entryCount');
+        this.addPacketFloatingBtn = document.getElementById('addPacketFloatingBtn');
 
         // Constructor view elements
         this.constructorList = document.getElementById('constructorList');
@@ -666,6 +668,9 @@ class SidebarUI {
 
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
+        if (this.addPacketFloatingBtn) {
+            this.addPacketFloatingBtn.addEventListener('click', () => this.showConstructorView());
+        }
         document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
         document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
         document.getElementById('detailSaveBtn').addEventListener('click', () => this.saveCheckpoint(this.currentCollection));
@@ -1740,6 +1745,15 @@ class SidebarUI {
                 this.currentSchema = schemaResp.schema;
                 this.renderSchema(schemaResp.schema);
 
+                // Show/hide floating add button for packets
+                if (this.addPacketFloatingBtn) {
+                    if (name === 'packets') {
+                        this.addPacketFloatingBtn.classList.remove('hidden');
+                    } else {
+                        this.addPacketFloatingBtn.classList.add('hidden');
+                    }
+                }
+
                 const detailDeleteBtn = document.getElementById('detailDeleteBtn');
 
                 // Special handling for system collections
@@ -1868,17 +1882,11 @@ class SidebarUI {
                     }
                 }
 
-                // Build header with Add Packet button
-                const addBtn = document.createElement('button');
-                addBtn.className = 'btn btn-primary btn-sm';
-                addBtn.style.marginBottom = '12px';
-                addBtn.innerHTML = '＋ Add Packet';
-                addBtn.addEventListener('click', () => this.showConstructorView());
+                // Removed dynamic addBtn creation (moved to floating action button)
 
                 if (rows.length === 0) {
                     this.entriesContent.innerHTML = '';
-                    this.entriesContent.appendChild(addBtn);
-                    this.entriesContent.insertAdjacentHTML('beforeend', '<p class="hint">No packets yet. Click above to create one.</p>');
+                    this.entriesContent.insertAdjacentHTML('beforeend', '<p class="hint">No packets yet. Click the "+" button above to create one.</p>');
                     return;
                 }
 
@@ -1902,9 +1910,7 @@ class SidebarUI {
                     </div>`;
                 }).join('');
 
-                this.entriesContent.innerHTML = '';
-                this.entriesContent.appendChild(addBtn);
-                this.entriesContent.insertAdjacentHTML('beforeend', `<div class="packet-list">${html}</div>`);
+                this.entriesContent.innerHTML = `<div class="packet-list">${html}</div>`;
 
                 // Add click handler to the entire card
                 this.entriesContent.querySelectorAll('.packet-card').forEach((card, idx) => {
@@ -1927,14 +1933,7 @@ class SidebarUI {
                 });
             } else {
                 this.entryCount.textContent = '0';
-                this.entriesContent.innerHTML = '';
-                const addBtn = document.createElement('button');
-                addBtn.className = 'btn btn-primary btn-sm';
-                addBtn.style.marginBottom = '12px';
-                addBtn.innerHTML = '＋ Add Packet';
-                addBtn.addEventListener('click', () => this.showConstructorView());
-                this.entriesContent.appendChild(addBtn);
-                this.entriesContent.insertAdjacentHTML('beforeend', '<p class="hint">No packets yet. Click above to create one.</p>');
+                this.entriesContent.innerHTML = '<p class="hint">No packets yet. Click the "+" button above to create one.</p>';
             }
         } catch (error) {
             console.error('Failed to load packets:', error);
