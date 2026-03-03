@@ -14,24 +14,24 @@ chrome.runtime.onMessage.addListener(async (message) => {
     if (message.type === 'START_RECORDING') {
         startRecording(message.streamId);
     } else if (message.type === 'START_MIC_RECORDING') {
-        startMicRecording();
+        startMicRecording(message.video);
     } else if (message.type === 'STOP_RECORDING') {
         stopRecording();
     }
 });
 
-async function startMicRecording() {
+async function startMicRecording(isVideo = false) {
     if (recorder && recorder.state !== 'inactive') return;
 
-    log('[Offscreen] Starting microphone recording');
+    log(`[Offscreen] Starting ${isVideo ? 'video' : 'microphone'} recording`);
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
-            video: false
+            video: isVideo
         });
 
         log('[Offscreen] Mic stream obtained');
-        setupRecorder(stream);
+        setupRecorder(stream, isVideo);
     } catch (e) {
         log(`[Offscreen] Mic recording failed. Name: ${e.name}, Message: ${e.message}`);
         chrome.runtime.sendMessage({
@@ -41,8 +41,9 @@ async function startMicRecording() {
     }
 }
 
-function setupRecorder(stream) {
-    recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+function setupRecorder(stream, isVideo = false) {
+    const mimeType = isVideo ? 'video/webm' : 'audio/webm';
+    recorder = new MediaRecorder(stream, { mimeType });
     data = [];
 
     recorder.ondataavailable = (event) => {
@@ -53,11 +54,11 @@ function setupRecorder(stream) {
 
     recorder.onstop = () => {
         log('[Offscreen] Recorder stopped, chunks: ' + data.length);
-        const blob = new Blob(data, { type: 'audio/webm' });
+        const blob = new Blob(data, { type: mimeType });
         const reader = new FileReader();
         reader.onload = () => {
             chrome.runtime.sendMessage({
-                type: 'AUDIO_RECORDING_RESULT',
+                type: isVideo ? 'VIDEO_RECORDING_RESULT' : 'AUDIO_RECORDING_RESULT',
                 dataUrl: reader.result
             });
         };

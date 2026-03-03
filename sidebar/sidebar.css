@@ -1015,6 +1015,12 @@ h1 {
   margin-bottom: 0;
 }
 
+.media-record-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .media-drop-zone,
 .media-record-btn {
   border: 2px dashed var(--border);
@@ -1030,6 +1036,20 @@ h1 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+.media-record-btn.compact {
+  padding: 8px 10px;
+  flex: 1;
+}
+
+.media-record-btn.compact .record-zone-icon {
+  font-size: 18px;
+  margin-bottom: 2px;
+}
+
+.media-record-btn.compact p {
+  font-size: 11px;
 }
 
 .media-drop-zone:hover,

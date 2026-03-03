@@ -456,7 +456,7 @@ async function handleMessage(request, sender, sendResponse) {
                     console.log('[SW] startMicRecording action received. Ensuring offscreen document...');
                     await ensureOffscreenDocument();
                     console.log('[SW] Offscreen document ready. Sending START_MIC_RECORDING to offscreen...');
-                    chrome.runtime.sendMessage({ type: 'START_MIC_RECORDING' });
+                    chrome.runtime.sendMessage({ type: 'START_MIC_RECORDING', video: !!request.video });
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('[SW] startMicRecording failed:', err);
@@ -464,6 +464,7 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'stopRecording':
             case 'stopMicRecording': {
                 chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
                 sendResponse({ success: true });
@@ -1266,14 +1267,16 @@ async function handleMessage(request, sender, sendResponse) {
                 chrome.runtime.sendMessage(request).catch(() => { });
                 break;
             }
-            case 'AUDIO_RECORDING_RESULT': {
-                console.log('[SW] AUDIO_RECORDING_RESULT received, dataUrl length:', request.dataUrl?.length);
+            case 'AUDIO_RECORDING_RESULT':
+            case 'VIDEO_RECORDING_RESULT': {
+                const isVideo = action === 'VIDEO_RECORDING_RESULT';
+                console.log(`[SW] ${action} received, dataUrl length:`, request.dataUrl?.length);
                 // Forward the result to the sidebar
                 chrome.runtime.sendMessage({
-                    type: 'AUDIO_CLIP_FINISHED',
+                    type: isVideo ? 'VIDEO_CLIP_FINISHED' : 'AUDIO_CLIP_FINISHED',
                     dataUrl: request.dataUrl
                 }).then(() => {
-                    console.log('[SW] Successfully forwarded AUDIO_CLIP_FINISHED to sidebar');
+                    console.log(`[SW] Successfully forwarded ${isVideo ? 'VIDEO' : 'AUDIO'}_CLIP_FINISHED to sidebar`);
                 }).catch((err) => {
                     console.warn('[SW] Failed to forward to sidebar (sidebar might be closed):', err);
                 });

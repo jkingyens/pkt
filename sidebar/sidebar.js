@@ -323,7 +323,8 @@ class SidebarUI {
         this.packetDataList = document.getElementById('packetDataList');
         this.mediaDropZone = document.getElementById('mediaDropZone');
         this.mediaAddOptions = document.getElementById('mediaAddOptions');
-        this.mediaRecordBtn = document.getElementById('mediaRecordBtn');
+        this.mediaAudioRecordBtn = document.getElementById('mediaAudioRecordBtn');
+        this.mediaVideoRecordBtn = document.getElementById('mediaVideoRecordBtn');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
@@ -494,16 +495,16 @@ class SidebarUI {
                 this.handleClipperRegionSelected(message.region);
             } else if (message.type === 'CLIPPER_CANCELLED') {
                 this.handleClipperCancelled();
-            } else if (message.type === 'AUDIO_CLIP_FINISHED') {
-                this.isMicRecording = false;
-                this.updateMicRecordingUI();
-                this.handleAudioClipFinished(message.dataUrl);
+            } else if (message.type === 'AUDIO_CLIP_FINISHED' || message.type === 'VIDEO_CLIP_FINISHED') {
+                this.isRecording = false;
+                this.updateRecordingUI();
+                this.handleMediaClipFinished(message.dataUrl, message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm');
             } else if (message.type === 'RECORDING_STARTED') {
-                this.isMicRecording = true;
-                this.updateMicRecordingUI();
+                this.isRecording = true;
+                this.updateRecordingUI();
             } else if (message.type === 'RECORDING_ERROR') {
-                this.isMicRecording = false;
-                this.updateMicRecordingUI();
+                this.isRecording = false;
+                this.updateRecordingUI();
                 if (message.error && (message.error.includes('NotAllowedError') || message.error.includes('Permission dismissed'))) {
                     this.handlePermissionError();
                 } else {
@@ -699,22 +700,31 @@ class SidebarUI {
             });
         }
 
-        if (this.mediaRecordBtn) {
-            this.mediaRecordBtn.addEventListener('click', async () => {
-                if (this.isMicRecording) {
-                    await this.sendMessage({ action: 'stopMicRecording' });
+        if (this.mediaAudioRecordBtn) {
+            this.mediaAudioRecordBtn.addEventListener('click', async () => {
+                if (this.isRecording) {
+                    await this.sendMessage({ action: 'stopRecording' });
                 } else {
                     try {
-                        const resp = await this.sendMessage({ action: 'startMicRecording' });
+                        const resp = await this.sendMessage({ action: 'startMicRecording', video: false });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
-                        if (err.name === 'NotAllowedError' || err.message.includes('Permission dismissed')) {
-                            this.handlePermissionError();
-                        } else {
-                            this.showNotification('Failed to start recording: ' + err.message, 'error');
-                        }
-                        this.isMicRecording = false;
-                        this.updateMicRecordingUI();
+                        this.handleRecordingError(err);
+                    }
+                }
+            });
+        }
+
+        if (this.mediaVideoRecordBtn) {
+            this.mediaVideoRecordBtn.addEventListener('click', async () => {
+                if (this.isRecording) {
+                    await this.sendMessage({ action: 'stopRecording' });
+                } else {
+                    try {
+                        const resp = await this.sendMessage({ action: 'startMicRecording', video: true });
+                        if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
+                    } catch (err) {
+                        this.handleRecordingError(err);
                     }
                 }
             });
@@ -876,16 +886,76 @@ class SidebarUI {
         }
     }
 
-    updateMicRecordingUI() {
-        if (!this.mediaRecordBtn) return;
-        if (this.isMicRecording) {
-            this.mediaRecordBtn.classList.add('recording');
-            this.mediaRecordBtn.querySelector('p').textContent = 'Recording...';
-            this.mediaRecordBtn.querySelector('.record-zone-icon').textContent = '⏹️';
+    handleRecordingError(err) {
+        if (err.name === 'NotAllowedError' || err.message.includes('Permission dismissed')) {
+            this.handlePermissionError();
         } else {
-            this.mediaRecordBtn.classList.remove('recording');
-            this.mediaRecordBtn.querySelector('p').textContent = 'Record';
-            this.mediaRecordBtn.querySelector('.record-zone-icon').textContent = '🎤';
+            this.showNotification('Failed to start recording: ' + err.message, 'error');
+        }
+        this.isRecording = false;
+        this.updateRecordingUI();
+    }
+
+    updateRecordingUI() {
+        const buttons = [
+            { btn: this.mediaAudioRecordBtn, icon: '🎤', text: 'Audio Only' },
+            { btn: this.mediaVideoRecordBtn, icon: '📹', text: 'Video + Audio' }
+        ];
+
+        buttons.forEach(({ btn, icon, text }) => {
+            if (!btn) return;
+            if (this.isRecording) {
+                btn.classList.add('recording');
+                btn.querySelector('p').textContent = 'Recording...';
+                btn.querySelector('.record-zone-icon').textContent = '⏹️';
+            } else {
+                btn.classList.remove('recording');
+                btn.querySelector('p').textContent = text;
+                btn.querySelector('.record-zone-icon').textContent = icon;
+            }
+        });
+    }
+
+    async handleMediaClipFinished(dataUrl, mimeType) {
+        try {
+            const resp = await fetch(dataUrl);
+            const blob = await resp.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+
+            const saveResp = await this.sendMessage({
+                action: 'saveMediaBlob',
+                data: Array.from(new Uint8Array(arrayBuffer)),
+                type: mimeType
+            });
+
+            if (saveResp.success) {
+                const name = mimeType.startsWith('video') ? `Video ${new Date().toLocaleString()}.webm` : `Audio ${new Date().toLocaleString()}.webm`;
+                const newItem = {
+                    type: 'media',
+                    name: name,
+                    mediaId: saveResp.id,
+                    mimeType: mimeType
+                };
+
+                if (this.currentPacket) {
+                    this.currentPacket.urls.push(newItem);
+                    await this.sendMessage({
+                        action: 'savePacket',
+                        id: this.currentPacket.id,
+                        name: this.currentPacket.name,
+                        urls: this.currentPacket.urls
+                    });
+                    this.showPacketDetailView(this.currentPacket);
+                } else if (this.constructorView.classList.contains('active')) {
+                    this.constructorItems.push(newItem);
+                    this.renderConstructorItems();
+                }
+            } else {
+                throw new Error(saveResp.error || 'Failed to save media');
+            }
+        } catch (err) {
+            console.error('handleMediaClipFinished failed:', err);
+            this.showNotification('Failed to save clip: ' + err.message, 'error');
         }
     }
 
