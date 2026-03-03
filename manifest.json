@@ -13,8 +13,7 @@
         "tabCapture",
         "offscreen",
         "contextMenus",
-        "scripting",
-        "audioCapture"
+        "scripting"
     ],
     "host_permissions": [
         "<all_urls>"
