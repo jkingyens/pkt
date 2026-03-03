@@ -322,6 +322,8 @@ class SidebarUI {
         this.mediaDropZone = document.getElementById('mediaDropZone');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
+        this.editToggleBtn = document.getElementById('editToggleBtn');
+        this.deletePacketDetailBtn = document.getElementById('deletePacketDetailBtn');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -375,6 +377,7 @@ class SidebarUI {
         this.isClipperManuallyCancelled = false;
         this.isClipperInvoked = false; // Manual activation state for activeTab
         this.isClipperIconProcessing = false; // Guard for rapid clicks
+        this.editMode = false;
 
         this.setupEventListeners();
         this.setupMessageHandlers();
@@ -666,6 +669,12 @@ class SidebarUI {
                 this.addTabToCurrentPacket();
             });
         }
+        if (this.editToggleBtn) {
+            this.editToggleBtn.addEventListener('click', () => this.toggleEditMode());
+        }
+        if (this.deletePacketDetailBtn) {
+            this.deletePacketDetailBtn.addEventListener('click', () => this.deleteCurrentPacket());
+        }
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
@@ -768,6 +777,10 @@ class SidebarUI {
                 if (isDetailView && !this.isClipperManuallyCancelled) {
                     this.handleClipperCancelled();
                 }
+
+                if (this.editMode) {
+                    this.toggleEditMode();
+                }
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
                 this.handleKeyDown(e);
             }
@@ -776,11 +789,126 @@ class SidebarUI {
 
     // ===== NAVIGATION =====
 
+    toggleEditMode() {
+        this.editMode = !this.editMode;
+        if (this.packetDetailView) {
+            if (this.editMode) {
+                this.packetDetailView.classList.add('edit-mode');
+                this.editToggleBtn.classList.add('active');
+            } else {
+                this.packetDetailView.classList.remove('edit-mode');
+                this.editToggleBtn.classList.remove('active');
+            }
+        }
+        if (this.currentPacket) {
+            this.showPacketDetailView(this.currentPacket);
+        }
+    }
+
+    async deleteCurrentPacket() {
+        if (!this.currentPacket) return;
+        if (!confirm(`Delete packet "${this.currentPacket.name}"? This will delete the packet and close its tabs.`)) return;
+
+        try {
+            // First delete the packet from DB
+            const resp = await this.sendMessage({ action: 'deletePacket', id: this.currentPacket.id });
+            if (!resp || !resp.success) throw new Error(resp?.error || 'Delete failed');
+
+            // Then close the tab group if it exists
+            await this.sendMessage({
+                action: 'closePacketGroup',
+                packetId: this.currentPacket.id
+            });
+
+            this.showNotification(`Packet "${this.currentPacket.name}" deleted`, 'success');
+            this.showDetailView('packets');
+        } catch (err) {
+            console.error('Delete packet failed:', err);
+            this.showNotification('Failed to delete packet: ' + err.message, 'error');
+        }
+    }
+
+    addReorderEvents(el, index, type) {
+        el.addEventListener('dragstart', (e) => {
+            this.dragSrcIndex = index;
+            el.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            // Set type to restrict drops to same section
+            e.dataTransfer.setData('text/plain', type);
+        });
+
+        el.addEventListener('dragover', (e) => {
+            if (e.preventDefault) e.preventDefault();
+            const srcType = e.dataTransfer.getData('text/plain') || type; // Fallback
+            if (srcType !== type) return false;
+
+            el.classList.add('drag-over');
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        });
+
+        el.addEventListener('dragleave', () => {
+            el.classList.remove('drag-over');
+        });
+
+        el.addEventListener('drop', async (e) => {
+            if (e.stopPropagation) e.stopPropagation();
+            el.classList.remove('drag-over');
+
+            const srcIndex = this.dragSrcIndex;
+            const targetIndex = index;
+
+            if (srcIndex === null || srcIndex === targetIndex) return;
+
+            // Check if types match - although dragover should handle this, double check
+            const srcItem = this.currentPacket.urls[srcIndex];
+            const targetItem = this.currentPacket.urls[targetIndex];
+            const srcType = (typeof srcItem === 'object') ? (srcItem.type || 'page') : 'page';
+            const targetType = (typeof targetItem === 'object') ? (targetItem.type || 'page') : 'page';
+
+            if (srcType !== targetType) {
+                this.showNotification('Cannot move items between sections', 'error');
+                return;
+            }
+
+            // Reorder array
+            const [movedItem] = this.currentPacket.urls.splice(srcIndex, 1);
+            this.currentPacket.urls.splice(targetIndex, 0, movedItem);
+
+            // Save
+            const saveResp = await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+
+            if (saveResp && saveResp.success) {
+                this.showPacketDetailView(this.currentPacket);
+            }
+
+            return false;
+        });
+
+        el.addEventListener('dragend', () => {
+            el.classList.remove('dragging');
+            const allItems = this.packetDetailView.querySelectorAll('.packet-page-card, .packet-media-card');
+            allItems.forEach(item => item.classList.remove('drag-over'));
+            this.dragSrcIndex = null;
+        });
+    }
+
     showView(viewId) {
         this.hideAllViews();
         const view = document.getElementById(viewId);
         if (view) {
             view.classList.add('active');
+            // Disable edit mode when switching views
+            if (viewId !== 'packetDetailView') {
+                this.editMode = false;
+                if (this.packetDetailView) this.packetDetailView.classList.remove('edit-mode');
+                if (this.editToggleBtn) this.editToggleBtn.classList.remove('active');
+            }
             this.updateClipperState();
         } else {
             console.error(`[SidebarUI] View not found: ${viewId}`);
@@ -1024,6 +1152,7 @@ class SidebarUI {
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
+                card.draggable = this.editMode;
                 const isActive = this.urlsMatch(url, this.activeUrl);
                 card.className = `packet-page-card ${isActive ? 'active' : ''}`;
 
@@ -1032,6 +1161,7 @@ class SidebarUI {
 
                 const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
                 card.innerHTML = `
+                    <span class="reorder-handle">↕️</span>
                     <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
                     <div class="packet-page-info">
                         <div class="packet-page-hostname">${this.escapeHtml(hostname)}</div>
@@ -1044,12 +1174,14 @@ class SidebarUI {
                     this.removePacketItem(index);
                 });
                 card.addEventListener('click', async () => {
+                    if (this.editMode) return;
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
                     if (resp && resp.success && resp.newGroupId) {
                         this.activePacketGroupId = resp.newGroupId;
                     }
                     window.focus(); // Reclaim focus
                 });
+                if (this.editMode) this.addReorderEvents(card, index, 'page');
                 pageList.appendChild(card);
             } else if (type === 'media') {
                 mediaCount++;
@@ -1059,10 +1191,12 @@ class SidebarUI {
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
+                card.draggable = this.editMode;
                 card.className = `packet-media-card ${isActive ? 'active' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
+                    <span class="reorder-handle">↕️</span>
                     <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">${icon}</div>
                     <div class="packet-media-info">
                         <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
@@ -1077,16 +1211,22 @@ class SidebarUI {
                 if (isImage) {
                     this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
                 }
-                card.addEventListener('click', () => this.playMedia(item));
+                card.addEventListener('click', () => {
+                    if (this.editMode) return;
+                    this.playMedia(item);
+                });
+                if (this.editMode) this.addReorderEvents(card, index, 'media');
                 mediaList.appendChild(card);
             } else if (type === 'wasm') {
                 wasmCount++;
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
+                card.draggable = this.editMode;
                 const isSelected = (index === this.lastNavigatedIndex);
                 card.className = `packet-page-card wasm ${isSelected ? 'active' : ''}`;
                 card.innerHTML = `
+                    <span class="reorder-handle">↕️</span>
                     <div class="packet-page-info">
                         <div class="packet-page-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
@@ -1103,6 +1243,7 @@ class SidebarUI {
                     e.stopPropagation();
                     this.runWasm(item);
                 });
+                if (this.editMode) this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
             }
         });
@@ -1683,9 +1824,6 @@ class SidebarUI {
                             <span class="packet-name">${this.escapeHtml(name)} <span class="packet-url-count">${itemCount} Items</span></span>
                             <span class="packet-meta">Created ${time}</span>
                         </div>
-                        <div class="packet-card-actions">
-                            <button class="packet-delete-btn" title="Delete Packet" data-id="${rowid}">🗑</button>
-                        </div>
                     </div>`;
                 }).join('');
 
@@ -1696,9 +1834,6 @@ class SidebarUI {
                 // Add click handler to the entire card
                 this.entriesContent.querySelectorAll('.packet-card').forEach((card, idx) => {
                     card.addEventListener('click', async (e) => {
-                        // Don't trigger if delete button was clicked
-                        if (e.target.closest('.packet-delete-btn')) return;
-
                         // Show details immediately
                         const [rowid, name, urlsJson] = rows[idx];
                         this.showPacketDetailView({
@@ -1712,21 +1847,6 @@ class SidebarUI {
                         } catch (error) {
                             console.error('Play failed:', error);
                             this.showNotification('Failed to open packet', 'error');
-                        }
-                    });
-                });
-
-                this.entriesContent.querySelectorAll('.packet-delete-btn').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        if (!confirm('Delete this packet?')) return;
-                        try {
-                            const resp = await this.sendMessage({ action: 'deletePacket', id: btn.dataset.id });
-                            if (!resp || !resp.success) throw new Error(resp?.error || 'Delete failed');
-                            await this.loadPackets();
-                        } catch (err) {
-                            console.error('Delete packet failed:', err);
-                            this.showNotification('Failed to delete packet: ' + err.message, 'error');
                         }
                     });
                 });

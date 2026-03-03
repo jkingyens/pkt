@@ -137,7 +137,7 @@
       <div class="section-header">
         <h3>📄 Pages</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button id="addPageDetailBtn" class="btn btn-secondary btn-sm" title="Add Page">➕</button>
+          <button id="addPageDetailBtn" class="btn btn-secondary btn-sm section-add-btn" title="Add Page">➕</button>
           <span id="packetDetailPageCount" class="badge">0</span>
         </div>
       </div>
@@ -151,7 +151,7 @@
       <div class="section-header">
         <h3>🖼️ Media</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button id="addMediaDetailBtn" class="btn btn-secondary btn-sm" title="Add Media">➕</button>
+          <button id="addMediaDetailBtn" class="btn btn-secondary btn-sm section-add-btn" title="Add Media">➕</button>
           <span id="packetMediaCount" class="badge">0</span>
         </div>
       </div>
@@ -169,7 +169,7 @@
       <div class="section-header">
         <h3>🧩 Functions</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button id="aiGenerateWasmDetailBtn" class="btn btn-secondary btn-sm"
+          <button id="aiGenerateWasmDetailBtn" class="btn btn-secondary btn-sm section-add-btn"
             title="Generate Function with AI">✨</button>
           <span id="packetWasmCount" class="badge">0</span>
         </div>
@@ -189,6 +189,16 @@
         <p class="hint">No tables in this packet.</p>
       </div>
     </section>
+
+    <!-- Floating Edit/Delete Toggle Buttons -->
+    <div class="floating-actions">
+      <button id="deletePacketDetailBtn" class="floating-btn danger" title="Delete Packet">
+        <span class="delete-icon">🗑️</span>
+      </button>
+      <button id="editToggleBtn" class="floating-btn" title="Toggle Edit Mode">
+        <span class="edit-icon">✏️</span>
+      </button>
+    </div>
   </div>
 
   <!-- ===== CONSTRUCTOR VIEW ===== -->
