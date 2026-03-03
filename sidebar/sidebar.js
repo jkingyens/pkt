@@ -519,8 +519,14 @@ class SidebarUI {
         if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
             this.addTabToCurrentPacket();
         } else {
-            this.showConstructorView();
-            this.addCurrentTab(silent);
+            this.sendMessage({ action: 'getCurrentTab' }).then(resp => {
+                if (resp.success) {
+                    const { title, url } = resp.tab;
+                    this.createAndShowNewPacket([{ type: 'page', title: title || url, url }]);
+                } else if (!silent) {
+                    this.showNotification('Could not get current tab', 'error');
+                }
+            });
         }
     }
 
@@ -570,7 +576,7 @@ class SidebarUI {
                     } else {
                         // Step 1: Navigate to constructor and add tab, but stay OFF
                         this.isClipperInvoked = false;
-                        this.handleTriggerNewPacketWithTab(true);
+                        this.createAndShowNewPacket([{ type: 'page', title: tab.title || tab.url, url: tab.url }]);
                     }
                 }
                 await this.updateClipperState();
@@ -655,7 +661,10 @@ class SidebarUI {
         // List view
         document.getElementById('createBtn').addEventListener('click', () => this.createCollection());
         document.getElementById('importBtn').addEventListener('click', () => this.importDatabase());
-        this.settingsBtn.addEventListener('click', () => this.showSettingsView());
+        this.settingsBtn.addEventListener('click', async () => {
+            await this.checkEmptyPacketGarbageCollector();
+            this.showSettingsView();
+        });
 
         // Settings view
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
@@ -670,7 +679,7 @@ class SidebarUI {
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
         if (this.addPacketFloatingBtn) {
-            this.addPacketFloatingBtn.addEventListener('click', () => this.showConstructorView());
+            this.addPacketFloatingBtn.addEventListener('click', () => this.createAndShowNewPacket([]));
         }
         document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
         document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
@@ -678,7 +687,7 @@ class SidebarUI {
         document.getElementById('detailDeleteBtn').addEventListener('click', () => this.deleteCollection(this.currentCollection));
 
         // Packet detail view
-        document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.showDetailView('packets'));
+        document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.handlePacketDetailBack());
         document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
@@ -1007,20 +1016,23 @@ class SidebarUI {
         this.settingsView.classList.remove('active');
     }
 
-    showListView() {
+    async showListView() {
+        await this.checkEmptyPacketGarbageCollector();
         this.showView('listView');
         this.currentCollection = null;
         this.loadCollections();
     }
 
-    showDetailView(collectionName) {
+    async showDetailView(collectionName) {
+        await this.checkEmptyPacketGarbageCollector();
         this.currentCollection = collectionName;
         this.detailTitle.textContent = collectionName;
         this.showView('detailView');
         this.loadCollectionDetail(collectionName);
     }
 
-    showWitsView() {
+    async showWitsView() {
+        await this.checkEmptyPacketGarbageCollector();
         this.currentCollection = 'wits';
         this.showView('witsView');
         this.loadWits();
@@ -1172,9 +1184,31 @@ class SidebarUI {
         return this.normalizeUrl(u1) === this.normalizeUrl(u2);
     }
 
+    async handlePacketDetailBack() {
+        await this.checkEmptyPacketGarbageCollector();
+        this.showDetailView('packets');
+    }
+
+    async checkEmptyPacketGarbageCollector() {
+        if (this.newlyCreatedEmptyPacketId && this.currentPacket &&
+            String(this.currentPacket.id) === String(this.newlyCreatedEmptyPacketId) &&
+            this.currentPacket.urls.length === 0) {
+
+            const pid = this.currentPacket.id;
+            this.newlyCreatedEmptyPacketId = null;
+            // Silent delete (no confirm)
+            await this.sendMessage({ action: 'deletePacket', id: pid });
+            await this.sendMessage({ action: 'closePacketGroup', packetId: pid });
+            // Disable edit mode if it was auto-enabled
+            if (this.editMode) this.toggleEditMode();
+        }
+    }
+
     async closePacketGroup() {
         if (!this.currentPacket) return;
         try {
+            await this.checkEmptyPacketGarbageCollector();
+
             await this.sendMessage({
                 action: 'closePacketGroup',
                 packetId: this.currentPacket.id
@@ -2315,6 +2349,49 @@ class SidebarUI {
 
             this.constructorList.appendChild(card);
         });
+    }
+
+    async createAndShowNewPacket(items = []) {
+        const now = new Date();
+        const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+        const name = `Packet ${timeStr}`;
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'savePacket',
+                name: name,
+                urls: items
+            });
+
+            if (resp && resp.success && resp.id) {
+                const newPacket = {
+                    id: resp.id,
+                    name: name,
+                    urls: items
+                };
+
+                // Triggers playPacket to ensure tab group is created/focused
+                await this.sendMessage({ action: 'playPacket', id: resp.id });
+
+                // If empty, mark it for "garbage collection" if abandoned
+                if (items.length === 0) {
+                    this.newlyCreatedEmptyPacketId = resp.id;
+                    if (!this.editMode) this.toggleEditMode();
+                } else {
+                    this.newlyCreatedEmptyPacketId = null;
+                }
+
+                // Refresh the list in background but show detail immediately
+                this.loadCollections();
+                this.showPacketDetailView(newPacket);
+                this.showNotification(`Created "${name}"`, 'success');
+            } else {
+                throw new Error(resp?.error || 'Failed to create packet');
+            }
+        } catch (err) {
+            console.error('createAndShowNewPacket failed:', err);
+            this.showNotification('Failed to create packet: ' + err.message, 'error');
+        }
     }
 
     async savePacket() {

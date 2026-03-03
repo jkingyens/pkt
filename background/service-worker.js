@@ -669,12 +669,15 @@ async function handleMessage(request, sender, sendResponse) {
                     if (request.id) {
                         const id = parseInt(request.id, 10);
                         db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
+                        await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        sendResponse({ success: true, id });
                     } else {
                         db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
+                        const result = db.exec("SELECT last_insert_rowid()");
+                        const newId = result[0].values[0][0];
+                        await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        sendResponse({ success: true, id: newId });
                     }
-
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
-                    sendResponse({ success: true });
                 } catch (err) {
                     console.error('savePacket error:', err);
                     sendResponse({ success: false, error: err.message });
