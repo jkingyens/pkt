@@ -4,7 +4,7 @@
  */
 
 // Import scripts in service worker context (paths relative to extension root)
-self.importScripts('../sql-wasm.js', '../src/sqlite-manager.js', '../src/blob-storage.js');
+self.importScripts('../vendor/sqlite/sql-wasm.js', '../src/sqlite-manager.js', '../src/blob-storage.js');
 
 let sqliteManager = null;
 const blobStorage = new BlobStorage();
@@ -423,7 +423,7 @@ async function initializeSQLite() {
         try {
             if (!SQL) {
                 SQL = await initSqlJs({
-                    locateFile: file => chrome.runtime.getURL(file)
+                    locateFile: file => chrome.runtime.getURL(`vendor/sqlite/${file}`)
                 });
                 sqliteManager = new SQLiteManager(SQL);
             }

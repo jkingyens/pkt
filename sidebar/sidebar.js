@@ -2524,7 +2524,7 @@ class SidebarUI {
             }
         }
 
-        const terminalUrl = chrome.runtime.getURL(`terminal.html?packetId=${packetId}`);
+        const terminalUrl = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}`);
 
         try {
             await this.sendMessage({

@@ -62,7 +62,7 @@
     "web_accessible_resources": [
         {
             "resources": [
-                "sql-wasm.wasm",
+                "vendor/sqlite/sql-wasm.wasm",
                 "src/island.html",
                 "src/island.js"
             ],

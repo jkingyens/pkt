@@ -179,6 +179,7 @@ self.onmessage = async (e) => {
                 wasi_snapshot_preview1: wasi.wasiImport,
             });
             wasi.start(instance);
+            self.postMessage({ type: 'exit' });
         } catch (err) {
             console.error('Worker: Error:', err);
         }

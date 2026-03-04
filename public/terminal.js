@@ -3,7 +3,7 @@
  * Main Thread Logic
  */
 
-import { init, Terminal, FitAddon } from "./public/assets/terminal/ghostty-web.js";
+import { init, Terminal, FitAddon } from "./assets/terminal/ghostty-web.js";
 
 async function initTerminal() {
     console.log('Terminal: Starting initTerminal...');
@@ -87,13 +87,15 @@ async function initTerminal() {
     const controlData = new Int32Array(controlSAB);
 
     // 4. Start WASI Worker
-    const worker = new Worker(new URL('./public/assets/terminal/terminal-worker.js', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL('./assets/terminal/terminal-worker.js', import.meta.url), { type: 'module' });
 
     worker.onmessage = (e) => {
         if (e.data.type === 'stdout') {
             const text = new TextDecoder().decode(e.data.data);
             // Convert LF to CRLF for display (don't convert if already CRLF)
             terminal.write(text.replace(/(?<!\r)\n/g, '\r\n'));
+        } else if (e.data.type === 'exit') {
+            window.close();
         }
     };
 
