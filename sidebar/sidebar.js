@@ -383,7 +383,8 @@ class SidebarUI {
         this.theme = 'light';
         this.activeUrl = null;
         this.isClipperManuallyCancelled = false;
-        this.isMicRecording = false;
+        this.isAudioRecording = false;
+        this.isVideoRecording = false;
         this.isClipperInvoked = false; // Manual activation state for activeTab
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.editMode = false;
@@ -506,13 +507,22 @@ class SidebarUI {
                 this.handleClipperCancelled();
             } else if (message.type === 'AUDIO_CLIP_FINISHED' || message.type === 'VIDEO_CLIP_FINISHED') {
                 this.isRecording = false;
+                this.isAudioRecording = false;
+                this.isVideoRecording = false;
                 this.updateRecordingUI();
                 this.handleMediaClipFinished(message.dataUrl, message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm');
             } else if (message.type === 'RECORDING_STARTED') {
                 this.isRecording = true;
+                if (message.isVideo) {
+                    this.isVideoRecording = true;
+                } else {
+                    this.isAudioRecording = true;
+                }
                 this.updateRecordingUI();
             } else if (message.type === 'RECORDING_ERROR') {
                 this.isRecording = false;
+                this.isAudioRecording = false;
+                this.isVideoRecording = false;
                 this.updateRecordingUI();
                 if (message.error && (message.error.includes('NotAllowedError') || message.error.includes('Permission dismissed'))) {
                     this.handlePermissionError();
@@ -586,7 +596,7 @@ class SidebarUI {
                     } else {
                         // Step 1: Navigate to constructor and add tab, but stay OFF
                         this.isClipperInvoked = false;
-                        this.createAndShowNewPacket([{ type: 'page', title: tab.title || tab.url, url: tab.url }]);
+                        this.createAndShowNewPacket([{ type: 'page', title: tab.title || tab.url, url: tab.url }], tab.id);
                     }
                 }
                 await this.updateClipperState();
@@ -911,13 +921,13 @@ class SidebarUI {
 
     updateRecordingUI() {
         const buttons = [
-            { btn: this.mediaAudioRecordBtn, icon: '🎤', text: 'Audio Only' },
-            { btn: this.mediaVideoRecordBtn, icon: '📹', text: 'Video + Audio' }
+            { btn: this.mediaAudioRecordBtn, icon: '🎤', text: 'Audio Only', active: this.isAudioRecording },
+            { btn: this.mediaVideoRecordBtn, icon: '📹', text: 'Video + Audio', active: this.isVideoRecording }
         ];
 
-        buttons.forEach(({ btn, icon, text }) => {
+        buttons.forEach(({ btn, icon, text, active }) => {
             if (!btn) return;
-            if (this.isRecording) {
+            if (active) {
                 btn.classList.add('recording');
                 btn.querySelector('p').textContent = 'Recording...';
                 btn.querySelector('.record-zone-icon').textContent = '⏹️';
@@ -2462,7 +2472,7 @@ class SidebarUI {
         });
     }
 
-    async createAndShowNewPacket(items = []) {
+    async createAndShowNewPacket(items = [], tabIdToGroup = null) {
         const now = new Date();
         const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
         const name = `Packet ${timeStr}`;
@@ -2483,6 +2493,14 @@ class SidebarUI {
 
                 // Triggers playPacket to ensure tab group is created/focused
                 await this.sendMessage({ action: 'playPacket', id: resp.id });
+
+                if (tabIdToGroup) {
+                    await this.sendMessage({
+                        action: 'joinPacketGroup',
+                        tabId: tabIdToGroup,
+                        packetId: resp.id
+                    });
+                }
 
                 // If empty, mark it for "garbage collection" if abandoned
                 if (items.length === 0) {
@@ -2564,51 +2582,7 @@ class SidebarUI {
         }
     }
 
-    async deleteCurrentPacket() {
-        if (!this.currentPacket) return;
-        if (!confirm(`Delete packet "${this.currentPacket.name}"?`)) return;
 
-        try {
-            const resp = await this.sendMessage({ action: 'deletePacket', id: this.currentPacket.id });
-            if (resp && resp.success) {
-                this.showNotification('Packet deleted', 'success');
-                this.showListView();
-                this.loadCollections();
-            } else {
-                throw new Error(resp?.error || 'Failed to delete packet');
-            }
-        } catch (err) {
-            console.error('deleteCurrentPacket failed:', err);
-            this.showNotification('Delete failed: ' + err.message, 'error');
-        }
-    }
-
-    async renameCurrentPacket() {
-        if (!this.currentPacket) return;
-        const newName = prompt('Enter new packet name:', this.currentPacket.name);
-        if (!newName || newName === this.currentPacket.name) return;
-
-        try {
-            const resp = await this.sendMessage({
-                action: 'savePacket',
-                id: this.currentPacket.id,
-                name: newName,
-                urls: this.currentPacket.urls
-            });
-
-            if (resp && resp.success) {
-                this.currentPacket.name = newName;
-                this.packetDetailTitle.textContent = newName;
-                this.loadCollections();
-                this.showNotification('Packet renamed', 'success');
-            } else {
-                throw new Error(resp?.error || 'Failed to rename packet');
-            }
-        } catch (err) {
-            console.error('renameCurrentPacket failed:', err);
-            this.showNotification('Rename failed: ' + err.message, 'error');
-        }
-    }
 
     async savePacket() {
         if (this.constructorItems.length === 0) {

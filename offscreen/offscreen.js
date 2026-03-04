@@ -69,7 +69,7 @@ function setupRecorder(stream, isVideo = false) {
 
     recorder.start();
     log('[Offscreen] Recorder started');
-    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED', isVideo });
 }
 
 async function startRecording(streamId) {
@@ -94,7 +94,7 @@ async function startRecording(streamId) {
         const source = output.createMediaStreamSource(stream);
         source.connect(output.destination);
 
-        setupRecorder(stream);
+        setupRecorder(stream, false);
     } catch (e) {
         log('[Offscreen] recording failed: ' + e.message);
         chrome.runtime.sendMessage({ type: 'RECORDING_ERROR', error: e.message });
