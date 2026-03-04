@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wildcard Terminal</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            /* Matching Wildcard Dark Mode --bg: #0f172a */
+            background: #0f172a;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #terminal-container {
+            /* Fill screen but leave a small uniform frame */
+            width: calc(100% - 48px);
+            height: calc(100% - 48px);
+            /* Matching Wildcard Dark Mode --bg-alt: #1e293b */
+            background: #1e293b;
+            border-radius: 10px;
+            /* Matching --radius: 10px */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            /* Matching --border: #334155 */
+            border: 1px solid #334155;
+            overflow: hidden;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #terminal-container>div {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            margin: auto;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="terminal-container"></div>
+    <script type="module" src="terminal.js"></script>
+</body>
+
+</html>

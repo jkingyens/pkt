@@ -1709,10 +1709,26 @@ h1 {
   filter: brightness(0) invert(1);
 }
 
+.terminal-active {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--primary) !important;
+  opacity: 1 !important;
+  background: var(--surface-hover) !important;
+}
+
 .floating-actions {
   position: fixed;
   bottom: 20px;
   right: 20px;
+  display: flex;
+  gap: 12px;
+  z-index: 100;
+}
+
+.floating-left-actions {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
   display: flex;
   gap: 12px;
   z-index: 100;

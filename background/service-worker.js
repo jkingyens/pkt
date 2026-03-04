@@ -21,6 +21,9 @@ let bookmarkCache = null;
 // Track sidebar port to know if it's open
 let sidebarPort = null;
 
+// Track open terminal tabs: packetId -> tabId
+let terminalTabs = {};
+
 async function syncBookmarkCache() {
     try {
         bookmarkCache = await chrome.bookmarks.getTree();
@@ -37,6 +40,39 @@ chrome.bookmarks.onChanged.addListener(syncBookmarkCache);
 chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
 chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
 chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
+
+// Terminal tab tracking
+chrome.tabs.onRemoved.addListener((tabId) => {
+    for (const [packetId, tId] of Object.entries(terminalTabs)) {
+        if (tId === tabId) {
+            delete terminalTabs[packetId];
+            console.log(`[SW] Terminal tab ${tabId} closed for packet ${packetId}`);
+            // Notify sidebar if it's open
+            if (sidebarPort) {
+                sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
+            }
+            break;
+        }
+    }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url && tab.url.includes('terminal.html')) {
+        try {
+            const url = new URL(tab.url);
+            const packetId = url.searchParams.get('packetId');
+            if (packetId) {
+                terminalTabs[packetId] = tabId;
+                console.log(`[SW] Terminal tab ${tabId} registered for packet ${packetId}`);
+                if (sidebarPort) {
+                    sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
+                }
+            }
+        } catch (e) {
+            console.error('[SW] Failed to parse terminal URL:', e);
+        }
+    }
+});
 
 // Ensure the side panel doesn't intercept the click event so onClicked can fire
 chrome.runtime.onInstalled.addListener(async () => {
@@ -540,7 +576,8 @@ async function handleMessage(request, sender, sendResponse) {
                     sendResponse({ success: false, error: 'Database not found' });
                     break;
                 }
-                const result = db.exec(request.sql);
+                // Use params if provided
+                const result = db.exec(request.sql, request.params || []);
                 sendResponse({ success: true, result });
                 break;
             }
@@ -754,6 +791,22 @@ async function handleMessage(request, sender, sendResponse) {
                     sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'getTerminalTabs': {
+                sendResponse({ success: true, terminalTabs });
+                break;
+            }
+            case 'registerTerminalTab': {
+                if (request.packetId && request.tabId) {
+                    terminalTabs[request.packetId] = request.tabId;
+                    if (sidebarPort) {
+                        sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
+                    }
+                    sendResponse({ success: true });
+                } else {
+                    sendResponse({ success: false, error: 'Missing packetId or tabId' });
                 }
                 break;
             }

@@ -289,6 +289,8 @@ class SidebarUI {
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeSelect = document.getElementById('themeSelect');
 
+        this.terminalTabs = {}; // packetId -> tabId
+
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
         this.schemaContent = document.getElementById('schemaContent');
@@ -329,6 +331,7 @@ class SidebarUI {
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
         this.deletePacketDetailBtn = document.getElementById('deletePacketDetailBtn');
+        this.terminalOpenBtn = document.getElementById('terminalOpenBtn');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -416,6 +419,9 @@ class SidebarUI {
 
             // 3. Fallback to active packet/tab group check
             await this.checkActivePacket();
+
+            // 4. Sync terminal state
+            await this.syncTerminalState();
         } catch (e) {
             console.error('[SidebarUI] Initialization failed:', e);
         }
@@ -457,6 +463,9 @@ class SidebarUI {
                         // Trigger UI refresh to show highlight on the function item
                         this.showPacketDetailView(this.currentPacket);
                     }
+                } else if (msg.type === 'TERMINAL_STATE_CHANGED') {
+                    this.terminalTabs = msg.terminalTabs;
+                    this.updateTerminalUI();
                 }
             });
             this.port.onDisconnect.addListener(() => {
@@ -740,6 +749,9 @@ class SidebarUI {
         }
         if (this.deletePacketDetailBtn) {
             this.deletePacketDetailBtn.addEventListener('click', () => this.deleteCurrentPacket());
+        }
+        if (this.terminalOpenBtn) {
+            this.terminalOpenBtn.addEventListener('click', () => this.openTerminal());
         }
 
         // Constructor view (packets)
@@ -1324,6 +1336,7 @@ class SidebarUI {
         this.currentPacket = packet;
         this.isClipperManuallyCancelled = false;
         this.activePacketGroupId = packet.groupId || null;
+        this.updateTerminalUI();
         if (packet.activeUrl) this.activeUrl = packet.activeUrl;
 
         // If no groupId provided, try to find one in storage
@@ -2489,6 +2502,111 @@ class SidebarUI {
         } catch (err) {
             console.error('createAndShowNewPacket failed:', err);
             this.showNotification('Failed to create packet: ' + err.message, 'error');
+        }
+    }
+
+    async openTerminal() {
+        if (!this.currentPacket) return;
+        const packetId = this.currentPacket.id;
+
+        // Check if terminal is already open
+        if (this.terminalTabs[packetId]) {
+            try {
+                // Focus the existing tab
+                await chrome.tabs.update(this.terminalTabs[packetId], { active: true });
+                // Also focus the window containing the tab
+                const tab = await chrome.tabs.get(this.terminalTabs[packetId]);
+                await chrome.windows.update(tab.windowId, { focused: true });
+                return;
+            } catch (e) {
+                console.warn('Failed to focus existing terminal tab, opening new one:', e);
+                delete this.terminalTabs[packetId];
+            }
+        }
+
+        const terminalUrl = chrome.runtime.getURL(`terminal.html?packetId=${packetId}`);
+
+        try {
+            await this.sendMessage({
+                action: 'openTabInGroup',
+                url: terminalUrl,
+                packetId: packetId
+            });
+            window.focus(); // Reclaim focus
+        } catch (e) {
+            console.error('openTerminal failed:', e);
+            this.showNotification('Failed to open terminal: ' + e.message, 'error');
+        }
+    }
+
+    async syncTerminalState() {
+        try {
+            const response = await this.sendMessage({ action: 'getTerminalTabs' });
+            if (response && response.success) {
+                this.terminalTabs = response.terminalTabs;
+                this.updateTerminalUI();
+            }
+        } catch (e) {
+            console.error('Failed to sync terminal state:', e);
+        }
+    }
+
+    updateTerminalUI() {
+        if (!this.terminalOpenBtn || !this.currentPacket) return;
+        // Defensive: convert to string for robust lookup
+        const isActive = !!this.terminalTabs[String(this.currentPacket.id)];
+        if (isActive) {
+            this.terminalOpenBtn.classList.add('terminal-active');
+            this.terminalOpenBtn.title = 'Focus Terminal';
+        } else {
+            this.terminalOpenBtn.classList.remove('terminal-active');
+            this.terminalOpenBtn.title = 'Open Terminal';
+        }
+    }
+
+    async deleteCurrentPacket() {
+        if (!this.currentPacket) return;
+        if (!confirm(`Delete packet "${this.currentPacket.name}"?`)) return;
+
+        try {
+            const resp = await this.sendMessage({ action: 'deletePacket', id: this.currentPacket.id });
+            if (resp && resp.success) {
+                this.showNotification('Packet deleted', 'success');
+                this.showListView();
+                this.loadCollections();
+            } else {
+                throw new Error(resp?.error || 'Failed to delete packet');
+            }
+        } catch (err) {
+            console.error('deleteCurrentPacket failed:', err);
+            this.showNotification('Delete failed: ' + err.message, 'error');
+        }
+    }
+
+    async renameCurrentPacket() {
+        if (!this.currentPacket) return;
+        const newName = prompt('Enter new packet name:', this.currentPacket.name);
+        if (!newName || newName === this.currentPacket.name) return;
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: newName,
+                urls: this.currentPacket.urls
+            });
+
+            if (resp && resp.success) {
+                this.currentPacket.name = newName;
+                this.packetDetailTitle.textContent = newName;
+                this.loadCollections();
+                this.showNotification('Packet renamed', 'success');
+            } else {
+                throw new Error(resp?.error || 'Failed to rename packet');
+            }
+        } catch (err) {
+            console.error('renameCurrentPacket failed:', err);
+            this.showNotification('Rename failed: ' + err.message, 'error');
         }
     }
 
