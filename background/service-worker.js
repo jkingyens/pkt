@@ -61,12 +61,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         try {
             const url = new URL(tab.url);
             const packetId = url.searchParams.get('packetId');
-            if (packetId) {
+            const track = url.searchParams.get('track') !== 'false';
+            if (packetId && track) {
                 terminalTabs[packetId] = tabId;
                 console.log(`[SW] Terminal tab ${tabId} registered for packet ${packetId}`);
                 if (sidebarPort) {
                     sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
                 }
+            } else if (packetId) {
+                console.log(`[SW] Terminal tab ${tabId} opened for packet ${packetId} (untracked)`);
             }
         } catch (e) {
             console.error('[SW] Failed to parse terminal URL:', e);
@@ -800,9 +803,13 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'registerTerminalTab': {
                 if (request.packetId && request.tabId) {
-                    terminalTabs[request.packetId] = request.tabId;
-                    if (sidebarPort) {
-                        sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
+                    if (request.track !== false) {
+                        terminalTabs[request.packetId] = request.tabId;
+                        if (sidebarPort) {
+                            sidebarPort.postMessage({ type: 'TERMINAL_STATE_CHANGED', terminalTabs });
+                        }
+                    } else {
+                        console.log(`[SW] Explicitly skipped registration for untracked terminal tab ${request.tabId}`);
                     }
                     sendResponse({ success: true });
                 } else {

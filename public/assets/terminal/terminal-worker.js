@@ -177,7 +177,7 @@ self.onmessage = async (e) => {
             new PreopenDirectory("/", rootMap),
         ];
 
-        const wasmArgs = ["sh"];
+        const wasmArgs = e.data.wasmBytes ? ["wasm_program"] : ["sh"];
         const wasmEnv = [
             "USER=wildcard",
             "PATH=/bin:/usr/bin:/",
@@ -190,17 +190,120 @@ self.onmessage = async (e) => {
         ];
 
         const wasi = new WASI(wasmArgs, wasmEnv, fds);
+        let wasmInstance = null;
+
+        const importObject = {
+            wasi_snapshot_preview1: wasi.wasiImport,
+            env: {
+                log: (ptr, len) => {
+                    const mem = wasmInstance?.exports?.memory || wasi.inst?.exports?.memory;
+                    if (mem) {
+                        const bytes = new Uint8Array(mem.buffer, ptr, len);
+                        let msg = new TextDecoder().decode(bytes);
+                        self.postMessage({ type: 'log', data: msg });
+                    }
+                }
+            },
+            "chrome:bookmarks/bookmarks": {
+                "get-tree": () => 0,
+                "get_tree": () => 0,
+                "get-all-bookmarks": () => 0,
+                "get_all_bookmarks": () => 0,
+                "create": () => 0
+            },
+            "chrome:bookmarks": {
+                "get-tree": () => 0,
+                "get_tree": () => 0,
+                "get-all-bookmarks": () => 0,
+                "get_all_bookmarks": () => 0,
+                "create": () => 0
+            },
+            "user:sqlite/sqlite": {
+                "execute": () => 0,
+                "query": () => 0
+            }
+        };
 
         try {
-            const response = await fetch('busybox.wasm');
-            const wasmArrayBuffer = await response.arrayBuffer();
-            const { instance } = await WebAssembly.instantiate(wasmArrayBuffer, {
-                wasi_snapshot_preview1: wasi.wasiImport,
-            });
-            wasi.start(instance);
+            let wasmSource;
+            if (e.data.wasmBytes) {
+                wasmSource = e.data.wasmBytes;
+            } else {
+                const response = await fetch('busybox.wasm');
+                const wasmArrayBuffer = await response.arrayBuffer();
+                wasmSource = new Uint8Array(wasmArrayBuffer);
+            }
+
+            const { instance } = await WebAssembly.instantiate(wasmSource, importObject);
+            wasmInstance = instance;
+            wasi.inst = instance;
+
+            if (e.data.zigCode) {
+                console.log('Worker: Zig code found in item metadata');
+                console.log(e.data.zigCode);
+            }
+
+            let executed = false;
+
+            // 1. If we have a specific function name to call that isn't _start/run/main
+            const execName = e.data.execName;
+            if (execName && instance.exports[execName] && !['_start', 'run', 'main'].includes(execName)) {
+                if (instance.exports._initialize) {
+                    try { instance.exports._initialize(); } catch (e) { }
+                }
+                try {
+                    const res = instance.exports[execName]();
+                    if (res !== undefined) {
+                        self.postMessage({ type: 'stdout', data: new TextEncoder().encode(`Result: ${res}\n`) });
+                    }
+                    executed = true;
+                } catch (e) {
+                    console.error(`Worker: Error calling "${execName}":`, e);
+                }
+            }
+
+            // 2. Standard execution flow - MUTUALLY EXCLUSIVE
+            if (!executed) {
+                // Prioritize 'run' for Zig/Wildcard modules
+                if (instance.exports.run) {
+                    if (instance.exports._initialize) {
+                        try { instance.exports._initialize(); } catch (e) { }
+                    }
+                    try {
+                        instance.exports.run();
+                        executed = true;
+                    } catch (e) {
+                        console.error('Worker: run() threw:', e);
+                    }
+                }
+
+                // Fallback to standard WASI _start
+                if (!executed && instance.exports._start) {
+                    try {
+                        wasi.start(instance);
+                        executed = true;
+                    } catch (e) {
+                        if (!(e instanceof WASIProcExit && e.code === 0)) {
+                            console.warn('Worker: _start() threw:', e);
+                        }
+                    }
+                }
+
+                // Final fallback for main
+                if (!executed && instance.exports.main) {
+                    try {
+                        instance.exports.main();
+                        executed = true;
+                    } catch (e) {
+                        console.error('Worker: main() threw:', e);
+                    }
+                }
+            }
+
             self.postMessage({ type: 'exit' });
         } catch (err) {
             console.error('Worker: Error:', err);
+            if (!e.data.wasmBytes) self.postMessage({ type: 'exit' });
         }
     }
 };

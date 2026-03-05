@@ -1477,7 +1477,7 @@ class SidebarUI {
                 });
                 card.querySelector('.play-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.runWasm(item);
+                    this.runWasm(item, index);
                 });
                 if (this.editMode) this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
@@ -1687,7 +1687,7 @@ class SidebarUI {
                 reclaimFocus();
             });
         } else if (type === 'wasm') {
-            this.runWasm(item).then(() => {
+            this.runWasm(item, index).then(() => {
                 reclaimFocus();
             });
         }
@@ -3100,9 +3100,46 @@ class SidebarUI {
         }
     }
 
-    async runWasm(item) {
+    async isWasmInteractive(base64Data) {
+        try {
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const module = await WebAssembly.compile(bytes);
+            const imports = WebAssembly.Module.imports(module);
+
+            // Heuristic: If it imports wasi_snapshot_preview1's fd_read or fd_write,
+            // it likely wants to interact with a terminal.
+            return imports.some(imp =>
+                imp.module === 'wasi_snapshot_preview1' &&
+                (imp.name === 'fd_read' || imp.name === 'fd_write')
+            );
+        } catch (e) {
+            console.warn('Failed to inspect WASM imports:', e);
+            return false;
+        }
+    }
+
+    async runWasm(item, index) {
         if (!item.data) {
             this.showNotification('Function has no data', 'error');
+            return;
+        }
+
+        const isInteractive = await this.isWasmInteractive(item.data);
+        if (isInteractive) {
+            // Open terminal and execute (untracked)
+            let name = item.name || item.title || `wasm_${index}`;
+            name = name.replace(/[\/\\?%*:|"<>]/g, '_');
+
+            const url = chrome.runtime.getURL(`public/terminal.html?packetId=${this.currentPacket.id}&exec=${encodeURIComponent(name)}&track=false`);
+            await this.sendMessage({
+                action: 'openTabInGroup',
+                url: url,
+                packetId: this.currentPacket.id
+            });
             return;
         }
 

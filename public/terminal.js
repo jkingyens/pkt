@@ -16,10 +16,12 @@ async function initTerminal() {
     }
 
     // 0. Register with background immediately for state tracking
+    const track = urlParams.get('track') !== 'false';
     chrome.runtime.sendMessage({
         action: 'registerTerminalTab',
         packetId,
-        tabId: (await chrome.tabs.getCurrent())?.id
+        tabId: (await chrome.tabs.getCurrent())?.id,
+        track: track
     }).catch(() => { });
 
     // 1. Initialize Terminal UI
@@ -94,8 +96,22 @@ async function initTerminal() {
             const text = new TextDecoder().decode(e.data.data);
             // Convert LF to CRLF for display (don't convert if already CRLF)
             terminal.write(text.replace(/(?<!\r)\n/g, '\r\n'));
+        } else if (e.data.type === 'log') {
+            console.log(`[Host Log] ${e.data.data}`);
         } else if (e.data.type === 'exit') {
-            window.close();
+            if (isDirectExec) {
+                terminal.write('\r\n\x1b[1;33m[Process completed. Press Escape to close]\x1b[0m\r\n');
+                const disposable = terminal.onKey(e => {
+                    if (e.domEvent.code === 'Escape') {
+                        disposable.dispose();
+                        chrome.tabs.getCurrent(tab => {
+                            if (tab) chrome.tabs.remove(tab.id);
+                        });
+                    }
+                });
+            } else {
+                window.close();
+            }
         }
     };
 
@@ -117,28 +133,63 @@ async function initTerminal() {
         Atomics.notify(controlData, 0);
     });
 
+    terminal.focus();
+
+    // 5. Handle Direct Execution
+    const execCommand = urlParams.get('exec');
+    let wasmBytes = null;
+    let zigzagCode = null;
+
+    if (execCommand) {
+        const item = packetData.items.find((it, idx) => {
+            let name = it.name || it.title || `wasm_${idx}`;
+            name = name.replace(/[\/\\?%*:|"<>]/g, '_');
+            return it.type === 'wasm' && name === execCommand;
+        });
+
+        if (item && item.data) {
+            try {
+                zigzagCode = item.zigCode || null;
+                const binaryString = atob(item.data);
+                wasmBytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    wasmBytes[i] = binaryString.charCodeAt(i);
+                }
+                console.log(`Terminal: Prepared direct execution for ${execCommand} (${wasmBytes.length} bytes)`);
+            } catch (e) {
+                console.error(`Terminal: Failed to decode WASM for ${execCommand}:`, e);
+            }
+        }
+    }
+
+    const isDirectExec = !!wasmBytes;
+
+    if (!isDirectExec) {
+        // BBS-style ANSI logo for Wildcard
+        const primaryColor = '\x1b[1;38;2;129;140;248m';
+        const reset = '\x1b[0m';
+
+        terminal.write('\r\n');
+        terminal.write(`${primaryColor} ██╗    ██╗██╗██╗     ██████╗  ██████╗ █████╗ ██████╗ ██████╗ ${reset}\r\n`);
+        terminal.write(`${primaryColor} ██║    ██║██║██║     ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗${reset}\r\n`);
+        terminal.write(`${primaryColor} ██║ █╗ ██║██║██║     ██║  ██║██║     ███████║██████╔╝██║  ██║${reset}\r\n`);
+        terminal.write(`${primaryColor} ██║███╗██║██║██║     ██║  ██║██║     ██╔══██║██╔══██╗██║  ██║${reset}\r\n`);
+        terminal.write(`${primaryColor} ╚███╔███╔╝██║███████╗██████╔╝╚██████╗██║  ██║██║  ██║██████╔╝${reset}\r\n`);
+        terminal.write(`${primaryColor}  ╚══╝╚══╝ ╚═╝╚══════╝╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ${reset}\r\n`);
+        terminal.write('\r\n');
+        terminal.write(` \x1b[1;32mPacket: ${packetData.name}\x1b[0m\r\n\r\n`);
+    }
+
     worker.postMessage({
         type: 'init',
         packetId,
         packetData,
         inputSAB,
-        controlSAB
+        controlSAB,
+        wasmBytes,
+        execName: execCommand,
+        zigCode: zigzagCode
     });
-
-    // BBS-style ANSI logo for Wildcard
-    const primaryColor = '\x1b[1;38;2;129;140;248m';
-    const reset = '\x1b[0m';
-
-    terminal.write('\r\n');
-    terminal.write(`${primaryColor} ██╗    ██╗██╗██╗     ██████╗  ██████╗ █████╗ ██████╗ ██████╗ ${reset}\r\n`);
-    terminal.write(`${primaryColor} ██║    ██║██║██║     ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗${reset}\r\n`);
-    terminal.write(`${primaryColor} ██║ █╗ ██║██║██║     ██║  ██║██║     ███████║██████╔╝██║  ██║${reset}\r\n`);
-    terminal.write(`${primaryColor} ██║███╗██║██║██║     ██║  ██║██║     ██╔══██║██╔══██╗██║  ██║${reset}\r\n`);
-    terminal.write(`${primaryColor} ╚███╔███╔╝██║███████╗██████╔╝╚██████╗██║  ██║██║  ██║██████╔╝${reset}\r\n`);
-    terminal.write(`${primaryColor}  ╚══╝╚══╝ ╚═╝╚══════╝╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ${reset}\r\n`);
-    terminal.write('\r\n');
-    terminal.write(` \x1b[1;32mPacket: ${packetData.name}\x1b[0m\r\n\r\n`);
-    terminal.focus();
 }
 
 initTerminal().catch(err => {
