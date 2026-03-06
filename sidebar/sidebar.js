@@ -2948,7 +2948,7 @@ class SidebarUI {
         await chrome.storage.local.set({ networkEnabled: networkEnabled });
         await this.sendMessage({ action: 'TOGGLE_NETWORK', enabled: networkEnabled });
         this.applyOfflineMode();
-        this.showNotification(`Network ${networkEnabled ? 'enabled' : 'disabled'}`, 'info');
+        this.showNotification(`Network ${networkEnabled ? 'enabled' : 'disabled'}`, 'success');
     }
 
     restoreDefaultPrompt() {
