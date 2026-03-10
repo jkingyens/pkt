@@ -92,13 +92,34 @@ chrome.runtime.onInstalled.addListener(async () => {
             }).catch(() => {
                 // Silently skip restricted tabs (like Chrome Settings or Web Store)
             });
+            // Also update badge for each tab
+            updateBadge({ tabId: tab.id });
         }
     } catch (e) {
-        console.error('[SW] Programmatic injection failed:', e);
+        console.error('[SW] Programmatic injection/badge update failed:', e);
     }
 
     // Ensure network rules are in sync with settings on install/update
     await syncNetworkStatus();
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+    try {
+        const tabs = await chrome.tabs.query({});
+        for (const tab of tabs) {
+            updateBadge({ tabId: tab.id });
+        }
+    } catch (e) { }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.activeGroups || changes.networkEnabled)) {
+        chrome.tabs.query({}).then(tabs => {
+            for (const tab of tabs) {
+                updateBadge({ tabId: tab.id }).catch(() => { });
+            }
+        });
+    }
 });
 
 async function syncNetworkStatus() {
@@ -1445,6 +1466,7 @@ async function handleMessage(request, sender, sendResponse) {
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
+        await updateBadge({ tabId });
         const tab = await chrome.tabs.get(tabId);
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
         const groupId = tab.groupId;
@@ -1473,6 +1495,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' || changeInfo.url) {
         try {
+            await updateBadge({ tabId });
             const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
             const groupId = tab.groupId;
 
@@ -1516,6 +1539,11 @@ chrome.tabGroups.onRemoved.addListener(async (group) => {
 chrome.runtime.onConnect.addListener((port) => {
     if (port.name === 'sidebar') {
         sidebarPort = port;
+        // Update badge for active tab when sidebar opens
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+            if (tab) updateBadge({ tabId: tab.id });
+        });
+
         port.onDisconnect.addListener(async () => {
             sidebarPort = null;
             try {
@@ -1523,6 +1551,8 @@ chrome.runtime.onConnect.addListener((port) => {
                 const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
                 if (tab) {
                     chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active: false }).catch(() => { });
+                    // Update badge when sidebar closes
+                    updateBadge({ tabId: tab.id });
                 }
             } catch (e) {
                 console.error('[ServiceWorker] Failed to deactivate clipper on sidebar close:', e);
@@ -1539,30 +1569,47 @@ initializeSQLite().then(() => {
 
 async function updateBadge({ isReadyToClip, tabId }) {
     try {
-        const { networkEnabled } = await chrome.storage.local.get('networkEnabled');
+        const { networkEnabled, activeGroups = {} } = await chrome.storage.local.get(['networkEnabled', 'activeGroups']);
         const offline = networkEnabled === false;
 
         if (tabId) {
+            const tab = await chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) return;
+
+            // Check if this is a page we can actually clip/add to a packet
+            const isSupportedPage = tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'));
+
             if (isReadyToClip) {
-                // Priority: Red dot for capture mode
+                // Priority 1: Red dot for capture mode
                 await chrome.action.setBadgeText({ text: '•', tabId });
                 await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
-            } else {
-                // Fallback to global state for this tab
-                if (offline) {
+            } else if (isSupportedPage && sidebarPort) {
+                // Priority 2: Blue "+" for pages NOT in a packet (ONLY IF SIDEBAR IS OPEN)
+                const inPacket = tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && activeGroups[tab.groupId];
+                if (!inPacket) {
+                    await chrome.action.setBadgeText({ text: '+', tabId });
+                    await chrome.action.setBadgeBackgroundColor({ color: '#3b82f6', tabId });
+                } else if (offline) {
                     await chrome.action.setBadgeText({ text: 'OFF', tabId });
                     await chrome.action.setBadgeBackgroundColor({ color: '#f97316', tabId });
                 } else {
                     await chrome.action.setBadgeText({ text: '', tabId });
                 }
+            } else if (offline) {
+                // Priority 3: Offline badge if enabled
+                await chrome.action.setBadgeText({ text: 'OFF', tabId });
+                await chrome.action.setBadgeBackgroundColor({ color: '#f97316', tabId });
+            } else {
+                await chrome.action.setBadgeText({ text: '', tabId });
             }
         } else {
-            // Global update
+            // Global update (usually for network kill switch)
             if (offline) {
                 await chrome.action.setBadgeText({ text: 'OFF' });
                 await chrome.action.setBadgeBackgroundColor({ color: '#f97316' });
             } else {
                 await chrome.action.setBadgeText({ text: '' });
+                // Note: We don't set "+" globally as it's per-tab and per-sidebar-state
             }
         }
     } catch (e) {

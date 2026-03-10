@@ -590,10 +590,15 @@ class SidebarUI {
                     }
                 } else {
                     // Tab is NOT in a packet! 
+                    const isPacketDetailActive = this.packetDetailView.classList.contains('active');
                     const isConstructorActive = this.constructorView.classList.contains('active');
                     const isTabInConstructor = this.constructorItems.some(item => item.type === 'link' && item.url === tab.url);
 
-                    if (isConstructorActive && isTabInConstructor) {
+                    if (isPacketDetailActive && this.currentPacket) {
+                        // Step 2: Packet is focused in detail view, so add directly and stay OFF
+                        this.isClipperInvoked = false;
+                        await this.addTabToCurrentPacket();
+                    } else if (isConstructorActive && isTabInConstructor) {
                         // Step 2: Already in constructor with this tab, so Toggle ON
                         this.isClipperInvoked = true;
                         this.isClipperManuallyCancelled = false;
