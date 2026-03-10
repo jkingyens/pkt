@@ -109,7 +109,7 @@ async function syncNetworkStatus() {
 
         if (isDisabled) {
             console.log('[SW-Startup] Network kill switch is ENABLED (blocking requests)');
-            await updateBadge(false);
+            await updateBadge({});
             await chrome.declarativeNetRequest.updateDynamicRules({
                 addRules: [{
                     id: ruleId,
@@ -1395,8 +1395,8 @@ async function handleMessage(request, sender, sendResponse) {
             case 'TOGGLE_NETWORK': {
                 try {
                     const enabled = request.enabled;
-                    const ruleId = 1;
-                    await updateBadge(enabled);
+                    await chrome.storage.local.set({ networkEnabled: enabled }); // Ensure it's in storage for updateBadge
+                    await updateBadge({}); // Trigger global update
                     if (!enabled) {
                         // Block all network requests (HTTP/HTTPS)
                         await chrome.declarativeNetRequest.updateDynamicRules({
@@ -1424,6 +1424,14 @@ async function handleMessage(request, sender, sendResponse) {
                     console.error('TOGGLE_NETWORK error:', err);
                     sendResponse({ success: false, error: err.message });
                 }
+                break;
+            }
+            case 'UPDATE_BADGE': {
+                await updateBadge({
+                    isReadyToClip: request.isReadyToClip,
+                    tabId: request.tabId
+                });
+                sendResponse({ success: true });
                 break;
             }
             default:
@@ -1529,15 +1537,33 @@ initializeSQLite().then(() => {
     console.error('Failed to initialize SQLite:', error);
 });
 
-async function updateBadge(networkEnabled) {
+async function updateBadge({ isReadyToClip, tabId }) {
     try {
-        if (networkEnabled === false) {
-            // Extension is OFFLINE
-            await chrome.action.setBadgeText({ text: 'OFF' });
-            await chrome.action.setBadgeBackgroundColor({ color: '#f97316' }); // Orange to match sidebar border
+        const { networkEnabled } = await chrome.storage.local.get('networkEnabled');
+        const offline = networkEnabled === false;
+
+        if (tabId) {
+            if (isReadyToClip) {
+                // Priority: Red dot for capture mode
+                await chrome.action.setBadgeText({ text: '•', tabId });
+                await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
+            } else {
+                // Fallback to global state for this tab
+                if (offline) {
+                    await chrome.action.setBadgeText({ text: 'OFF', tabId });
+                    await chrome.action.setBadgeBackgroundColor({ color: '#f97316', tabId });
+                } else {
+                    await chrome.action.setBadgeText({ text: '', tabId });
+                }
+            }
         } else {
-            // Extension is ONLINE
-            await chrome.action.setBadgeText({ text: '' }); // Clear badge
+            // Global update
+            if (offline) {
+                await chrome.action.setBadgeText({ text: 'OFF' });
+                await chrome.action.setBadgeBackgroundColor({ color: '#f97316' });
+            } else {
+                await chrome.action.setBadgeText({ text: '' });
+            }
         }
     } catch (e) {
         console.error('[SW] updateBadge failed:', e);

@@ -390,6 +390,7 @@ class SidebarUI {
         this.isVideoRecording = false;
         this.isClipperInvoked = false; // Manual activation state for activeTab
         this.isClipperIconProcessing = false; // Guard for rapid clicks
+        this.activeCaptureTabId = null; // Track which tab has the capture indicator
         this.editMode = false;
 
         this.setupEventListeners();
@@ -1372,6 +1373,12 @@ class SidebarUI {
         this.showView('packetDetailView');
         document.getElementById('packetDetailTitle').textContent = packet.name;
 
+        this.renderPacketItems(packet.urls);
+        this.updateClipperState();
+        this.checkReadyToClip();
+    }
+
+    async renderPacketItems(urls) {
         // Target new sections
         const pageList = document.getElementById('packetPageList');
         const mediaList = document.getElementById('packetMediaList');
@@ -1387,7 +1394,7 @@ class SidebarUI {
         let mediaCount = 0;
         let wasmCount = 0;
 
-        packet.urls.forEach((item, index) => {
+        urls.forEach((item, index) => {
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
             if (type === 'page' || type === 'link') {
                 pageCount++;
@@ -1418,7 +1425,7 @@ class SidebarUI {
                 });
                 card.addEventListener('click', async () => {
                     if (this.editMode) return;
-                    const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
+                    const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
                     if (resp && resp.success && resp.newGroupId) {
                         this.activePacketGroupId = resp.newGroupId;
                     }
@@ -1501,8 +1508,8 @@ class SidebarUI {
 
         // Load and render per-packet data
         try {
-            const packetDbName = `packet_${packet.id}`;
-            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packet.id });
+            const packetDbName = `packet_${this.currentPacket.id}`;
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
             const schemaResp = await this.sendMessage({ action: 'getSchema', name: packetDbName });
 
             if (schemaResp.success) {
@@ -1528,8 +1535,13 @@ class SidebarUI {
             dataList.innerHTML = '<p class="hint">Error loading packet data.</p>';
             this.packetDataCount.textContent = '0';
         }
+    }
 
+    async showConstructorView(packet = null) {
+        this.showView('constructorView');
+        this.showHeaderOnly();
         this.updateClipperState();
+        this.checkReadyToClip();
     }
 
     async removePacketItem(index) {
@@ -3304,6 +3316,9 @@ class SidebarUI {
         const isDetailView = this.packetDetailView.classList.contains('active');
         const isConstructorView = this.constructorView.classList.contains('active');
 
+        // Update toolbar badge for "Ready to Clip" state
+        await this.checkReadyToClip();
+
         // REDESIGN: Only active if manually invoked, not cancelled, and in detail or constructor view
         if ((!isDetailView && !isConstructorView) || this.isClipperManuallyCancelled || !this.isClipperInvoked) {
             this.setClipperActive(false);
@@ -3346,9 +3361,62 @@ class SidebarUI {
     }
 
     async setClipperActive(active) {
+        // If we are deactivating, make sure we clear the last known capture tab's badge
+        if (!active && this.activeCaptureTabId) {
+            this.sendMessage({ type: 'UPDATE_BADGE', isReadyToClip: false, tabId: this.activeCaptureTabId }).catch(() => { });
+            this.activeCaptureTabId = null;
+        }
+
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab) {
             chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active }).catch(() => { });
+
+            if (active) {
+                this.activeCaptureTabId = tab.id;
+            }
+
+            // Re-sync badge state
+            await this.checkReadyToClip();
+        }
+    }
+
+    async checkReadyToClip() {
+        if (this.isClipperIconProcessing) return;
+
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab) return;
+
+            let isReady = false;
+
+            // Only "Ready to Clip" if we're NOT already invoked/open
+            if (!this.isClipperInvoked) {
+                const isDetailView = this.packetDetailView.classList.contains('active');
+                const isConstructorView = this.constructorView.classList.contains('active');
+
+                if (isDetailView && this.currentPacket) {
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                    const packetIdFromGroup = activeGroups[tab.groupId];
+                    if (packetIdFromGroup && String(packetIdFromGroup) === String(this.currentPacket.id)) {
+                        isReady = true;
+                    }
+                } else if (isConstructorView) {
+                    const isTabInConstructor = this.constructorItems.some(item => item.type === 'link' && item.url === tab.url);
+                    if (isTabInConstructor) {
+                        isReady = true;
+                    }
+                }
+            }
+
+            // Notify background about toolbar badge change
+            this.sendMessage({
+                type: 'UPDATE_BADGE',
+                isReadyToClip: isReady,
+                tabId: tab.id
+            }).catch(() => { });
+
+        } catch (e) {
+            console.error('[SidebarUI] checkReadyToClip failed:', e);
         }
     }
 
