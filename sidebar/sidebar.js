@@ -583,6 +583,10 @@ class SidebarUI {
                             this.showPacketDetailView(resp.packet);
                         }
                         this.isClipperInvoked = false; // Stay OFF
+                    } else if (this.isMediaPage(tab.url)) {
+                        // Step 2: Already showing, but it's a media page - stay OFF
+                        this.showNotification('Media overlay not supported on this page type.', 'info');
+                        this.isClipperInvoked = false;
                     } else {
                         // Step 2: Already showing, so Toggle ON
                         this.isClipperInvoked = true;
@@ -594,7 +598,11 @@ class SidebarUI {
                     const isConstructorActive = this.constructorView.classList.contains('active');
                     const isTabInConstructor = this.constructorItems.some(item => item.type === 'link' && item.url === tab.url);
 
-                    if (isPacketDetailActive && this.currentPacket) {
+                    if (this.isMediaPage(tab.url)) {
+                        // Priority 0: Media page, do nothing (overlay doesn't work)
+                        this.showNotification('Media overlay not supported on this page type.', 'info');
+                        this.isClipperInvoked = false;
+                    } else if (isPacketDetailActive && this.currentPacket) {
                         // Step 2: Packet is focused in detail view, so add directly and stay OFF
                         this.isClipperInvoked = false;
                         await this.addTabToCurrentPacket();
@@ -3394,8 +3402,8 @@ class SidebarUI {
 
             let isReady = false;
 
-            // Only "Ready to Clip" if we're NOT already invoked/open
-            if (!this.isClipperInvoked) {
+            // Only "Ready to Clip" if we're NOT already invoked/open and NOT a media page
+            if (!this.isClipperInvoked && !this.isMediaPage(tab.url)) {
                 const isDetailView = this.packetDetailView.classList.contains('active');
                 const isConstructorView = this.constructorView.classList.contains('active');
 
@@ -3570,6 +3578,20 @@ class SidebarUI {
         } catch (err) {
             console.error('[Wildcard] Audio clip saving failed:', err);
             this.showNotification('Audio clip saving failed: ' + err.message, 'error');
+        }
+    }
+
+    isMediaPage(url) {
+        if (!url) return false;
+        // Internal media viewer
+        if (url.includes('sidebar/media.html')) return true;
+        // Common direct media extensions
+        const mediaExts = ['.mp4', '.webm', '.ogg', '.mp3', '.wav', '.png', '.jpg', '.jpeg', '.gif', '.pdf'];
+        try {
+            const path = new URL(url).pathname.toLowerCase();
+            return mediaExts.some(ext => path.endsWith(ext));
+        } catch (e) {
+            return false;
         }
     }
 }

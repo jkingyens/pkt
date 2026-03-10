@@ -190,11 +190,28 @@ async function ensureOffscreenDocument() {
     }
 }
 
+function isMediaPage(url) {
+    if (!url) return false;
+    // Internal media viewer
+    if (url.includes('sidebar/media.html')) return true;
+    // Common direct media extensions
+    const mediaExts = ['.mp4', '.webm', '.ogg', '.mp3', '.wav', '.png', '.jpg', '.jpeg', '.gif', '.pdf'];
+    try {
+        const path = new URL(url).pathname.toLowerCase();
+        return mediaExts.some(ext => path.endsWith(ext));
+    } catch (e) {
+        return false;
+    }
+}
+
 async function initiateAudioRecording(streamId, targetTabId) {
     console.log('[SW] initiateAudioRecording for tab:', targetTabId);
 
-    // 1. Ensure clipper is active on that tab
-    await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
+    // 1. Ensure clipper is active on that tab (unless it's a media page where overlay fails)
+    const tab = await chrome.tabs.get(targetTabId).catch(() => null);
+    if (tab && !isMediaPage(tab.url)) {
+        await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
+    }
 
     // 2. Create offscreen document if it doesn't exist
     await ensureOffscreenDocument();
@@ -1578,13 +1595,14 @@ async function updateBadge({ isReadyToClip, tabId }) {
 
             // Check if this is a page we can actually clip/add to a packet
             const isSupportedPage = tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'));
+            const isMedia = isMediaPage(tab.url);
 
-            if (isReadyToClip) {
+            if (isReadyToClip && !isMedia) {
                 // Priority 1: Red dot for capture mode
                 await chrome.action.setBadgeText({ text: '•', tabId });
                 await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
-            } else if (isSupportedPage && sidebarPort) {
-                // Priority 2: Blue "+" for pages NOT in a packet (ONLY IF SIDEBAR IS OPEN)
+            } else if (isSupportedPage && sidebarPort && !isMedia) {
+                // Priority 2: Blue "+" for pages NOT in a packet (ONLY IF SIDEBAR IS OPEN AND NOT A MEDIA PAGE)
                 const inPacket = tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && activeGroups[tab.groupId];
                 if (!inPacket) {
                     await chrome.action.setBadgeText({ text: '+', tabId });
