@@ -331,6 +331,8 @@ class SidebarUI {
         this.mediaVideoRecordBtn = document.getElementById('mediaVideoRecordBtn');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
+        this.addPageFromTabBtn = document.getElementById('addPageFromTabBtn');
+        this.addPageNewBtn = document.getElementById('addPageNewBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
         this.deletePacketDetailBtn = document.getElementById('deletePacketDetailBtn');
         this.terminalOpenBtn = document.getElementById('terminalOpenBtn');
@@ -492,8 +494,10 @@ class SidebarUI {
                     this.activePacketGroupId = null;
                     this.isClipperInvoked = false;
                     this.updateClipperState();
+                    this.updateAddPageVisibility();
                     return;
                 }
+
                 this.activeUrl = message.packet.activeUrl || null;
                 this.activePacketGroupId = message.packet.groupId || null;
                 this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
@@ -678,6 +682,145 @@ class SidebarUI {
         }
     }
 
+    async addLocalPage() {
+        if (!this.currentPacket) return;
+        try {
+            const name = 'New Page';
+            const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>${name}</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 40px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        #content-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            min-height: calc(100vh - 160px);
+        }
+        #edit-toggle-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+            transition: all 0.2s;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #edit-toggle-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+        }
+        #edit-toggle-btn.active {
+            background: #10b981;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        [contenteditable="true"] {
+            outline: 2px solid #3b82f6;
+            outline-offset: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="content-wrapper">
+        <div id="editable-content">
+            <h1>Hello World</h1>
+            <p>This is a local page stored in IndexedDB. Click the button below to edit this content.</p>
+        </div>
+    </div>
+    <button id="edit-toggle-btn">
+        <span id="btn-icon">✏️</span>
+        <span id="btn-text">Edit Page</span>
+    </button>
+    <script src="${chrome.runtime.getURL('sidebar/local-editor.js')}"></script>
+</body>
+</html>`;
+
+            const encoder = new TextEncoder();
+            const data = encoder.encode(htmlContent);
+
+            const saveResp = await this.sendMessage({
+                action: 'saveMediaBlob',
+                data: Array.from(new Uint8Array(data)),
+                type: 'text/html'
+            });
+
+            if (saveResp.success) {
+                const newItem = {
+                    type: 'local',
+                    name: name,
+                    resourceId: saveResp.id
+                };
+
+                this.currentPacket.urls.push(newItem);
+                await this.sendMessage({
+                    action: 'savePacket',
+                    id: this.currentPacket.id,
+                    name: this.currentPacket.name,
+                    urls: this.currentPacket.urls
+                });
+
+                this.showNotification('Local page created', 'success');
+                this.showPacketDetailView(this.currentPacket);
+
+                // Open the new page immediately
+                const url = chrome.runtime.getURL(`sidebar/viewer.html?id=${saveResp.id}&name=${encodeURIComponent(name)}`);
+                await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
+            } else {
+                throw new Error(saveResp.error || 'Failed to save local page');
+            }
+        } catch (err) {
+            console.error('addLocalPage failed:', err);
+            this.showNotification('Failed to create local page: ' + err.message, 'error');
+        }
+    }
+
+
+    async updateAddPageVisibility() {
+        if (!this.currentPacket || !this.addPageFromTabBtn) return;
+        try {
+            const resp = await this.sendMessage({ action: 'getCurrentTab' });
+            if (resp.success) {
+                const { url, groupId } = resp.tab;
+                const inGroup = groupId !== -1;
+                const inPacket = this.currentPacket.urls.some(item => {
+                    const itemUrl = typeof item === 'string' ? item : item.url;
+                    return this.urlsMatch(itemUrl, url);
+                });
+
+                if (inGroup || inPacket) {
+                    this.addPageFromTabBtn.style.display = 'none';
+                } else {
+                    this.addPageFromTabBtn.style.display = 'inline-flex';
+                }
+            }
+        } catch (e) {
+            console.error('updateAddPageVisibility failed:', e);
+        }
+    }
+
+
     async checkActivePacket() {
         try {
             const resp = await this.sendMessage({ action: 'getActivePacket' });
@@ -771,10 +914,31 @@ class SidebarUI {
             });
         }
         if (this.addPageDetailBtn) {
-            this.addPageDetailBtn.addEventListener('click', () => {
+            this.addPageDetailBtn.addEventListener('click', (e) => {
+                // Clicking the main button now does nothing or toggles the options
+                // but the CSS handles hover, so we can just stop propagation
+                e.stopPropagation();
+            });
+        }
+        if (this.addPageFromTabBtn) {
+            this.addPageFromTabBtn.addEventListener('click', () => {
                 this.addTabToCurrentPacket();
             });
         }
+        if (this.addPageNewBtn) {
+            this.addPageNewBtn.addEventListener('click', () => {
+                this.addLocalPage();
+            });
+        }
+
+        // Check tab status when becoming active or when tab changes
+        window.addEventListener('focus', () => this.updateAddPageVisibility());
+        chrome.tabs.onActivated.addListener(() => this.updateAddPageVisibility());
+        chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+            if (changeInfo.status === 'complete' || changeInfo.url) {
+                this.updateAddPageVisibility();
+            }
+        });
         if (this.editToggleBtn) {
             this.editToggleBtn.addEventListener('click', () => this.toggleEditMode());
         }
@@ -1091,8 +1255,9 @@ class SidebarUI {
             // Normalize types for comparison (page and link both count as "page" section)
             const getGroup = (item) => {
                 const t = (typeof item === 'object') ? (item.type || 'page') : 'page';
-                return (t === 'link') ? 'page' : t;
+                return (t === 'link' || t === 'local') ? 'page' : t;
             };
+
 
             const srcGroup = getGroup(srcItem);
             const targetGroup = getGroup(targetItem);
@@ -1389,6 +1554,7 @@ class SidebarUI {
         this.renderPacketItems(packet.urls);
         this.updateClipperState();
         this.checkReadyToClip();
+        this.updateAddPageVisibility();
     }
 
     async renderPacketItems(urls) {
@@ -1429,6 +1595,39 @@ class SidebarUI {
                     <div class="packet-page-info">
                         <div class="packet-page-hostname">${this.escapeHtml(hostname)}</div>
                         <div class="packet-page-url">${this.escapeHtml(url)}</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove page">🗑️</button>
+                `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
+                card.addEventListener('click', async () => {
+                    if (this.editMode) return;
+                    const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
+                    if (resp && resp.success && resp.newGroupId) {
+                        this.activePacketGroupId = resp.newGroupId;
+                    }
+                    window.focus(); // Reclaim focus
+                });
+                if (this.editMode) this.addReorderEvents(card, index, 'page');
+                pageList.appendChild(card);
+            } else if (type === 'local') {
+                pageCount++;
+                const url = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+                const card = document.createElement('div');
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
+                card.draggable = this.editMode;
+                const isActive = this.urlsMatch(url, this.activeUrl);
+                card.className = `packet-page-card local ${isActive ? 'active' : ''}`;
+
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder"></span>
+                    <span class="packet-page-icon">📄</span>
+                    <div class="packet-page-info">
+                        <div class="packet-page-hostname">Local Page</div>
+                        <div class="packet-page-url">${this.escapeHtml(item.name)}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove page">🗑️</button>
                 `;

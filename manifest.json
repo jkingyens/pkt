@@ -65,7 +65,9 @@
             "resources": [
                 "vendor/sqlite/sql-wasm.wasm",
                 "src/island.html",
-                "src/island.js"
+                "src/island.js",
+                "sidebar/local-editor.js"
+
             ],
             "matches": [
                 "<all_urls>"

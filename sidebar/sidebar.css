@@ -1917,3 +1917,39 @@ body.offline-mode::after {
   letter-spacing: 0.05em;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
+/* ===== ADD PAGE MORPHING EFFECT ===== */
+.add-page-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-page-options {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.edit-mode .add-page-container:hover .add-page-options {
+  max-width: 150px;
+  opacity: 1;
+  margin-left: 4px;
+}
+
+.edit-mode .add-page-container:hover #addPageDetailBtn {
+  background: var(--primary);
+  color: white;
+  transform: rotate(90deg);
+}
+
+
+.add-page-options .btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  height: 24px;
+}

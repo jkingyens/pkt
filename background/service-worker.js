@@ -268,7 +268,7 @@ function getVisualSequence(packet) {
 
     const pages = itemsWithIndex.filter(({ item }) => {
         const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-        return type === 'page' || type === 'link';
+        return type === 'page' || type === 'link' || type === 'local';
     });
     const media = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'media'));
     const wasm = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'wasm'));
@@ -303,6 +303,8 @@ async function navigatePacketItems(groupId, direction) {
             let itemUrl;
             if (type === 'page' || type === 'link') {
                 itemUrl = typeof entry.item === 'string' ? entry.item : entry.item.url;
+            } else if (type === 'local') {
+                itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${entry.item.resourceId}&name=${encodeURIComponent(entry.item.name)}`);
             } else if (type === 'media') {
                 itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${entry.item.mediaId}&type=${encodeURIComponent(entry.item.mimeType)}&name=${encodeURIComponent(entry.item.name)}`);
             }
@@ -345,6 +347,8 @@ async function navigatePacketItems(groupId, direction) {
             let url;
             if (type === 'media') {
                 url = chrome.runtime.getURL(`sidebar/media.html?id=${nextItem.mediaId}&type=${encodeURIComponent(nextItem.mimeType)}&name=${encodeURIComponent(nextItem.name)}`);
+            } else if (type === 'local') {
+                url = chrome.runtime.getURL(`sidebar/viewer.html?id=${nextItem.resourceId}&name=${encodeURIComponent(nextItem.name)}`);
             } else {
                 url = typeof nextItem === 'string' ? nextItem : nextItem.url;
             }
@@ -896,10 +900,11 @@ async function handleMessage(request, sender, sendResponse) {
             case 'saveMediaBlob': {
                 try {
                     const blob = new Blob([new Uint8Array(request.data)], { type: request.type });
-                    const id = await blobStorage.generateId(blob);
+                    const id = request.id || await blobStorage.generateId(blob);
                     await blobStorage.put(id, blob);
                     sendResponse({ success: true, id });
                 } catch (err) {
+
                     console.error('saveMediaBlob error:', err);
                     sendResponse({ success: false, error: err.message });
                 }
@@ -1594,7 +1599,8 @@ async function updateBadge({ isReadyToClip, tabId }) {
             if (!tab) return;
 
             // Check if this is a page we can actually clip/add to a packet
-            const isSupportedPage = tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'));
+            const isSupportedPage = tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.includes('viewer.html'));
+
             const isMedia = isMediaPage(tab.url);
 
             if (isReadyToClip && !isMedia) {
