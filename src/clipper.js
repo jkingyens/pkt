@@ -244,6 +244,7 @@
                 window.removeEventListener('keydown', onKeyDown, true);
                 isDragging = false;
             }
+            sendResponse({ success: true });
         }
     });
 

@@ -3435,6 +3435,13 @@ class SidebarUI {
 
     async handleClipperRegionSelected(region) {
         try {
+            // 1. Deactivate clipper UI immediately so it's hidden from the screenshot
+            await this.setClipperActive(false);
+
+            // 2. Wait a small amount of time for the browser to re-render without the overlay
+            await new Promise(r => setTimeout(r, 100));
+
+            // 3. Now capture the visible tab
             const resp = await this.sendMessage({ action: 'captureVisibleTab' });
             if (!resp.success) throw new Error(resp.error);
 
@@ -3495,8 +3502,7 @@ class SidebarUI {
                     this.showPacketDetailView(this.currentPacket);
                 }
 
-                // Deactivate clipper UI after successful capture
-                this.handleClipperCancelled();
+                // Note: setClipperActive(false) was already called at the start
 
                 // Highlight the new item
                 setTimeout(() => {
