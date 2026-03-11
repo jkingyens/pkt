@@ -551,6 +551,12 @@ async function initializeSQLite() {
             // Recover local pages after reload
             recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
 
+            // NEW: Recover orphaned tab groups with retries for startup resilience
+            const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
+            recover(); // Immediate
+            setTimeout(recover, 2000); // 2s delay
+            setTimeout(recover, 5000); // 5s delay
+
             return sqliteManager;
         } catch (error) {
             console.error('Initialization failed:', error);
@@ -946,12 +952,21 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'getActivePacket': {
                 try {
-                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                     if (!tab || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
                         sendResponse({ success: true, packet: null }); break;
                     }
-                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-                    const packetId = activeGroups[tab.groupId];
+                    let { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                    let packetId = activeGroups[tab.groupId];
+
+                    // Lazy Recovery: If tab is in a group but we don't have a mapping, try to repair it
+                    if (!packetId) {
+                        console.log(`[GroupRecovery] Lazy recovery triggered for group ${tab.groupId}`);
+                        await reassociateTabGroups();
+                        const updatedStore = await chrome.storage.local.get('activeGroups');
+                        activeGroups = updatedStore.activeGroups || {};
+                        packetId = activeGroups[tab.groupId];
+                    }
+
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
                     const db = sqliteManager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
@@ -1793,5 +1808,126 @@ async function syncTabOrderForPacket(packetId) {
         }
     } catch (e) {
         console.error('[SW] syncTabOrderForPacket failed:', e);
+    }
+}
+
+/**
+ * Re-associates browser tab groups with logical packets after a restart.
+ * Uses title matching and URL validation to ensure strong association.
+ */
+async function reassociateTabGroups() {
+    try {
+        console.log('[GroupRecovery] Starting re-association check...');
+        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+        const groups = await chrome.tabGroups.query({});
+        
+        if (groups.length === 0) {
+            console.log('[GroupRecovery] No tab groups found in browser.');
+            return;
+        }
+
+        await initializeSQLite();
+        const db = sqliteManager.getDatabase('packets');
+        if (!db) return;
+
+        const result = db.exec(`SELECT rowid, name, urls FROM packets`);
+        if (!result.length) return;
+        const allPackets = result[0].values.map(([id, name, urlsJson]) => ({
+            id,
+            name,
+            urls: JSON.parse(urlsJson)
+        }));
+
+        const newActiveGroups = { ...activeGroups };
+        let recoveryCount = 0;
+
+        for (const group of groups) {
+            // Already correctly mapped?
+            if (activeGroups[group.id]) {
+                const pid = activeGroups[group.id];
+                if (allPackets.some(p => String(p.id) === String(pid))) continue;
+            }
+
+            // Recovery Strategy 1: Title match (Strong signal but not always available on startup)
+            let candidates = allPackets.filter(p => group.title && p.name === group.title);
+            
+            // Recovery Strategy 2: URL overlap (Excellent signal for restored tabs)
+            const tabs = await chrome.tabs.query({ groupId: group.id });
+            if (tabs.length === 0) continue;
+            const groupUrls = tabs.map(t => t.url || t.pendingUrl).filter(Boolean).map(normalizeUrl);
+
+            let bestPacket = null;
+            let highestMatch = 0;
+
+            // If title match failed or yielded multiple, use URL validation
+            const packetsToTest = (candidates.length > 0) ? candidates : allPackets;
+
+            for (const packet of packetsToTest) {
+                const packetUrlSet = new Set(packet.urls.map(item => {
+                    const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                    let url;
+                    if (type === 'page' || type === 'link') url = typeof item === 'string' ? item : item.url;
+                    else if (type === 'local') url = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+                    else if (type === 'media') url = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                    return url ? normalizeUrl(url) : null;
+                }).filter(Boolean));
+
+                const matches = groupUrls.filter(u => packetUrlSet.has(u)).length;
+                if (matches > highestMatch) {
+                    highestMatch = matches;
+                    bestPacket = packet;
+                }
+            }
+
+            // Acceptance Criteria: 
+            // 1. If title matches AND there is at least 1 URL match -> RECOVER
+            // 2. If NO title matches but more than 50% of the tabs URL match -> RECOVER
+            const groupConfidence = highestMatch / Math.max(1, groupUrls.length);
+            const isConfident = (group.title && candidates.some(p => p.id === bestPacket?.id) && highestMatch > 0) || (groupConfidence >= 0.5);
+
+            if (bestPacket && isConfident) {
+                console.log(`[GroupRecovery] RECOVERED: "${group.title}" (ID: ${group.id}) -> Packet "${bestPacket.name}" (Confidence: ${Math.round(groupConfidence * 100)}%)`);
+                newActiveGroups[group.id] = bestPacket.id;
+                recoveryCount++;
+            }
+        }
+
+        // Prune mappings, but be conservative during the first 10 seconds of startup
+        const currentGroupIds = new Set(groups.map(g => String(g.id)));
+        const isWarm = (performance.now() > 10000); 
+        
+        let pruneCount = 0;
+        for (const gid of Object.keys(newActiveGroups)) {
+            if (!currentGroupIds.has(gid)) {
+                if (isWarm) {
+                    delete newActiveGroups[gid];
+                    pruneCount++;
+                }
+            }
+        }
+
+        if (recoveryCount > 0 || pruneCount > 0) {
+            await chrome.storage.local.set({ activeGroups: newActiveGroups });
+            console.log(`[GroupRecovery] Finished. Recovered: ${recoveryCount}, Pruned: ${pruneCount}. Active: ${Object.keys(newActiveGroups).length}`);
+            
+            // Sync UI if sidebar is connected
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (activeTab && sidebarPort && activeTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                const packetId = newActiveGroups[activeTab.groupId];
+                if (packetId) {
+                    const db = sqliteManager.getDatabase('packets');
+                    const res = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (res.length && res[0].values.length) {
+                        const [id, name, urlsJson] = res[0].values[0];
+                        chrome.runtime.sendMessage({ 
+                            type: 'packetFocused', 
+                            packet: { id, name, urls: JSON.parse(urlsJson), groupId: activeTab.groupId, activeUrl: activeTab.url } 
+                        }).catch(() => {});
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[GroupRecovery] Error:', e);
     }
 }
