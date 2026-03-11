@@ -244,10 +244,17 @@ function urlsMatch(u1, u2) {
     return normalizeUrl(u1) === normalizeUrl(u2);
 }
 
-async function setTabMapping(tabId, url) {
+async function setTabMapping(tabId, url, packetId) {
     try {
         tabToUrlMapCached[tabId] = url;
         await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
+
+        // Track local pages for recovery after reload
+        if (url.includes('viewer.html')) {
+            const { openLocalPages = {} } = await chrome.storage.local.get('openLocalPages');
+            openLocalPages[tabId] = { url, packetId };
+            await chrome.storage.local.set({ openLocalPages });
+        }
     } catch (e) { }
 }
 
@@ -259,6 +266,13 @@ async function removeTabMapping(tabId) {
     try {
         delete tabToUrlMapCached[tabId];
         await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
+
+        // Also remove from local page tracking
+        const { openLocalPages = {} } = await chrome.storage.local.get('openLocalPages');
+        if (openLocalPages[tabId]) {
+            delete openLocalPages[tabId];
+            await chrome.storage.local.set({ openLocalPages });
+        }
     } catch (e) { }
 }
 
@@ -365,7 +379,7 @@ async function navigatePacketItems(groupId, direction) {
 
             if (existing) {
                 await chrome.tabs.update(existing.id, { active: true });
-                await setTabMapping(existing.id, url);
+                await setTabMapping(existing.id, url, packetId);
             }
         } else if (type === 'wasm') {
             try {
@@ -533,6 +547,10 @@ async function initializeSQLite() {
             // Also sync bookmarks cache
             await syncBookmarkCache();
             initialized = true;
+
+            // Recover local pages after reload
+            recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
+
             return sqliteManager;
         } catch (error) {
             console.error('Initialization failed:', error);
@@ -1111,11 +1129,11 @@ async function handleMessage(request, sender, sendResponse) {
 
                         if (existing) {
                             await chrome.tabs.update(existing.id, { active: true });
-                            await setTabMapping(existing.id, url);
+                            await setTabMapping(existing.id, url, packetId);
                         } else {
                             const newTab = await chrome.tabs.create({ url, active: true });
                             await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGroupId });
-                            await setTabMapping(newTab.id, url);
+                            await setTabMapping(newTab.id, url, packetId);
                         }
                         sendResponse({ success: true });
                     } else {
@@ -1141,7 +1159,7 @@ async function handleMessage(request, sender, sendResponse) {
                             activeGroups[targetGroupId] = packetId;
                             await chrome.storage.local.set({ activeGroups });
                         }
-                        await setTabMapping(newTab.id, url);
+                        await setTabMapping(newTab.id, url, packetId);
                         sendResponse({ success: true, newGroupId: targetGroupId });
                     }
                 } catch (err) {
@@ -1150,6 +1168,18 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+
+            case 'syncTabOrder': {
+                try {
+                    const { packetId } = request;
+                    await syncTabOrderForPacket(packetId);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+
                 async function executeWasm(item) {
                     const runtime = new WasmRuntime();
                     const executionLogs = [];
@@ -1638,5 +1668,130 @@ async function updateBadge({ isReadyToClip, tabId }) {
         }
     } catch (e) {
         console.error('[SW] updateBadge failed:', e);
+    }
+}
+async function recoverLocalPages() {
+    try {
+        const { openLocalPages = {} } = await chrome.storage.local.get('openLocalPages');
+        const entryCount = Object.keys(openLocalPages).length;
+        if (entryCount === 0) return;
+
+        console.log(`[Recovery] Checking ${entryCount} potentially lost local pages...`);
+
+        // Get currently open tabs to check which of these "old" tabIds are actually gone
+        const currentTabs = await chrome.tabs.query({});
+        const currentTabIds = new Set(currentTabs.map(t => t.id));
+
+        // Group by packetId to restore efficiently
+        const recordsToRestore = [];
+        const deadTabIds = [];
+
+        for (const [oldTabId, record] of Object.entries(openLocalPages)) {
+            if (!currentTabIds.has(parseInt(oldTabId))) {
+                recordsToRestore.push(record);
+                deadTabIds.push(oldTabId);
+            }
+        }
+
+        if (recordsToRestore.length > 0) {
+            console.log(`[Recovery] Restoring ${recordsToRestore.length} local pages...`);
+            
+            // Clear dead IDs from storage first to avoid infinite loops if something fails
+            for (const id of deadTabIds) {
+                delete openLocalPages[id];
+            }
+            await chrome.storage.local.set({ openLocalPages });
+
+            for (const record of recordsToRestore) {
+                try {
+                    // Use handleMessage internal logic or just call openTabInGroup logic
+                    // We can simulate a message to openTabInGroup
+                    await handleMessage({
+                        action: 'openTabInGroup',
+                        url: record.url,
+                        packetId: record.packetId
+                    }, {}, () => {});
+                } catch (e) {
+                    console.error('[Recovery] Failed to restore page:', record.url, e);
+                }
+            }
+
+            // Group by packetId to sync ordering for each affected group
+            const uniquePacketIds = [...new Set(recordsToRestore.map(r => r.packetId).filter(Boolean))];
+            if (uniquePacketIds.length > 0) {
+                console.log(`[Recovery] Triggering tab sync for ${uniquePacketIds.length} packets...`);
+                // Short delay to allow tabs to finish grouping
+                setTimeout(async () => {
+                    for (const pid of uniquePacketIds) {
+                        await syncTabOrderForPacket(pid).catch(e => console.error(`[Recovery] Sync failed for ${pid}:`, e));
+                    }
+                }, 1000);
+            }
+
+        } else {
+            console.log('[Recovery] No dead local pages found.');
+            // However, we should probably prune entries for tabs that are standard pages now
+            // But openLocalPages only contains viewer.html URLs anyway.
+        }
+    } catch (e) {
+        console.error('[Recovery] Error:', e);
+    }
+}
+async function syncTabOrderForPacket(packetId) {
+    if (!packetId) return;
+
+    try {
+        await initializeSQLite();
+        const db = sqliteManager.getDatabase('packets');
+        if (!db) return;
+
+        const result = db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+        if (!result.length || !result[0].values.length) return;
+
+        const urls = JSON.parse(result[0].values[0][0]);
+        const packetUrls = urls.map(item => {
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            if (type === 'page' || type === 'link') {
+                return typeof item === 'string' ? item : item.url;
+            } else if (type === 'local') {
+                return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+            } else if (type === 'media') {
+                return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+            }
+            return null;
+        }).filter(u => u !== null);
+
+        // Find the group mapped to this packet
+        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+        let targetGroupId = null;
+        for (const [gid, pid] of Object.entries(activeGroups)) {
+            if (String(pid) === String(packetId)) {
+                targetGroupId = parseInt(gid);
+                break;
+            }
+        }
+
+        if (targetGroupId === null) return;
+
+        const tabs = await chrome.tabs.query({ groupId: targetGroupId });
+        if (tabs.length === 0) return;
+
+        // Find the start index of the group in its window
+        const startPos = Math.min(...tabs.map(t => t.index));
+
+        // For each URL in the packet, if an open tab matches it, move it to the correct position
+        for (let i = 0; i < packetUrls.length; i++) {
+            const targetUrl = packetUrls[i];
+            const matchingTab = tabs.find(t => urlsMatch(t.url, targetUrl));
+
+            if (matchingTab) {
+                const targetIndex = startPos + i;
+                if (matchingTab.index !== targetIndex) {
+                    await chrome.tabs.move(matchingTab.id, { index: targetIndex });
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[SW] syncTabOrderForPacket failed:', e);
     }
 }

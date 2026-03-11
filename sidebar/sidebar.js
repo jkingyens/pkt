@@ -1970,54 +1970,29 @@ class SidebarUI {
     }
 
     async syncTabOrder() {
-        if (!this.currentPacket || !this.currentPacket.urls || this.activePacketGroupId === null) {
+        if (!this.currentPacket || this.activePacketGroupId === null) {
             console.warn('[SyncTabOrder] No active packet or group');
             return;
         }
 
         try {
-            const tabs = await chrome.tabs.query({ groupId: this.activePacketGroupId });
-            if (tabs.length === 0) return;
+            const resp = await chrome.runtime.sendMessage({
+                action: 'syncTabOrder',
+                packetId: this.currentPacket.id
+            });
 
-            // Sort tabs to match the packet's URL order
-            const packetUrls = this.currentPacket.urls.map(item => {
-                const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-                if (type === 'page' || type === 'link') {
-                    return typeof item === 'string' ? item : item.url;
-                } else if (type === 'local') {
-                    return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
-                } else if (type === 'media') {
-                    return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-                }
-                return null;
-            }).filter(u => u !== null);
-
-            // Find the start index of the group in its window
-            const startPos = Math.min(...tabs.map(t => t.index));
-
-            // For each URL in the packet, if an open tab matches it, move it to the correct position
-            for (let i = 0; i < packetUrls.length; i++) {
-                const targetUrl = packetUrls[i];
-                const matchingTab = tabs.find(t => this.urlsMatch(t.url, targetUrl));
-                
-                if (matchingTab) {
-                    const targetIndex = startPos + i;
-                    if (matchingTab.index !== targetIndex) {
-                        await chrome.tabs.move(matchingTab.id, { index: targetIndex });
-                    }
+            if (resp && resp.success) {
+                console.log('[SyncTabOrder] Background sync triggered');
+                // Visual feedback
+                const btn = document.getElementById('syncTabOrderBtn');
+                if (btn) {
+                    const originalColor = btn.style.color;
+                    btn.style.color = 'var(--success)';
+                    setTimeout(() => btn.style.color = originalColor, 1000);
                 }
             }
-            
-            console.log('[SyncTabOrder] Tabs synchronized with packet order');
-            
-            // Visual feedback - temporary color change or similar
-            const btn = document.getElementById('syncTabOrderBtn');
-            const originalColor = btn.style.color;
-            btn.style.color = 'var(--success)';
-            setTimeout(() => btn.style.color = originalColor, 1000);
-
         } catch (e) {
-            console.error('[SyncTabOrder] Failed:', e);
+            console.error('[SyncTabOrder] Message failed:', e);
         }
     }
 
