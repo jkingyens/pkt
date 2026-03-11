@@ -155,11 +155,22 @@
         style="margin-left: auto; font-size: 14px;">✕</button>
     </header>
 
-    <!-- Pages Section -->
     <section class="detail-section">
       <div class="section-header">
-        <h3>📄 Pages</h3>
+
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <h3>📄 Pages</h3>
+          <button id="syncTabOrderBtn" class="btn-icon-sm tab-sync-btn" title="Sync tabs to packet order">
+            <svg class="tab-sync-icon" viewBox="0 0 16 16" width="14" height="14">
+              <path class="tab-shape" d="M1 4.5A1.5 1.5 0 0 1 2.5 3h6A1.5 1.5 0 0 1 10 4.5v1H1v-1zM1 6.5h9v5A1.5 1.5 0 0 1 8.5 13h-6A1.5 1.5 0 0 1 1 11.5v-5z"/>
+              <path class="arrow-shape" d="M12.5 3a2.5 2.5 0 0 1 2.5 2.5v1.5a.5.5 0 0 1-1 0V5.5a1.5 1.5 0 0 0-1.5-1.5H11v1.5a.2.5 0 0 1-.41.19l-2-1.5a.25.25 0 0 1 0-.38l2-1.5A.25.25 0 0 1 11 3v1.5h1.5z" transform="translate(0, 4)"/>
+            </svg>
+          </button>
+        </div>
         <div style="display: flex; gap: 8px; align-items: center;">
+
+
+
         <div class="add-page-container">
           <button id="addPageDetailBtn" class="btn btn-secondary btn-sm section-add-btn" title="Add Page">➕</button>
           <div class="add-page-options">

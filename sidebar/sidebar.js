@@ -685,86 +685,156 @@ class SidebarUI {
     async addLocalPage() {
         if (!this.currentPacket) return;
         try {
-            const name = 'New Page';
+            const name = 'New Slide';
             const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>${name}</title>
     <style>
+        :root {
+            --primary: #4f46e5;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --radius: 12px;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --surface: #1e293b;
+                --text: #f1f5f9;
+                --text-muted: #94a3b8;
+                --border: #334155;
+            }
+        }
         body { 
             margin: 0; 
-            padding: 40px; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background-color: #f8f9fa;
+            padding: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            transition: background 0.3s;
         }
-        #content-wrapper {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            min-height: calc(100vh - 160px);
+        #slide-container {
+            width: 80%;
+            max-width: 900px;
+            aspect-ratio: 16 / 9;
+            background: var(--surface);
+            padding: 60px;
+            border-radius: var(--radius);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        #edit-toggle-btn {
+        
+        /* Layout: Title */
+        #slide-container.layout-title {
+            justify-content: center;
+            text-align: center;
+        }
+        #slide-container.layout-title h1 { font-size: 64px; margin-bottom: 20px; }
+        #slide-container.layout-title p { font-size: 24px; color: var(--text-muted); }
+        #slide-container.layout-title .content-list { display: none; }
+
+        /* Layout: Content */
+        #slide-container.layout-content {
+            justify-content: flex-start;
+            text-align: left;
+        }
+        #slide-container.layout-content h1 { font-size: 42px; margin-bottom: 40px; border-bottom: 3px solid var(--primary); display: inline-block; padding-bottom: 10px; }
+        #slide-container.layout-content p { display: none; }
+        #slide-container.layout-content .content-list { 
+            display: block; 
+            font-size: 24px; 
+            list-style: none; 
+            padding: 0; 
+        }
+        .content-list li {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+        }
+        .content-list li::before {
+            content: "•";
+            color: var(--primary);
+            font-weight: bold;
+            display: inline-block;
+            width: 1em;
+            margin-right: 0.5em;
+        }
+
+        [contenteditable="true"] {
+            outline: none;
+            cursor: text;
+        }
+        [contenteditable="true"]:hover {
+            background: rgba(79, 70, 229, 0.05);
+            border-radius: 4px;
+        }
+
+        #format-toggle {
             position: fixed;
             bottom: 30px;
             right: 30px;
-            padding: 10px 20px;
-            background: #3b82f6;
+            padding: 12px 24px;
+            background: var(--primary);
             color: white;
             border: none;
             border-radius: 30px;
             cursor: pointer;
-            font-size: 14px;
             font-weight: 600;
-            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
-            transition: all 0.2s;
-            z-index: 10000;
+            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+            z-index: 1000;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
-        #edit-toggle-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
-        }
-        #edit-toggle-btn.active {
-            background: #10b981;
-            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-        }
-        [contenteditable="true"] {
-            outline: 2px solid #3b82f6;
-            outline-offset: 4px;
-        }
+        #format-toggle:hover { opacity: 0.9; transform: translateY(-2px); }
     </style>
 </head>
 <body>
-    <div id="content-wrapper">
-        <div id="editable-content">
-            <h1>Hello World</h1>
-            <p>This is a local page stored in IndexedDB. Click the button below to edit this content.</p>
-        </div>
+    <div id="slide-container" class="layout-title">
+        <h1 id="slide-title" contenteditable="true">Title Goes Here</h1>
+        <p id="slide-subtitle" contenteditable="true">Click to edit subtitle...</p>
+        <ul id="slide-list" class="content-list" contenteditable="true">
+            <li>First bullet item</li>
+            <li>Second bullet item</li>
+        </ul>
     </div>
-    <button id="edit-toggle-btn">
-        <span id="btn-icon">✏️</span>
-        <span id="btn-text">Edit Page</span>
+
+    <button id="format-toggle">
+        <span>🔄</span>
+        <span id="format-text">Switch to Content</span>
     </button>
+
     <script src="${chrome.runtime.getURL('sidebar/local-editor.js')}"></script>
 </body>
 </html>`;
 
+
             const encoder = new TextEncoder();
             const data = encoder.encode(htmlContent);
 
+            // Generate a unique ID to prevent collisions between slides with the same initial content
+            const uniqueId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+
             const saveResp = await this.sendMessage({
                 action: 'saveMediaBlob',
+                id: uniqueId,
                 data: Array.from(new Uint8Array(data)),
                 type: 'text/html'
             });
+
 
             if (saveResp.success) {
                 const newItem = {
@@ -797,16 +867,38 @@ class SidebarUI {
     }
 
 
-    async updateAddPageVisibility() {
-        if (!this.currentPacket || !this.addPageFromTabBtn) return;
+    async syncActiveTab() {
+        if (!this.currentPacket) return;
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (resp.success) {
-                const { url, groupId } = resp.tab;
+                this.activeUrl = resp.tab.url;
+                // Refresh highlight
+                this.showPacketDetailView(this.currentPacket);
+                // Also update button visibility
+                await this.updateAddPageVisibility(resp.tab);
+            }
+        } catch (e) {
+            console.error('[Sidebar] syncActiveTab failed:', e);
+        }
+    }
+
+    async updateAddPageVisibility(tab) {
+        if (!this.currentPacket || !this.addPageFromTabBtn) return;
+        try {
+            const currentTab = tab || (await this.sendMessage({ action: 'getCurrentTab' })).tab;
+            if (currentTab) {
+                const { url, groupId } = currentTab;
                 const inGroup = groupId !== -1;
                 const inPacket = this.currentPacket.urls.some(item => {
-                    const itemUrl = typeof item === 'string' ? item : item.url;
-                    return this.urlsMatch(itemUrl, url);
+                    const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                    let itemUrl;
+                    if (type === 'page' || type === 'link') {
+                        itemUrl = typeof item === 'string' ? item : item.url;
+                    } else if (type === 'local') {
+                        itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+                    }
+                    return itemUrl && this.urlsMatch(itemUrl, url);
                 });
 
                 if (inGroup || inPacket) {
@@ -932,11 +1024,11 @@ class SidebarUI {
         }
 
         // Check tab status when becoming active or when tab changes
-        window.addEventListener('focus', () => this.updateAddPageVisibility());
-        chrome.tabs.onActivated.addListener(() => this.updateAddPageVisibility());
+        window.addEventListener('focus', () => this.syncActiveTab());
+        chrome.tabs.onActivated.addListener(() => this.syncActiveTab());
         chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
             if (changeInfo.status === 'complete' || changeInfo.url) {
-                this.updateAddPageVisibility();
+                this.syncActiveTab();
             }
         });
         if (this.editToggleBtn) {
@@ -948,6 +1040,8 @@ class SidebarUI {
         if (this.terminalOpenBtn) {
             this.terminalOpenBtn.addEventListener('click', () => this.openTerminal());
         }
+        document.getElementById('syncTabOrderBtn').addEventListener('click', () => this.syncTabOrder());
+
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
@@ -1804,7 +1898,7 @@ class SidebarUI {
 
         const pages = itemsWithIndex.filter(({ item }) => {
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-            return type === 'page' || type === 'link';
+            return type === 'page' || type === 'link' || type === 'local';
         });
         const media = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'media'));
         const wasm = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'wasm'));
@@ -1837,6 +1931,8 @@ class SidebarUI {
             let itemUrl;
             if (type === 'page' || type === 'link') {
                 itemUrl = typeof entry.item === 'string' ? entry.item : entry.item.url;
+            } else if (type === 'local') {
+                itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${entry.item.resourceId}&name=${encodeURIComponent(entry.item.name)}`);
             } else if (type === 'media') {
                 itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${entry.item.mediaId}&type=${encodeURIComponent(entry.item.mimeType)}&name=${encodeURIComponent(entry.item.name)}`);
             }
@@ -1872,6 +1968,59 @@ class SidebarUI {
 
         this.activatePacketItem(nextEntry.item, nextEntry.originalIndex);
     }
+
+    async syncTabOrder() {
+        if (!this.currentPacket || !this.currentPacket.urls || this.activePacketGroupId === null) {
+            console.warn('[SyncTabOrder] No active packet or group');
+            return;
+        }
+
+        try {
+            const tabs = await chrome.tabs.query({ groupId: this.activePacketGroupId });
+            if (tabs.length === 0) return;
+
+            // Sort tabs to match the packet's URL order
+            const packetUrls = this.currentPacket.urls.map(item => {
+                const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                if (type === 'page' || type === 'link') {
+                    return typeof item === 'string' ? item : item.url;
+                } else if (type === 'local') {
+                    return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+                } else if (type === 'media') {
+                    return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                }
+                return null;
+            }).filter(u => u !== null);
+
+            // Find the start index of the group in its window
+            const startPos = Math.min(...tabs.map(t => t.index));
+
+            // For each URL in the packet, if an open tab matches it, move it to the correct position
+            for (let i = 0; i < packetUrls.length; i++) {
+                const targetUrl = packetUrls[i];
+                const matchingTab = tabs.find(t => this.urlsMatch(t.url, targetUrl));
+                
+                if (matchingTab) {
+                    const targetIndex = startPos + i;
+                    if (matchingTab.index !== targetIndex) {
+                        await chrome.tabs.move(matchingTab.id, { index: targetIndex });
+                    }
+                }
+            }
+            
+            console.log('[SyncTabOrder] Tabs synchronized with packet order');
+            
+            // Visual feedback - temporary color change or similar
+            const btn = document.getElementById('syncTabOrderBtn');
+            const originalColor = btn.style.color;
+            btn.style.color = 'var(--success)';
+            setTimeout(() => btn.style.color = originalColor, 1000);
+
+        } catch (e) {
+            console.error('[SyncTabOrder] Failed:', e);
+        }
+    }
+
 
     activatePacketItem(item, index) {
         const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
@@ -1930,6 +2079,9 @@ class SidebarUI {
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
             if (type === 'page' || type === 'link') {
                 const url = typeof item === 'string' ? item : item.url;
+                return this.urlsMatch(url, this.activeUrl);
+            } else if (type === 'local') {
+                const url = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
                 return this.urlsMatch(url, this.activeUrl);
             } else if (type === 'media') {
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);

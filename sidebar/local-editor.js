@@ -1,33 +1,36 @@
 (function() {
-    const btn = document.getElementById('edit-toggle-btn');
-    const content = document.getElementById('editable-content');
-    const icon = document.getElementById('btn-icon');
-    const text = document.getElementById('btn-text');
+    const toggleBtn = document.getElementById('format-toggle');
+    const container = document.getElementById('slide-container');
+    const formatText = document.getElementById('format-text');
+    const slideList = document.getElementById('slide-list');
     
-    if (!btn || !content) return;
+    if (!toggleBtn || !container) return;
 
-    let isEditing = false;
-    
-    btn.onclick = () => {
-        isEditing = !isEditing;
-        content.contentEditable = isEditing;
-        
-        if (isEditing) {
-            btn.classList.add('active');
-            if (icon) icon.textContent = '✅';
-            if (text) text.textContent = 'Finish Editing';
-            content.focus();
+    // Toggle Layout Logic
+    toggleBtn.onclick = () => {
+        const isTitle = container.classList.contains('layout-title');
+        if (isTitle) {
+            container.classList.remove('layout-title');
+            container.classList.add('layout-content');
+            formatText.textContent = 'Switch to Title';
         } else {
-            btn.classList.remove('active');
-            if (icon) icon.textContent = '✏️';
-            if (text) text.textContent = 'Edit Page';
-            // Success feedback
-            console.log('Saved changes:', content.innerHTML);
-            
-            // Dispatch a custom event so the viewer can potentially catch it
-            window.dispatchEvent(new CustomEvent('page-edited', { 
-                detail: { html: content.innerHTML } 
-            }));
+            container.classList.remove('layout-content');
+            container.classList.add('layout-title');
+            formatText.textContent = 'Switch to Content';
         }
     };
+
+    // Smart Bullet Handling
+    if (slideList) {
+        slideList.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                // Let the browser handle creating the new LI, 
+                // but we can add logic here if we need specific bullet behavior.
+                // MutationObserver in viewer.js will pick up the change.
+            }
+        });
+    }
+
+    // Interactive edit feedback (optional)
+    console.log('Slide editor initialized');
 })();

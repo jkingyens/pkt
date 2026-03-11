@@ -303,6 +303,53 @@ h1 {
   font-weight: 600;
 }
 
+.btn-icon-sm {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.btn-icon-sm:hover {
+  background: var(--bg-alt);
+  color: var(--primary);
+}
+
+.btn-icon-sm:active {
+  transform: scale(0.9);
+}
+
+.tab-sync-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab-sync-btn .tab-shape {
+  fill: var(--bg-alt);
+  stroke: currentColor;
+}
+
+.tab-sync-btn:hover .tab-shape {
+  fill: rgba(37, 99, 235, 0.1);
+}
+
+.tab-sync-btn .arrow-shape {
+  fill: currentColor;
+  stroke: none;
+}
+
+
+
 .badge {
   background: var(--primary);
   color: white;
