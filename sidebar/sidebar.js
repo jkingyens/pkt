@@ -907,7 +907,10 @@ class SidebarUI {
      * Prevents the "two-click" issue caused by destructive innerHTML calls during focus.
      */
     updateItemHighlights() {
+        if (!this.currentPacket) return;
         const allCards = document.querySelectorAll('.packet-page-card, .packet-media-card');
+        const activeNorm = this.normalizeUrl(this.activeUrl);
+
         allCards.forEach(card => {
             const index = card.getAttribute('data-index');
             const item = this.currentPacket.urls[index];
@@ -919,7 +922,9 @@ class SidebarUI {
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
             
-            const isActive = itemUrl && this.urlsMatch(itemUrl, this.activeUrl);
+            const itemNorm = this.normalizeUrl(itemUrl);
+            const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
+            
             if (isActive) card.classList.add('active');
             else card.classList.remove('active');
         });
@@ -1611,6 +1616,16 @@ class SidebarUI {
     normalizeUrl(url) {
         if (!url) return '';
         try {
+            // Specialized handling for extension pages where IDs matter more than full details
+            if (url.startsWith('chrome-extension://')) {
+                try {
+                    const uObj = new URL(url);
+                    const path = uObj.pathname;
+                    const searchString = uObj.searchParams.get('id') || uObj.searchParams.get('mediaId');
+                    return `extension:${path}${searchString ? '?' + searchString : ''}`;
+                } catch (e) { }
+            }
+
             // Remove hash and trailing slash, then lowercase
             let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
             // Remove protocol and www.
@@ -1714,7 +1729,9 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                const isActive = this.urlsMatch(url, this.activeUrl);
+                const itemNorm = this.normalizeUrl(url);
+                const activeNorm = this.normalizeUrl(this.activeUrl);
+                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
                 card.className = `packet-page-card ${isActive ? 'active' : ''}`;
 
                 let hostname;
@@ -1736,6 +1753,8 @@ class SidebarUI {
                 });
                 card.addEventListener('click', async () => {
                     if (this.editMode) return;
+                    this.activeUrl = url;
+                    this.updateItemHighlights();
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
                     if (resp && resp.success) {
                         this.activePacketGroupId = resp.groupId || resp.newGroupId || this.activePacketGroupId;
@@ -1751,7 +1770,9 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                const isActive = this.urlsMatch(url, this.activeUrl);
+                const itemNorm = this.normalizeUrl(url);
+                const activeNorm = this.normalizeUrl(this.activeUrl);
+                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
                 card.className = `packet-page-card local ${isActive ? 'active' : ''}`;
 
                 card.innerHTML = `
@@ -1769,6 +1790,8 @@ class SidebarUI {
                 });
                 card.addEventListener('click', async () => {
                     if (this.editMode) return;
+                    this.activeUrl = url;
+                    this.updateItemHighlights();
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
                     if (resp && resp.success) {
                         this.activePacketGroupId = resp.groupId || resp.newGroupId || this.activePacketGroupId;
@@ -1780,7 +1803,9 @@ class SidebarUI {
             } else if (type === 'media') {
                 mediaCount++;
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-                const isActive = this.urlsMatch(mediaUrl, this.activeUrl);
+                const itemNorm = this.normalizeUrl(mediaUrl);
+                const activeNorm = this.normalizeUrl(this.activeUrl);
+                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
 
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');

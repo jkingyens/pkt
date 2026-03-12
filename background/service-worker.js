@@ -835,7 +835,8 @@ async function handleMessage(request, sender, sendResponse) {
                 if (!tab) {
                     sendResponse({ success: false, error: 'No active tab found' });
                 } else {
-                    sendResponse({ success: true, tab: { id: tab.id, title: tab.title, url: tab.url, groupId: tab.groupId } });
+                    const activeUrl = getMappedUrlSync(tab.id) || tab.url;
+                    sendResponse({ success: true, tab: { id: tab.id, title: tab.title, url: activeUrl, groupId: tab.groupId } });
                 }
                 break;
             }
@@ -1017,7 +1018,7 @@ async function handleMessage(request, sender, sendResponse) {
                             name,
                             urls: JSON.parse(urlsJson),
                             groupId: tab.groupId,
-                            activeUrl: tab.url
+                            activeUrl: getMappedUrlSync(tab.id) || tab.url
                         }
                     });
                 } catch (err) {
