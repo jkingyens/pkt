@@ -988,6 +988,7 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'getActivePacket': {
                 try {
+                    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
                     if (!tab || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
                         sendResponse({ success: true, packet: null }); break;
                     }

@@ -959,12 +959,8 @@ class SidebarUI {
         try {
             const resp = await this.sendMessage({ action: 'getActivePacket' });
             if (resp.success && resp.packet) {
-                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                if (tab && tab.groupId !== -1) {
-                    resp.packet.groupId = tab.groupId;
-                    resp.packet.activeUrl = tab.url; // Ensure highlighting works on start
-                    this.showPacketDetailView(resp.packet);
-                }
+                // If the background found a packet associated with the active tab, show it!
+                this.showPacketDetailView(resp.packet);
             }
         } catch (e) {
             console.error('Failed to check active packet:', e);
