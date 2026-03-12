@@ -398,6 +398,8 @@ class SidebarUI {
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.activeCaptureTabId = null; // Track which tab has the capture indicator
         this.editMode = false;
+        this.consecutiveFailures = 0;
+        this.MAX_CONSECUTIVE_FAILURES = 3;
 
         this.setupEventListeners();
         this.setupMessageHandlers();
@@ -1491,7 +1493,7 @@ class SidebarUI {
 
         const isNetworkEnabled = this.networkEnabled !== false;
         
-        // Short-circuit: if network is simulated OFF, we don't even need to probe
+        // Short-circuit 1: if network is simulated OFF, we don't even need to probe
         if (!isNetworkEnabled) {
             this.statusIndicator.classList.remove('offline');
             this.statusIndicator.classList.add('simulated-offline');
@@ -1500,24 +1502,49 @@ class SidebarUI {
             return;
         }
 
-        // If simulated ON, check if actually online
-        const isActualOnline = await this.checkActualConnectivity();
-        
-        // Log status changes for debugging
-        if (this.lastOnLine !== isActualOnline) {
-            console.log(`[Status] Connectivity probe result: ${isActualOnline}`);
-            this.lastOnLine = isActualOnline;
+        // Short-circuit 2: Check navigator.onLine as a fast pre-check
+        // If the OS says we're offline, we definitely are.
+        if (!navigator.onLine) {
+            this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+            this.handleOfflineTransition();
+            return;
         }
 
-        this.statusIndicator.classList.remove('offline', 'simulated-offline');
+        // If simulated ON, check if actually online with probes
+        const isActualOnline = await this.checkActualConnectivity();
+        
+        if (isActualOnline) {
+            const wasChecking = this.consecutiveFailures > 0;
+            this.consecutiveFailures = 0;
+            if (this.lastStateWasOnline === false || wasChecking) {
+                this.statusIndicator.classList.remove('offline', 'simulated-offline');
+                this.statusText.textContent = 'Online';
+                if (this.lastStateWasOnline === false) {
+                    console.log('[Status] Back Online');
+                    this.enforceOfflineState(false);
+                }
+            }
+        } else {
+            this.consecutiveFailures++;
+            console.warn(`[Status] Connectivity probe failed (${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES})`);
+            
+            if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+                this.handleOfflineTransition();
+            } else {
+                // Stay in Online state but maybe show a hint if we're feeling fancy later
+                // For now, just don't flip to offline yet.
+                this.statusText.textContent = 'Online (checking...)';
+            }
+        }
+    }
 
-        if (!isActualOnline) {
+    handleOfflineTransition() {
+        if (this.lastStateWasOnline !== false) {
+            console.log(`[Status] Transitioning to Offline after ${this.consecutiveFailures} failures`);
+            this.statusIndicator.classList.remove('simulated-offline');
             this.statusIndicator.classList.add('offline');
             this.statusText.textContent = 'Offline';
             this.enforceOfflineState(true);
-        } else {
-            this.statusText.textContent = 'Online';
-            this.enforceOfflineState(false);
         }
     }
 
@@ -1577,27 +1604,32 @@ class SidebarUI {
             console.warn('[Status] chrome.system.network failed:', e);
         }
 
-        // Step 2: Probe for truth
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
-            
-            // Random cache buster to ensure we hit the network
-            const probeUrl = `https://clients3.google.com/generate_204?cb=${Math.random()}`;
-            
-            await fetch(probeUrl, {
-                method: 'HEAD',
-                mode: 'no-cors',
-                cache: 'no-store',
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            return true;
-        } catch (e) {
-            console.log(`[Status] Probe failed: ${e.message}`);
-            return false;
+        // Step 2: Probe for truth across multiple endpoints to avoid single-point failure sensitivity
+        const endpoints = [
+            `https://clients3.google.com/generate_204?cb=${Math.random()}`,
+            `https://1.1.1.1/generate_204?cb=${Math.random()}`
+        ];
+
+        for (const probeUrl of endpoints) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // Increased from 2s to 5s
+                
+                await fetch(probeUrl, {
+                    method: 'HEAD',
+                    mode: 'no-cors',
+                    cache: 'no-store',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                return true; // Any single success is enough to consider us "Online"
+            } catch (e) {
+                console.log(`[Status] Probe to ${new URL(probeUrl).hostname} failed: ${e.message}`);
+            }
         }
+
+        return false; // All probes failed
     }
 
     hideAllViews() {
