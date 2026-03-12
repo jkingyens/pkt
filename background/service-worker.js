@@ -247,11 +247,11 @@ function urlsMatch(u1, u2) {
 
 async function setTabMapping(tabId, url, packetId) {
     try {
-        tabToUrlMapCached[tabId] = url;
+        tabToUrlMapCached[tabId] = { url, packetId };
         await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
 
         // Track local pages for recovery after reload
-        if (url.includes('viewer.html')) {
+        if (url && url.includes('viewer.html')) {
             const { openLocalPages = {} } = await chrome.storage.local.get('openLocalPages');
             openLocalPages[tabId] = { url, packetId };
             await chrome.storage.local.set({ openLocalPages });
@@ -260,7 +260,15 @@ async function setTabMapping(tabId, url, packetId) {
 }
 
 function getMappedUrlSync(tabId) {
-    return tabToUrlMapCached[tabId];
+    const mapping = tabToUrlMapCached[tabId];
+    if (!mapping) return null;
+    return typeof mapping === 'object' ? mapping.url : mapping;
+}
+
+function getMappedPacketIdSync(tabId) {
+    const mapping = tabToUrlMapCached[tabId];
+    if (!mapping || typeof mapping !== 'object') return null;
+    return mapping.packetId;
 }
 
 async function removeTabMapping(tabId) {
@@ -1059,6 +1067,12 @@ async function handleMessage(request, sender, sendResponse) {
 
                     if (targetGroupId !== null) {
                         await chrome.tabs.group({ tabIds: [tabId], groupId: targetGroupId });
+                        // Map the tab so we know it belongs to this packet even if URL is duplicate elsewhere
+                        const [tab] = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, active: true }); // We might not have the tab object, but we have tabId
+                        try {
+                            const t = await chrome.tabs.get(tabId);
+                            if (t && t.url) await setTabMapping(tabId, t.url, packetId);
+                        } catch (e) { }
                         sendResponse({ success: true, groupId: targetGroupId });
                     } else {
                         // Create new group
@@ -1853,8 +1867,14 @@ async function syncTabOrderForPacket(packetId) {
             // Robust match: Check EVERY tab in the window, even if it's currently outside the group
             const matchingTab = allTabsInWindow.find(t => {
                 const turl = t.url || t.pendingUrl;
-                const mapped = getMappedUrlSync(t.id);
-                return (turl && urlsMatch(turl, targetUrl)) || (mapped && urlsMatch(mapped, targetUrl));
+                const mappedUrl = getMappedUrlSync(t.id);
+                const mappedPacketId = getMappedPacketIdSync(t.id);
+
+                // If tab is already mapped to a DIFFERENT packet, skip it!
+                if (mappedPacketId && String(mappedPacketId) !== String(packetId)) return false;
+
+                const urlMatches = (turl && urlsMatch(turl, targetUrl)) || (mappedUrl && urlsMatch(mappedUrl, targetUrl));
+                return urlMatches;
             });
 
             if (matchingTab) {
