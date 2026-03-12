@@ -936,29 +936,40 @@ class SidebarUI {
         // 1. Clear all highlights first
         allCards.forEach(card => card.classList.remove('active'));
 
-        // 2. If no active URL, we are done
-        if (!this.activeUrl) return;
-        
-        const activeNorm = this.normalizeUrl(this.activeUrl);
-        if (!activeNorm) return;
+        // 2. Focus Management: Clear focus from elements to prevent :focus styles
+        // from persisting when moving between cards. 
+        if (document.activeElement && 
+           (document.activeElement.classList.contains('packet-page-card') || 
+            document.activeElement.classList.contains('packet-media-card'))) {
+            document.activeElement.blur();
+        }
 
         // 3. Highlight the matching card
+        const activeNorm = this.normalizeUrl(this.activeUrl);
+        
         allCards.forEach(card => {
-            const index = card.getAttribute('data-index');
+            const index = parseInt(card.getAttribute('data-index'), 10);
             const item = this.currentPacket.urls[index];
             if (!item) return;
 
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            
+            // Handle Page/Media/Local types based on activeUrl
             let itemUrl;
             if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
             
-            if (itemUrl) {
+            if (itemUrl && activeNorm) {
                 const itemNorm = this.normalizeUrl(itemUrl);
                 if (itemNorm === activeNorm) {
                     card.classList.add('active');
                 }
+            }
+
+            // Handle Wasm types based on lastNavigatedIndex
+            if (type === 'wasm' && index === this.lastNavigatedIndex) {
+                card.classList.add('active');
             }
         });
     }
@@ -1882,7 +1893,8 @@ class SidebarUI {
         this.showView('packetDetailView');
         document.getElementById('packetDetailTitle').textContent = packet.name;
 
-        this.renderPacketItems(packet.urls);
+        await this.renderPacketItems(packet.urls);
+        this.updateItemHighlights(); // Unified highlight step
         this.updateClipperState();
         this.checkReadyToClip();
         this.updateAddPageVisibility();
@@ -1913,11 +1925,8 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                const itemNorm = this.normalizeUrl(url);
-                const activeNorm = this.normalizeUrl(this.activeUrl);
-                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
                 const isOffline = !navigator.onLine || this.networkEnabled === false;
-                card.className = `packet-page-card ${isActive ? 'active' : ''} ${isOffline ? 'disabled' : ''}`;
+                card.className = `packet-page-card ${isOffline ? 'disabled' : ''}`;
 
                 let hostname;
                 try { hostname = new URL(url).hostname; } catch (e) { hostname = 'Unknown'; }
@@ -1955,10 +1964,7 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                const itemNorm = this.normalizeUrl(url);
-                const activeNorm = this.normalizeUrl(this.activeUrl);
-                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
-                card.className = `packet-page-card local ${isActive ? 'active' : ''}`;
+                card.className = `packet-page-card local`;
 
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
@@ -1997,7 +2003,7 @@ class SidebarUI {
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
                 const isOffline = !navigator.onLine || this.networkEnabled === false;
-                card.className = `packet-media-card ${isActive ? 'active' : ''} ${isOffline ? 'disabled' : ''}`;
+                card.className = `packet-media-card ${isOffline ? 'disabled' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
@@ -2018,7 +2024,7 @@ class SidebarUI {
                 }
                 card.addEventListener('click', () => {
                     if (this.editMode) return;
-                    this.playMedia(item);
+                    this.activatePacketItem(item, index);
                 });
                 if (this.editMode) this.addReorderEvents(card, index, 'media');
                 mediaList.appendChild(card);
@@ -2028,8 +2034,7 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                const isSelected = (index === this.lastNavigatedIndex);
-                card.className = `packet-page-card wasm ${isSelected ? 'active' : ''}`;
+                card.className = `packet-page-card wasm`;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="packet-page-info">
@@ -2046,7 +2051,7 @@ class SidebarUI {
                 });
                 card.querySelector('.play-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.runWasm(item, index);
+                    this.activatePacketItem(item, index);
                 });
                 if (this.editMode) this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
@@ -2210,11 +2215,6 @@ class SidebarUI {
         const nextEntry = filteredSeq[nextVisualIndex];
         this.lastNavigatedIndex = nextEntry.originalIndex;
 
-        // Trigger individual UI refresh if we're on a WASM item so it gets the highlight
-        if ((typeof nextEntry.item === 'object') && nextEntry.item.type === 'wasm') {
-            this.showPacketDetailView(this.currentPacket);
-        }
-
         this.activatePacketItem(nextEntry.item, nextEntry.originalIndex);
     }
 
@@ -2261,18 +2261,29 @@ class SidebarUI {
     activatePacketItem(item, index) {
         const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
 
+        // 1. Update state immediately for atomic highlight feedback
+        if (type === 'page' || type === 'link') {
+            this.activeUrl = typeof item === 'string' ? item : item.url;
+        } else if (type === 'local') {
+            this.activeUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+        } else if (type === 'media') {
+            this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+        } else if (type === 'wasm') {
+            this.lastNavigatedIndex = index;
+        }
+
+        // 2. Trigger atomic highlight update
+        this.updateItemHighlights();
+
         // Helper to reclaim focus
         const reclaimFocus = () => {
             try {
-                // chrome.sidePanel.open is the most aggressive way to focus the side panel
-                // It requires a windowId, which we can get from the current tab or window
                 chrome.windows.getCurrent(win => {
                     if (win) {
                         chrome.sidePanel.open({ windowId: win.id }).catch(() => { });
                     }
                 });
 
-                // Also focus the specific element in the sidebar
                 if (index !== undefined) {
                     const selector = `[data-index="${index}"]`;
                     const el = document.querySelector(selector);
@@ -2285,8 +2296,8 @@ class SidebarUI {
             }
         };
 
-        if (type === 'page' || type === 'link') {
-            const url = typeof item === 'string' ? item : item.url;
+        if (type === 'page' || type === 'link' || type === 'local') {
+            const url = this.activeUrl;
             this.sendMessage({
                 action: 'openTabInGroup',
                 url,
