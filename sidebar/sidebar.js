@@ -516,6 +516,14 @@ class SidebarUI {
                 // Sync navigation index
                 this.lastNavigatedIndex = this.getActiveItemIndex();
                 this.updateClipperState();
+            } else if (message.type === 'UPDATE_ACTIVE_URL') {
+                // Surgical update to avoid view switching/scrolling on navigation within packet
+                if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packetId)) {
+                    this.activeUrl = message.url;
+                    this.updateItemHighlights();
+                    this.updateAddPageVisibility();
+                    this.lastNavigatedIndex = this.getActiveItemIndex();
+                }
             } else if (message.type === 'CLIPPER_ICON_CLICKED') {
                 this.handleToolbarIconClicked(message.tab);
             } else if (message.action === 'triggerNewPacketWithTab') {

@@ -1551,9 +1551,16 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         if (!result.length || !result[0].values.length) return;
         const [id, name, urlsJson] = result[0].values[0];
 
-        // Use mapping if available to persist highlight through redirects
+        // Use mapping if available but prefer active tab URL if it matches any item in the packet
         const mappedUrl = getMappedUrlSync(tabId);
-        const packet = { id, name, urls: JSON.parse(urlsJson), groupId, activeUrl: mappedUrl || tab.url };
+        const urls = JSON.parse(urlsJson);
+        const currentUrlMatches = urls.some(item => {
+            const u = typeof item === 'object' ? item.url : item;
+            return u && urlsMatch(u, tab.url);
+        });
+
+        const activeUrl = currentUrlMatches ? tab.url : (mappedUrl || tab.url);
+        const packet = { id, name, urls, groupId, activeUrl };
         chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
     } catch (e) { }
 });
@@ -1563,26 +1570,41 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' || changeInfo.url) {
         try {
             await updateBadge({ tabId });
+
             const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
             const groupId = tab.groupId;
 
-            if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) {
-                chrome.runtime.sendMessage({ type: 'packetFocused', packet: null }).catch(() => { });
-                return;
+            // Only notify sidebar of highlight change if it's already in the group
+            if (groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && activeGroups[groupId]) {
+                const packetId = activeGroups[groupId];
+                await initializeSQLite();
+                const db = sqliteManager.getDatabase('packets');
+                if (!db) return;
+                const result = db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+                if (!result.length || !result[0].values.length) return;
+                const [urlsJson] = result[0].values[0];
+                const urls = JSON.parse(urlsJson);
+
+                // If new URL matches a packet item, update mapping
+                const currentUrlMatches = urls.some(item => {
+                    const u = typeof item === 'object' ? item.url : item;
+                    return u && urlsMatch(u, tab.url);
+                });
+
+                if (currentUrlMatches) {
+                    await setTabMapping(tabId, tab.url, packetId);
+                }
+
+                // If this is the active tab, surgically update sidebar highlight
+                const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (activeTab && activeTab.id === tabId) {
+                    chrome.runtime.sendMessage({
+                        type: 'UPDATE_ACTIVE_URL',
+                        url: getMappedUrlSync(tabId) || tab.url,
+                        packetId
+                    }).catch(() => { });
+                }
             }
-
-            const packetId = activeGroups[groupId];
-            await initializeSQLite();
-            const db = sqliteManager.getDatabase('packets');
-            if (!db) return;
-            const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-            if (!result.length || !result[0].values.length) return;
-            const [id, name, urlsJson] = result[0].values[0];
-
-            // Use mapping if available to persist highlight through redirects
-            const mappedUrl = getMappedUrlSync(tabId);
-            const packet = { id, name, urls: JSON.parse(urlsJson), groupId, activeUrl: mappedUrl || tab.url };
-            chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
         } catch (e) { }
     }
 });
