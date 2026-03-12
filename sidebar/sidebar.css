@@ -2007,3 +2007,69 @@ body.offline-mode::after {
   font-size: 11px;
   height: 24px;
 }
+
+/* Status Indicator */
+.status-indicator {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+  pointer-events: none; /* Don't block clicks to things behind it */
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.status-indicator.offline .status-dot {
+  background: var(--secondary);
+}
+
+.status-indicator.simulated-offline .status-dot {
+  background: var(--danger);
+}
+
+.status-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+/* Offline Enforcement */
+.packet-page-card.disabled {
+  opacity: 0.5;
+  filter: grayscale(1);
+  pointer-events: none;
+  cursor: not-allowed;
+  position: relative;
+}
+
+.packet-page-card.disabled::after {
+  content: 'Offline';
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  font-size: 8px;
+  background: var(--bg-alt);
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: bold;
+}

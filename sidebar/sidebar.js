@@ -375,6 +375,10 @@ class SidebarUI {
         this.entryPreviewCloseBtn = document.getElementById('entryPreviewCloseBtn');
         this.entryPreviewOkBtn = document.getElementById('entryPreviewOkBtn');
 
+        // Status indicator elements
+        this.statusIndicator = document.getElementById('statusIndicator');
+        this.statusText = document.getElementById('statusText');
+
         // State
         this.currentCollection = null;
         this.currentSchema = [];
@@ -402,6 +406,13 @@ class SidebarUI {
         window.addEventListener('dragover', (e) => e.preventDefault(), false);
         window.addEventListener('drop', (e) => e.preventDefault(), false);
 
+        // Online status listeners
+        window.addEventListener('online', () => this.updateOnlineStatus());
+        window.addEventListener('offline', () => this.updateOnlineStatus());
+        
+        // Polling fallback every 5s (sometimes extension side panels miss window events)
+        setInterval(() => this.updateOnlineStatus(), 5000);
+
         // Consolidated initialization flow
         this.init();
 
@@ -413,8 +424,9 @@ class SidebarUI {
     async init() {
         try {
             // 1. Core setup
-            this.loadSettings();
+            await this.loadSettings();
             await this.loadCollections();
+            this.updateOnlineStatus();
 
             // 2. Check for pending actions (highest priority)
             const { pendingAction } = await chrome.storage.local.get('pendingAction');
@@ -888,17 +900,25 @@ class SidebarUI {
 
     async syncActiveTab() {
         if (!this.currentPacket) return;
+        
+        // Small delay to let browser tab state settle
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
-            if (resp.success) {
+            if (resp && resp.success && resp.tab) {
                 this.activeUrl = resp.tab.url;
-                // Surgical update instead of destructive re-render
-                this.updateItemHighlights();
-                // Update button visibility (keeps DOM mostly intact)
+            } else {
+                this.activeUrl = null;
+            }
+            this.updateItemHighlights();
+            if (resp && resp.tab) {
                 await this.updateAddPageVisibility(resp.tab);
             }
         } catch (e) {
             console.error('[Sidebar] syncActiveTab failed:', e);
+            this.activeUrl = null;
+            this.updateItemHighlights();
         }
     }
 
@@ -908,9 +928,19 @@ class SidebarUI {
      */
     updateItemHighlights() {
         if (!this.currentPacket) return;
+        
         const allCards = document.querySelectorAll('.packet-page-card, .packet-media-card');
-        const activeNorm = this.normalizeUrl(this.activeUrl);
+        
+        // 1. Clear all highlights first
+        allCards.forEach(card => card.classList.remove('active'));
 
+        // 2. If no active URL, we are done
+        if (!this.activeUrl) return;
+        
+        const activeNorm = this.normalizeUrl(this.activeUrl);
+        if (!activeNorm) return;
+
+        // 3. Highlight the matching card
         allCards.forEach(card => {
             const index = card.getAttribute('data-index');
             const item = this.currentPacket.urls[index];
@@ -922,11 +952,12 @@ class SidebarUI {
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
             
-            const itemNorm = this.normalizeUrl(itemUrl);
-            const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
-            
-            if (isActive) card.classList.add('active');
-            else card.classList.remove('active');
+            if (itemUrl) {
+                const itemNorm = this.normalizeUrl(itemUrl);
+                if (itemNorm === activeNorm) {
+                    card.classList.add('active');
+                }
+            }
         });
     }
 
@@ -1069,6 +1100,7 @@ class SidebarUI {
         // Check tab status when becoming active or when tab changes
         window.addEventListener('focus', () => this.syncActiveTab());
         chrome.tabs.onActivated.addListener(() => this.syncActiveTab());
+        chrome.tabs.onRemoved.addListener(() => this.syncActiveTab());
         chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
             if (changeInfo.status === 'complete' || changeInfo.url) {
                 this.syncActiveTab();
@@ -1433,6 +1465,12 @@ class SidebarUI {
 
     showView(viewId) {
         this.hideAllViews();
+        // Hide status indicator in settings or constructor to keep it clean
+        if (this.statusIndicator) {
+            const hideIn = ['settingsView', 'constructorView', 'schemaConstructorView', 'witEditorView'];
+            this.statusIndicator.style.display = hideIn.includes(viewId) ? 'none' : 'flex';
+        }
+
         const view = document.getElementById(viewId);
         if (view) {
             view.classList.add('active');
@@ -1445,6 +1483,120 @@ class SidebarUI {
             this.updateClipperState();
         } else {
             console.error(`[SidebarUI] View not found: ${viewId}`);
+        }
+    }
+
+    async updateOnlineStatus() {
+        if (!this.statusIndicator || !this.statusText) return;
+
+        const isNetworkEnabled = this.networkEnabled !== false;
+        
+        // Short-circuit: if network is simulated OFF, we don't even need to probe
+        if (!isNetworkEnabled) {
+            this.statusIndicator.classList.remove('offline');
+            this.statusIndicator.classList.add('simulated-offline');
+            this.statusText.textContent = 'Simulated Offline';
+            this.enforceOfflineState(true);
+            return;
+        }
+
+        // If simulated ON, check if actually online
+        const isActualOnline = await this.checkActualConnectivity();
+        
+        // Log status changes for debugging
+        if (this.lastOnLine !== isActualOnline) {
+            console.log(`[Status] Connectivity probe result: ${isActualOnline}`);
+            this.lastOnLine = isActualOnline;
+        }
+
+        this.statusIndicator.classList.remove('offline', 'simulated-offline');
+
+        if (!isActualOnline) {
+            this.statusIndicator.classList.add('offline');
+            this.statusText.textContent = 'Offline';
+            this.enforceOfflineState(true);
+        } else {
+            this.statusText.textContent = 'Online';
+            this.enforceOfflineState(false);
+        }
+    }
+
+    async enforceOfflineState(isOffline) {
+        // 1. Update UI (grey out items)
+        const cards = document.querySelectorAll('.packet-page-card:not(.local):not(.wasm)');
+        cards.forEach(card => {
+            if (isOffline) {
+                card.classList.add('disabled');
+            } else {
+                card.classList.remove('disabled');
+            }
+        });
+
+        // 2. Close web tabs if we just went offline
+        if (isOffline && this.lastStateWasOnline !== false) {
+            console.log('[Status] Enforcing offline: closing packet web tabs');
+            try {
+                const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                const packetGroupIds = new Set(Object.keys(activeGroups).map(id => parseInt(id, 10)));
+                
+                const tabs = await chrome.tabs.query({});
+                const tabsToClose = tabs.filter(t => {
+                    if (!t.url || !packetGroupIds.has(t.groupId)) return false;
+                    const isLocal = t.url.startsWith('chrome-extension://') || t.url.startsWith('file://');
+                    return !isLocal;
+                });
+                
+                if (tabsToClose.length > 0) {
+                    const tabIds = tabsToClose.map(t => t.id);
+                    await chrome.tabs.remove(tabIds);
+                    this.showNotification(`Closed ${tabsToClose.length} packet tabs for offline mode`, 'info');
+                }
+            } catch (e) {
+                console.error('[Status] Failed to close packet tabs:', e);
+            }
+        }
+        this.lastStateWasOnline = !isOffline;
+    }
+
+    async checkActualConnectivity() {
+        // Step 1: Check network interfaces
+        try {
+            if (chrome.system && chrome.system.network) {
+                const interfaces = await new Promise(resolve => chrome.system.network.getNetworkInterfaces(resolve));
+                const activeInterfaces = interfaces.filter(i => 
+                    !i.address.startsWith('127.') && 
+                    !i.address.startsWith('::1') && 
+                    !i.address.startsWith('fe80:') // Ignore loopback and link-local
+                );
+                if (activeInterfaces.length === 0) {
+                    console.log('[Status] No active network interfaces found.');
+                    return false;
+                }
+            }
+        } catch (e) {
+            console.warn('[Status] chrome.system.network failed:', e);
+        }
+
+        // Step 2: Probe for truth
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            
+            // Random cache buster to ensure we hit the network
+            const probeUrl = `https://clients3.google.com/generate_204?cb=${Math.random()}`;
+            
+            await fetch(probeUrl, {
+                method: 'HEAD',
+                mode: 'no-cors',
+                cache: 'no-store',
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            return true;
+        } catch (e) {
+            console.log(`[Status] Probe failed: ${e.message}`);
+            return false;
         }
     }
 
@@ -1732,7 +1884,8 @@ class SidebarUI {
                 const itemNorm = this.normalizeUrl(url);
                 const activeNorm = this.normalizeUrl(this.activeUrl);
                 const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
-                card.className = `packet-page-card ${isActive ? 'active' : ''}`;
+                const isOffline = !navigator.onLine || this.networkEnabled === false;
+                card.className = `packet-page-card ${isActive ? 'active' : ''} ${isOffline ? 'disabled' : ''}`;
 
                 let hostname;
                 try { hostname = new URL(url).hostname; } catch (e) { hostname = 'Unknown'; }
@@ -1811,7 +1964,8 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = this.editMode;
-                card.className = `packet-media-card ${isActive ? 'active' : ''}`;
+                const isOffline = !navigator.onLine || this.networkEnabled === false;
+                card.className = `packet-media-card ${isActive ? 'active' : ''} ${isOffline ? 'disabled' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
@@ -3377,6 +3531,7 @@ class SidebarUI {
         await chrome.storage.local.set({ networkEnabled: networkEnabled });
         await this.sendMessage({ action: 'TOGGLE_NETWORK', enabled: networkEnabled });
         this.applyOfflineMode();
+        this.updateOnlineStatus(); // NEW: Update indicator immediately
         this.showNotification(`Network ${networkEnabled ? 'enabled' : 'disabled'}`, 'success');
     }
 
