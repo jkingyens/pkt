@@ -322,7 +322,8 @@ class SidebarUI {
         // Packet detail view elements
         this.packetDetailTitle = document.getElementById('packetDetailTitle');
         this.packetPageList = document.getElementById('packetPageList');
-        this.packetDetailPageCount = document.getElementById('packetDetailPageCount');
+        this.packetStackList = document.getElementById('packetStackList');
+        this.packetStackCount = document.getElementById('packetStackCount');
         this.packetDataCount = document.getElementById('packetDataCount');
         this.packetDataList = document.getElementById('packetDataList');
         this.mediaDropZone = document.getElementById('mediaDropZone');
@@ -331,8 +332,10 @@ class SidebarUI {
         this.mediaVideoRecordBtn = document.getElementById('mediaVideoRecordBtn');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
+        this.addStackDetailBtn = document.getElementById('addStackDetailBtn');
         this.addPageFromTabBtn = document.getElementById('addPageFromTabBtn');
         this.addPageNewBtn = document.getElementById('addPageNewBtn');
+        this.createNewStackBtn = document.getElementById('createNewStackBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
         this.deletePacketDetailBtn = document.getElementById('deletePacketDetailBtn');
         this.terminalOpenBtn = document.getElementById('terminalOpenBtn');
@@ -513,6 +516,7 @@ class SidebarUI {
                     this.isClipperInvoked = false;
                     this.updateClipperState();
                     this.updateAddPageVisibility();
+                    this.updateItemHighlights();
                     return;
                 }
 
@@ -895,7 +899,60 @@ class SidebarUI {
             }
         } catch (err) {
             console.error('addLocalPage failed:', err);
-            this.showNotification('Failed to create local page: ' + err.message, 'error');
+            this.showNotification('Could not add local page: ' + err.message, 'error');
+        }
+    }
+
+    async createNewStack() {
+        if (!this.currentPacket) return;
+        const name = prompt('Enter a name for the new stack:', 'New Stack');
+        if (!name) return;
+
+        try {
+            const dbName = `packet_${this.currentPacket.id}`;
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
+            
+            const insertResp = await this.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: `INSERT INTO stacks (name) VALUES ('${name.replace(/'/g, "''")}')`
+            });
+
+            if (!insertResp.success) throw new Error(insertResp.error);
+
+            const lastIdResp = await this.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: "SELECT last_insert_rowid()"
+            });
+            const stackId = lastIdResp.result[0].values[0][0];
+
+            const stackItem = { 
+                type: 'stack', 
+                stackId, 
+                name, 
+                packetId: this.currentPacket.id 
+            };
+            
+            this.currentPacket.urls.push(stackItem);
+
+            const saveResp = await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+
+            if (saveResp && saveResp.success) {
+                this.showNotification('Stack created', 'success');
+                this.showPacketDetailView(this.currentPacket);
+                this.activatePacketItem(stackItem, this.currentPacket.urls.length - 1);
+            } else {
+                throw new Error(saveResp?.error || 'Failed to save packet');
+            }
+        } catch (err) {
+            console.error('createNewStack failed:', err);
+            this.showNotification('Could not create stack: ' + err.message, 'error');
         }
     }
 
@@ -959,6 +1016,7 @@ class SidebarUI {
             if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'stack') itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
             
             if (itemUrl && activeNorm) {
                 const itemNorm = this.normalizeUrl(itemUrl);
@@ -1057,6 +1115,8 @@ class SidebarUI {
             this.addMediaDetailBtn.addEventListener('click', () => {
                 if (this.mediaAddOptions) {
                     this.mediaAddOptions.classList.toggle('hidden');
+                    this.createNewStackBtn?.classList.toggle('hidden', !this.editMode);
+                    this.addPageDetailBtn?.classList.toggle('hidden', !this.editMode);
                 } else {
                     this.mediaDropZone.classList.toggle('hidden');
                 }
@@ -1107,6 +1167,16 @@ class SidebarUI {
         if (this.addPageNewBtn) {
             this.addPageNewBtn.addEventListener('click', () => {
                 this.addLocalPage();
+            });
+        }
+        if (this.createNewStackBtn) {
+            this.createNewStackBtn.addEventListener('click', () => {
+                this.createNewStack();
+            });
+        }
+        if (this.addStackDetailBtn) {
+            this.addStackDetailBtn.addEventListener('click', () => {
+                this.createNewStack();
             });
         }
 
@@ -1402,10 +1472,21 @@ class SidebarUI {
     addReorderEvents(el, index, type) {
         el.addEventListener('dragstart', (e) => {
             this.dragSrcIndex = index;
+            // Only add visual dragging class if in edit mode or if we want generic feedback
             el.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            // Set type to restrict drops to same section
-            e.dataTransfer.setData('text/plain', type);
+            e.dataTransfer.effectAllowed = 'copyMove';
+            
+            // Set full item data for external drops (e.g. into stack tab)
+            const item = this.currentPacket.urls[index];
+            const dragData = {
+                type: (typeof item === 'object') ? (item.type || 'page') : 'page',
+                item: item,
+                index: index,
+                sourcePacketId: this.currentPacket.id
+            };
+            e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+            // Also set as text/plain for simpler drop targets
+            e.dataTransfer.setData('text/plain', dragData.type);
         });
 
         el.addEventListener('dragover', (e) => {
@@ -1426,13 +1507,14 @@ class SidebarUI {
             if (e.stopPropagation) e.stopPropagation();
             el.classList.remove('drag-over');
 
-            const srcIndex = this.dragSrcIndex;
+            // Internal reordering ONLY in edit mode
+            if (!this.editMode) return;
             const targetIndex = index;
 
-            if (srcIndex === null || srcIndex === targetIndex) return;
+            if (this.dragSrcIndex === null || this.dragSrcIndex === targetIndex) return;
 
             // Check if types match - although dragover should handle this, double check
-            const srcItem = this.currentPacket.urls[srcIndex];
+            const srcItem = this.currentPacket.urls[this.dragSrcIndex];
             const targetItem = this.currentPacket.urls[targetIndex];
             // Normalize types for comparison (page and link both count as "page" section)
             const getGroup = (item) => {
@@ -1450,7 +1532,7 @@ class SidebarUI {
             }
 
             // Reorder array
-            const [movedItem] = this.currentPacket.urls.splice(srcIndex, 1);
+            const [movedItem] = this.currentPacket.urls.splice(this.dragSrcIndex, 1);
             this.currentPacket.urls.splice(targetIndex, 0, movedItem);
 
             // Save
@@ -1811,21 +1893,40 @@ class SidebarUI {
     normalizeUrl(url) {
         if (!url) return '';
         try {
-            // Specialized handling for extension pages where IDs matter more than full details
+            const parsed = new URL(url);
+            
+            // Handle chrome-extension:// URLs specially
             if (url.startsWith('chrome-extension://')) {
-                try {
-                    const uObj = new URL(url);
-                    const path = uObj.pathname;
-                    const searchString = uObj.searchParams.get('id') || uObj.searchParams.get('mediaId');
-                    return `extension:${path}${searchString ? '?' + searchString : ''}`;
-                } catch (e) { }
+                let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
+                const search = new URLSearchParams(parsed.search);
+                // Strip non-essential parameters for matching identity
+                search.delete('packetId');
+                search.delete('name'); // Descriptive only
+                search.sort();
+                const searchString = search.toString();
+                return `extension:${path}${searchString ? '?' + searchString : ''}`;
             }
 
+            // Standard web URLs
             // Remove hash and trailing slash, then lowercase
             let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
+            
+            // Strip packetId from standard URLs if present
+            if (parsed.searchParams.has('packetId')) {
+                const cleanSearch = new URLSearchParams(parsed.search);
+                cleanSearch.delete('packetId');
+                cleanSearch.sort();
+                const searchStr = cleanSearch.toString();
+                const baseUrl = url.split('?')[0].split('#')[0].replace(/\/$/, '').toLowerCase();
+                u = `${baseUrl}${searchStr ? '?' + searchStr : ''}`;
+            }
+
             // Remove protocol and www.
             return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
-        } catch (e) { return url; }
+        } catch (e) { 
+            // Fallback for malformed URLs
+            return url.split('#')[0].replace(/\/$/, '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+        }
     }
 
     urlsMatch(u1, u2) {
@@ -1905,16 +2006,19 @@ class SidebarUI {
         const pageList = document.getElementById('packetPageList');
         const mediaList = document.getElementById('packetMediaList');
         const wasmList = document.getElementById('packetWasmList');
+        const stackList = document.getElementById('packetStackList');
         const dataList = document.getElementById('packetDataList');
 
         pageList.innerHTML = '';
         mediaList.innerHTML = '';
         wasmList.innerHTML = '';
+        stackList.innerHTML = '';
         dataList.innerHTML = '<p class="hint">Loading data...</p>';
 
         let pageCount = 0;
         let mediaCount = 0;
         let wasmCount = 0;
+        let stackCount = 0;
 
         urls.forEach((item, index) => {
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
@@ -1924,7 +2028,7 @@ class SidebarUI {
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
-                card.draggable = this.editMode;
+                card.draggable = true;
                 const isOffline = !navigator.onLine || this.networkEnabled === false;
                 card.className = `packet-page-card ${isOffline ? 'disabled' : ''}`;
 
@@ -1955,7 +2059,7 @@ class SidebarUI {
                     }
                     window.focus(); // Reclaim focus
                 });
-                if (this.editMode) this.addReorderEvents(card, index, 'page');
+                this.addReorderEvents(card, index, 'page');
                 pageList.appendChild(card);
             } else if (type === 'local') {
                 pageCount++;
@@ -1963,7 +2067,7 @@ class SidebarUI {
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
-                card.draggable = this.editMode;
+                card.draggable = true;
                 card.className = `packet-page-card local`;
 
                 card.innerHTML = `
@@ -1989,7 +2093,7 @@ class SidebarUI {
                     }
                     window.focus(); // Reclaim focus
                 });
-                if (this.editMode) this.addReorderEvents(card, index, 'page');
+                this.addReorderEvents(card, index, 'page');
                 pageList.appendChild(card);
             } else if (type === 'media') {
                 mediaCount++;
@@ -2001,7 +2105,7 @@ class SidebarUI {
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
-                card.draggable = this.editMode;
+                card.draggable = true;
                 const isOffline = !navigator.onLine || this.networkEnabled === false;
                 card.className = `packet-media-card ${isOffline ? 'disabled' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
@@ -2026,14 +2130,14 @@ class SidebarUI {
                     if (this.editMode) return;
                     this.activatePacketItem(item, index);
                 });
-                if (this.editMode) this.addReorderEvents(card, index, 'media');
+                this.addReorderEvents(card, index, 'media');
                 mediaList.appendChild(card);
             } else if (type === 'wasm') {
                 wasmCount++;
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
-                card.draggable = this.editMode;
+                card.draggable = true;
                 card.className = `packet-page-card wasm`;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
@@ -2053,18 +2157,45 @@ class SidebarUI {
                     e.stopPropagation();
                     this.activatePacketItem(item, index);
                 });
-                if (this.editMode) this.addReorderEvents(card, index, 'wasm');
+                this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
+            } else if (type === 'stack') {
+                stackCount++;
+                const card = document.createElement('div');
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
+                card.draggable = true;
+                card.className = `packet-page-card stack`;
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder"></span>
+                    <span class="packet-page-icon">📚</span>
+                    <div class="packet-page-info">
+                        <div class="packet-page-title">${this.escapeHtml(item.name)}</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove stack">🗑️</button>
+                `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
+                card.addEventListener('click', () => {
+                    if (this.editMode) return;
+                    this.activatePacketItem(item, index);
+                });
+                this.addReorderEvents(card, index, 'stack');
+                stackList.appendChild(card);
             }
         });
 
         document.getElementById('packetDetailPageCount').textContent = pageCount;
         document.getElementById('packetMediaCount').textContent = mediaCount;
         document.getElementById('packetWasmCount').textContent = wasmCount;
+        document.getElementById('packetStackCount').textContent = stackCount;
 
         if (pageCount === 0) pageList.innerHTML = '<p class="hint">No pages in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
+        if (stackCount === 0) stackList.innerHTML = '<p class="hint">No stacks in this packet.</p>';
 
         // Load and render per-packet data
         try {
@@ -2268,6 +2399,8 @@ class SidebarUI {
             this.activeUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'media') {
             this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+        } else if (type === 'stack') {
+            this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'wasm') {
             this.lastNavigatedIndex = index;
         }
@@ -2317,6 +2450,19 @@ class SidebarUI {
             this.runWasm(item, index).then(() => {
                 reclaimFocus();
             });
+        } else if (type === 'stack') {
+            const url = this.activeUrl;
+            this.sendMessage({
+                action: 'openTabInGroup',
+                url,
+                groupId: this.activePacketGroupId,
+                packetId: this.currentPacket.id
+            }).then(resp => {
+                if (resp && resp.success && resp.newGroupId) {
+                    this.activePacketGroupId = resp.newGroupId;
+                }
+                reclaimFocus();
+            });
         }
     }
 
@@ -2333,6 +2479,9 @@ class SidebarUI {
             } else if (type === 'media') {
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
                 return this.urlsMatch(mediaUrl, this.activeUrl);
+            } else if (type === 'stack') {
+                const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+                return this.urlsMatch(stackUrl, this.activeUrl);
             }
             return false;
         });

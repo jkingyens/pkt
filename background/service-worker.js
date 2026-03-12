@@ -237,41 +237,68 @@ async function initiateAudioRecording(streamId, targetTabId) {
 function normalizeUrl(url) {
     if (!url) return '';
     try {
-        // Handle chrome-extension:// URLs specially to avoid aggressive stripping
+        const parsed = new URL(url);
+        
+        // Handle chrome-extension:// URLs specially
         if (url.startsWith('chrome-extension://')) {
-            try {
-                const parsed = new URL(url);
-                // Remove trailing slash from pathname and lowercase
-                let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
-                // Get search params, sort them, and reconstruct string to ensure stable order
-                const search = new URLSearchParams(parsed.search);
-                search.sort();
-                const searchString = search.toString();
-                return `extension:${path}${searchString ? '?' + searchString : ''}`;
-            } catch (e) { }
+            let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
+            const search = new URLSearchParams(parsed.search);
+            // Strip non-essential parameters for matching identity
+            search.delete('packetId');
+            search.delete('name'); // Descriptive only
+            search.sort();
+            const searchString = search.toString();
+            return `extension:${path}${searchString ? '?' + searchString : ''}`;
         }
 
+        // Standard web URLs
         // Remove hash and trailing slash, then lowercase
         let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
+        
+        // Strip packetId from standard URLs if present
+        if (parsed.searchParams.has('packetId')) {
+            const cleanSearch = new URLSearchParams(parsed.search);
+            cleanSearch.delete('packetId');
+            cleanSearch.sort();
+            const searchStr = cleanSearch.toString();
+            const baseUrl = url.split('?')[0].split('#')[0].replace(/\/$/, '').toLowerCase();
+            u = `${baseUrl}${searchStr ? '?' + searchStr : ''}`;
+        }
+
         // Remove protocol and www.
         return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
-    } catch (e) { return url; }
+    } catch (e) { 
+        // Fallback for malformed URLs
+        return url.split('#')[0].replace(/\/$/, '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+    }
 }
 
 /**
  * Generates the canonical URL for a packet item.
  */
-function getItemUrl(item) {
+function getItemUrl(item, packetId) {
     if (!item) return null;
     const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
     
+    // For items loaded from stack_items table, essential IDs are inside metadata
+    const meta = (typeof item.metadata === 'object') ? item.metadata : {};
+    const resourceId = item.resourceId || meta.resourceId;
+    const mediaId = item.mediaId || meta.mediaId;
+    const mimeType = item.mimeType || meta.mimeType;
+    const name = item.name || meta.name || '';
+
     if (type === 'page' || type === 'link') {
-        return typeof item === 'string' ? item : item.url;
-    } else if (type === 'local') {
-        // Note: ensure parameters match sidebar.js exactly
-        return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name || '')}`);
+        const url = typeof item === 'string' ? item : (item.url || meta.url);
+        return url;
+    } else if (type === 'local' || type === 'wasm') {
+        if (!resourceId) return null;
+        return chrome.runtime.getURL(`sidebar/viewer.html?id=${resourceId}&name=${encodeURIComponent(name)}&packetId=${packetId || ''}`);
     } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
-        return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType || '')}&name=${encodeURIComponent(item.name || '')}`);
+        if (!mediaId) return null;
+        return chrome.runtime.getURL(`sidebar/media.html?id=${mediaId}&type=${encodeURIComponent(mimeType || '')}&name=${encodeURIComponent(name)}&packetId=${packetId || ''}`);
+    } else if (type === 'stack') {
+        const pid = packetId || item.packetId || meta.packetId || '';
+        return chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId || meta.stackId}&packetId=${pid}&name=${encodeURIComponent(name)}`);
     }
     return null;
 }
@@ -320,18 +347,47 @@ async function removeTabMapping(tabId) {
     } catch (e) { }
 }
 
-function getVisualSequence(packet) {
+async function getVisualSequence(packet) {
     if (!packet || !packet.urls) return [];
-    const itemsWithIndex = packet.urls.map((item, originalIndex) => ({ item, originalIndex }));
+    
+    const sequence = [];
+    const urls = packet.urls;
 
-    const pages = itemsWithIndex.filter(({ item }) => {
-        const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-        return type === 'page' || type === 'link' || type === 'local';
-    });
-    const media = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'media'));
-    const wasm = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'wasm'));
+    const addItem = (item, originalIndex) => {
+        const url = getItemUrl(item, packet.id);
+        if (url) {
+            sequence.push({ item, originalIndex });
+        } else {
+            // Wasm etc might not have URLs but need to be in sequence
+            sequence.push({ item, originalIndex });
+        }
+    };
 
-    return [...pages, ...media, ...wasm];
+    // 1. Stacks (Top section)
+    const stacks = urls.map((item, i) => ({ item, i })).filter(x => x.item.type === 'stack');
+    for (const { item, i } of stacks) {
+        addItem(item, i);
+    }
+
+    // 2. Pages (Web/Local)
+    urls.map((item, i) => ({ item, i })).filter(x => {
+        const t = (typeof x.item === 'object') ? (x.item.type || 'page') : 'page';
+        return t === 'page' || t === 'link' || t === 'local';
+    }).forEach(x => addItem(x.item, x.i));
+
+    // 3. Media
+    urls.map((item, i) => ({ item, i })).filter(x => {
+        const t = (typeof x.item === 'object') ? (x.item.type || 'page') : 'page';
+        return t === 'media';
+    }).forEach(x => addItem(x.item, x.i));
+
+    // 4. WASM
+    urls.map((item, i) => ({ item, i })).filter(x => {
+        const t = (typeof x.item === 'object') ? (x.item.type || 'page') : 'page';
+        return t === 'wasm';
+    }).forEach(x => addItem(x.item, x.i));
+
+    return sequence;
 }
 
 async function navigatePacketItems(groupId, direction) {
@@ -348,7 +404,7 @@ async function navigatePacketItems(groupId, direction) {
         const [name, urlsJson] = rows[0].values[0];
         const packet = { id: packetId, name, urls: JSON.parse(urlsJson) };
 
-        const visualSeq = getVisualSequence(packet);
+        const visualSeq = await getVisualSequence(packet);
         if (visualSeq.length === 0) return;
 
         const tabs = await chrome.tabs.query({ groupId: groupId });
@@ -776,11 +832,12 @@ async function handleMessage(request, sender, sendResponse) {
 
                     const pages = items.filter(item => {
                         if (typeof item === 'string') return true;
-                        return item.type === 'page' || item.type === 'link';
-                    }).map(item => typeof item === 'string' ? item : item.url);
+                        const t = item.type || 'page';
+                        return t === 'page' || t === 'link' || t === 'local';
+                    }).map(item => getItemUrl(item, request.id));
 
                     if (pages.length === 0) {
-                        sendResponse({ success: true, message: 'No web pages found in packet.' });
+                        sendResponse({ success: true, message: 'No pages found in packet.' });
                         break;
                     }
 
@@ -806,24 +863,16 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'syncTabOrder': {
+                await syncTabOrderForPacket(request.packetId).catch(() => {});
+                sendResponse({ success: true });
+                break;
+            }
             case 'ensurePacketDatabase': {
                 try {
                     const packetId = request.packetId;
-                    const dbName = `packet_${packetId}`;
-                    await sqliteManager.restoreCheckpoint(dbName, chrome.storage.local);
-                    const db = sqliteManager.initDatabase(dbName);
-                    db.exec(`
-                        CREATE TABLE IF NOT EXISTS associations (
-                          id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          source_id TEXT,
-                          target_id TEXT,
-                          type TEXT,
-                          metadata TEXT,
-                          created TEXT DEFAULT (datetime('now'))
-                        );
-                    `);
-                    await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
-                    sendResponse({ success: true, dbName });
+                    await ensurePacketDatabase(packetId);
+                    sendResponse({ success: true, dbName: `packet_${packetId}` });
                 } catch (err) {
                     console.error('ensurePacketDatabase error:', err);
                     sendResponse({ success: false, error: err.message });
@@ -852,12 +901,20 @@ async function handleMessage(request, sender, sendResponse) {
                         const id = parseInt(request.id, 10);
                         db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
                         await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        
+                        // Sync tab order after saving reordered items
+                        setTimeout(() => syncTabOrderForPacket(id).catch(() => {}), 100);
+                        
                         sendResponse({ success: true, id });
                     } else {
                         db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
                         const result = db.exec("SELECT last_insert_rowid()");
                         const newId = result[0].values[0][0];
                         await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        
+                        // Sync tab order for new packet
+                        setTimeout(() => syncTabOrderForPacket(newId).catch(() => {}), 100);
+                        
                         sendResponse({ success: true, id: newId });
                     }
                 } catch (err) {
@@ -1109,11 +1166,11 @@ async function handleMessage(request, sender, sendResponse) {
                     const targetGroupId = await getOrCreateGroupForPacket(packetId, null, groupId);
 
                     if (targetGroupId !== null) {
-                        const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
-
-                        // Look for existing tab using both current URL and mapped URL (for redirects)
+                        // 1. Search existing tabs in group (fastest)
+                        const allTabs = await chrome.tabs.query({});
+                        
                         let existing = null;
-                        for (const t of tabsInGroup) {
+                        for (const t of allTabs) {
                             const mapped = getMappedUrlSync(t.id);
                             if (mapped && urlsMatch(mapped, url)) {
                                 existing = t;
@@ -1127,6 +1184,10 @@ async function handleMessage(request, sender, sendResponse) {
                         }
 
                         if (existing) {
+                            // If it's already in a group but not this one, move it
+                            if (existing.groupId !== targetGroupId) {
+                                await chrome.tabs.group({ tabIds: [existing.id], groupId: targetGroupId });
+                            }
                             await chrome.tabs.update(existing.id, { active: true });
                             await setTabMapping(existing.id, url, packetId);
                         } else {
@@ -1496,6 +1557,40 @@ async function handleMessage(request, sender, sendResponse) {
     }
 }
 
+async function ensurePacketDatabase(packetId) {
+    if (!packetId) return null;
+    const dbName = `packet_${packetId}`;
+    await sqliteManager.restoreCheckpoint(dbName, chrome.storage.local);
+    const db = sqliteManager.initDatabase(dbName);
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS associations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT,
+            target_id TEXT,
+            type TEXT,
+            metadata TEXT,
+            created TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS stacks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            created TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS stack_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stack_id INTEGER,
+            type TEXT,
+            name TEXT,
+            url TEXT,
+            metadata TEXT,
+            position INTEGER,
+            FOREIGN KEY(stack_id) REFERENCES stacks(id) ON DELETE CASCADE
+        );
+    `);
+    await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
+    return db;
+}
+
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
         await updateBadge({ tabId });
@@ -1520,7 +1615,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         const mappedUrl = getMappedUrlSync(tabId);
         const urls = JSON.parse(urlsJson);
         const currentUrlMatches = urls.some(item => {
-            const u = typeof item === 'object' ? item.url : item;
+            const u = getItemUrl(item, packetId);
             return u && urlsMatch(u, tab.url);
         });
 
@@ -1552,7 +1647,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
                 // If new URL matches a packet item, update mapping
                 const currentUrlMatches = urls.some(item => {
-                    const u = typeof item === 'object' ? item.url : item;
+                    const u = getItemUrl(item, packetId);
                     return u && urlsMatch(u, tab.url);
                 });
 
@@ -1577,6 +1672,21 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
     await removeTabMapping(tabId);
+});
+
+// Sync back on tab move (Total Ordering)
+chrome.tabs.onMoved.addListener(async (tabId, moveInfo) => {
+    try {
+        const packetId = getMappedPacketIdSync(tabId);
+        if (packetId) {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                // If the user moved a tab, we should sync and potentially update sidebar order?
+                // For now, let's just log and ensure consistency.
+                console.log(`[SW] Tab ${tabId} moved in packet ${packetId}`);
+            }
+        }
+    } catch (e) {}
 });
 
 chrome.tabGroups.onRemoved.addListener(async (group) => {
@@ -1753,26 +1863,35 @@ async function syncTabOrderForPacket(packetId) {
 
         const urls = JSON.parse(result[0].values[0][0]);
         
-        // Categorize items into sections: Pages (Web/Local) and Media
-        const pages = [];
-        const mediaList = []; // Named mediaList to avoid conflict with 'media' type string
+        // Categorize items into sections: Stacks, Pages, and Media (Total Ordering)
+        const totalUrls = [];
 
-        urls.forEach(item => {
-            const url = getItemUrl(item);
-            if (!url) return;
-
-            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-            if (type === 'page' || type === 'link' || type === 'local') {
-                pages.push(url);
-            } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
-                mediaList.push(url);
+        const addUrl = (url) => {
+            if (url) {
+                totalUrls.push(url);
             }
+        };
+
+        // 1. Process Stacks (Top section)
+        const stacksItems = urls.filter(item => (typeof item === 'object' && item.type === 'stack'));
+        for (const stack of stacksItems) {
+            addUrl(getItemUrl(stack, packetId));
+        }
+
+        // 2. Process Pages
+        const pagesItems = urls.filter(item => {
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            return type === 'page' || type === 'link' || type === 'local';
         });
+        pagesItems.forEach(p => addUrl(getItemUrl(p, packetId)));
 
-        // Combined list in sectional order: Pages first, then Media
-        const packetUrls = [...pages, ...mediaList];
+        // 3. Process Media
+        const mediaItems = urls.filter(item => (typeof item === 'object' && item.type === 'media'));
+        mediaItems.forEach(m => addUrl(getItemUrl(m, packetId)));
 
-        console.log(`[SyncTabOrder] Packet has ${packetUrls.length} URLs to match (Pages: ${pages.length}, Media: ${mediaList.length})`);
+        const packetUrls = totalUrls;
+
+        console.log(`[SyncTabOrder] Packet has ${packetUrls.length} total URLs in sequence`);
 
         // Find the group mapped to this packet
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
@@ -1780,7 +1899,6 @@ async function syncTabOrderForPacket(packetId) {
         let tabs = [];
         
         // Loop through all mappings to find a LIVE group for this packet
-        // This handles cases where stale/dead group IDs are still in storage
         for (const [gid, pid] of Object.entries(activeGroups)) {
             if (String(pid) === String(packetId)) {
                 const candidateGroupId = parseInt(gid);
@@ -1789,13 +1907,9 @@ async function syncTabOrderForPacket(packetId) {
                     if (candidateTabs.length > 0) {
                         targetGroupId = candidateGroupId;
                         tabs = candidateTabs;
-                        break; // Found a live group!
-                    } else {
-                        console.log(`[SyncTabOrder] Skipping empty candidate group ${candidateGroupId}`);
+                        break; 
                     }
-                } catch (e) {
-                    console.log(`[SyncTabOrder] Skipping invalid candidate group ${candidateGroupId}`);
-                }
+                } catch (e) { }
             }
         }
 
@@ -1817,12 +1931,15 @@ async function syncTabOrderForPacket(packetId) {
         // For each URL in the packet, if an open tab matches it, move it to the correct position
         let moveCount = 0;
         let contiguousOffset = 0;
+        const usedTabIds = new Set();
 
         for (let i = 0; i < packetUrls.length; i++) {
             const targetUrl = packetUrls[i];
             
             // Robust match: Check EVERY tab in the window, even if it's currently outside the group
             const matchingTab = allTabsInWindow.find(t => {
+                if (usedTabIds.has(t.id)) return false;
+
                 const turl = t.url || t.pendingUrl;
                 const mappedUrl = getMappedUrlSync(t.id);
                 const mappedPacketId = getMappedPacketIdSync(t.id);
@@ -1836,8 +1953,9 @@ async function syncTabOrderForPacket(packetId) {
 
             if (matchingTab) {
                 const targetIndex = startPos + contiguousOffset;
+                usedTabIds.add(matchingTab.id);
                 
-                // 1. Explicitly ensure it's in the group (fixes "kicked out" bug)
+                // 1. Explicitly ensure it's in the group
                 if (matchingTab.groupId !== targetGroupId) {
                     console.log(`[SyncTabOrder] Adding tab ${matchingTab.id} to group ${targetGroupId}`);
                     await chrome.tabs.group({ tabIds: [matchingTab.id], groupId: targetGroupId });
@@ -1851,11 +1969,9 @@ async function syncTabOrderForPacket(packetId) {
                 }
                 
                 contiguousOffset++;
-            } else {
-                console.log(`[SyncTabOrder] No tab found for URL: ${targetUrl.substring(0, 50)}...`);
             }
         }
-        console.log(`[SyncTabOrder] Success. Moved ${moveCount} tabs. Total size: ${contiguousOffset}`);
+        console.log(`[SyncTabOrder] Success. Moved ${moveCount} tabs. Total matching tabs: ${contiguousOffset}`);
     } catch (e) {
         console.error('[SyncTabOrder] Error:', e);
     }

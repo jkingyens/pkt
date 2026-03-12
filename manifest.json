@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Wildcard",
+    "name": "WildCard",
     "version": "1.0.0",
-    "description": "build from the browser",
+    "description": "Build from your browser",
     "permissions": [
         "storage",
         "sidePanel",
@@ -68,7 +68,6 @@
                 "src/island.html",
                 "src/island.js",
                 "sidebar/local-editor.js"
-
             ],
             "matches": [
                 "<all_urls>"

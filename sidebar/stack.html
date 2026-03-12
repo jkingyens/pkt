@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stack Viewer - Wildcard</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-light: #818cf8;
+            --bg: #f8fafc;
+            --bg-alt: #f1f5f9;
+            --surface: #ffffff;
+            --text: #0f172a;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --success: #10b981;
+            --danger: #ef4444;
+            --card-w: 200px;
+            --card-h: 180px;
+            --gap: 60px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --bg-alt: #1e293b;
+                --surface: #1e293b;
+                --text: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --border: #334155;
+            }
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            position: relative;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 50px;
+            padding: 0 10px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #status-badge {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            background: var(--bg-alt);
+            border-radius: 999px;
+            color: var(--text-secondary);
+        }
+
+        /* ===== FLOW CANVAS ===== */
+        .stack-canvas {
+            position: relative;
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--gap);
+            padding: 40px;
+            min-height: 400px;
+            /* Center items */
+            justify-content: flex-start;
+        }
+
+        /* Svg layer for lines */
+        #flow-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .stack-item.insert-before::before,
+        .stack-item.insert-after::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--primary-light);
+            z-index: 20;
+        }
+
+        .stack-item.insert-before::before {
+            left: -32px; /* Half of the gap */
+        }
+
+        .stack-item.insert-after::after {
+            right: -32px;
+        }
+
+        .connector-path {
+            fill: none;
+            stroke: var(--border);
+            stroke-width: 3;
+            stroke-dasharray: 8 4;
+            transition: stroke 0.3s;
+        }
+
+        .stack-item {
+            position: relative;
+            z-index: 10;
+            width: var(--card-w);
+            height: var(--card-h);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            cursor: grab;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .stack-item:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border-color: var(--primary-light);
+        }
+
+        .stack-item.active {
+            border-color: var(--primary);
+            border-width: 2px;
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            background: rgba(79, 70, 229, 0.02);
+        }
+
+        .stack-item.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+
+        .item-icon-box {
+            width: 44px;
+            height: 44px;
+            background: var(--bg-alt);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 12px;
+            transition: background 0.3s;
+        }
+
+        .stack-item:hover .item-icon-box {
+            background: rgba(79, 70, 229, 0.1);
+        }
+
+        .item-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .item-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .item-type-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+        }
+
+        .item-footer {
+            margin-top: auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .remove-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: var(--bg-alt);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 12px;
+        }
+
+        .remove-btn:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Number bubble */
+        .item-index {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            width: 24px;
+            height: 24px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .drop-target {
+            width: var(--card-w);
+            height: var(--card-h);
+            border: 3px dashed var(--border);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .drop-target.drag-over {
+            border-color: var(--primary);
+            background: rgba(79, 70, 229, 0.05);
+            color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        /* ===== LOADING ===== */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            gap: 20px;
+        }
+
+        #loading.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--bg-alt);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div style="font-weight: 600; color: var(--text-secondary);">Sequencing Stack...</div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1 id="stack-title">Loading...</h1>
+            <div class="status-area">
+                <div id="status-badge">Ready</div>
+            </div>
+        </header>
+
+        <div id="stack-canvas" class="stack-canvas">
+            <svg id="flow-svg">
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                    refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="var(--border)" />
+                    </marker>
+                </defs>
+            </svg>
+            
+            <div id="stack-items-container" style="display: contents;">
+                <!-- Items go here -->
+            </div>
+
+            <div id="drop-zone" class="drop-target">
+                <div style="font-size: 32px; margin-bottom: 8px;">📥</div>
+                <div>Drop content here to extend the sequence</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="stack.js"></script>
+</body>
+</html>
