@@ -1756,6 +1756,7 @@ async function syncTabOrderForPacket(packetId) {
     if (!packetId) return;
 
     try {
+        console.log(`[SyncTabOrder] Starting for packet ${packetId}`);
         await initializeSQLite();
         const db = sqliteManager.getDatabase('packets');
         if (!db) return;
@@ -1776,38 +1777,70 @@ async function syncTabOrderForPacket(packetId) {
             return null;
         }).filter(u => u !== null);
 
+        console.log(`[SyncTabOrder] Packet has ${packetUrls.length} URLs to match`);
+
         // Find the group mapped to this packet
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
         let targetGroupId = null;
+        let tabs = [];
+        
+        // Loop through all mappings to find a LIVE group for this packet
+        // This handles cases where stale/dead group IDs are still in storage
         for (const [gid, pid] of Object.entries(activeGroups)) {
             if (String(pid) === String(packetId)) {
-                targetGroupId = parseInt(gid);
-                break;
+                const candidateGroupId = parseInt(gid);
+                try {
+                    const candidateTabs = await chrome.tabs.query({ groupId: candidateGroupId });
+                    if (candidateTabs.length > 0) {
+                        targetGroupId = candidateGroupId;
+                        tabs = candidateTabs;
+                        break; // Found a live group!
+                    } else {
+                        console.log(`[SyncTabOrder] Skipping empty candidate group ${candidateGroupId}`);
+                    }
+                } catch (e) {
+                    console.log(`[SyncTabOrder] Skipping invalid candidate group ${candidateGroupId}`);
+                }
             }
         }
 
-        if (targetGroupId === null) return;
+        if (targetGroupId === null) {
+            console.warn(`[SyncTabOrder] No LIVE mapped group found for packet ${packetId}`);
+            return;
+        }
 
-        const tabs = await chrome.tabs.query({ groupId: targetGroupId });
-        if (tabs.length === 0) return;
+        console.log(`[SyncTabOrder] Identified ${tabs.length} tabs in group ${targetGroupId}`);
 
         // Find the start index of the group in its window
         const startPos = Math.min(...tabs.map(t => t.index));
+        console.log(`[SyncTabOrder] Group starts at window index ${startPos}`);
 
         // For each URL in the packet, if an open tab matches it, move it to the correct position
+        let moveCount = 0;
         for (let i = 0; i < packetUrls.length; i++) {
             const targetUrl = packetUrls[i];
-            const matchingTab = tabs.find(t => urlsMatch(t.url, targetUrl));
+            
+            // Robust match: Check current URL, pending URL, and our own cached mapped URL
+            const matchingTab = tabs.find(t => {
+                const turl = t.url || t.pendingUrl;
+                const mapped = getMappedUrlSync(t.id);
+                return (turl && urlsMatch(turl, targetUrl)) || (mapped && urlsMatch(mapped, targetUrl));
+            });
 
             if (matchingTab) {
                 const targetIndex = startPos + i;
                 if (matchingTab.index !== targetIndex) {
+                    console.log(`[SyncTabOrder] Moving tab ${matchingTab.id} to index ${targetIndex} (was ${matchingTab.index})`);
                     await chrome.tabs.move(matchingTab.id, { index: targetIndex });
+                    moveCount++;
                 }
+            } else {
+                console.log(`[SyncTabOrder] No tab found for URL: ${targetUrl.substring(0, 50)}...`);
             }
         }
+        console.log(`[SyncTabOrder] Success. Moved ${moveCount} tabs.`);
     } catch (e) {
-        console.error('[SW] syncTabOrderForPacket failed:', e);
+        console.error('[SyncTabOrder] Error:', e);
     }
 }
 
@@ -1887,6 +1920,16 @@ async function reassociateTabGroups() {
 
             if (bestPacket && isConfident) {
                 console.log(`[GroupRecovery] RECOVERED: "${group.title}" (ID: ${group.id}) -> Packet "${bestPacket.name}" (Confidence: ${Math.round(groupConfidence * 100)}%)`);
+                
+                // Aggressive Cleanup: If this packet was previously mapped to other groups, clear them.
+                // This prevents "ghost" mappings where one packet points to multiple group IDs.
+                for (const [gid, pid] of Object.entries(newActiveGroups)) {
+                    if (String(pid) === String(bestPacket.id) && String(gid) !== String(group.id)) {
+                        console.log(`[GroupRecovery] Clearing stale mapping for packet "${bestPacket.name}" (ID: ${gid})`);
+                        delete newActiveGroups[gid];
+                    }
+                }
+                
                 newActiveGroups[group.id] = bestPacket.id;
                 recoveryCount++;
             }

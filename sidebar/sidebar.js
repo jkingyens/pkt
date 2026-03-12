@@ -491,7 +491,11 @@ class SidebarUI {
             if (message.type === 'packetFocused') {
                 if (!message.packet) {
                     this.activeUrl = null;
-                    this.activePacketGroupId = null;
+                    // Only clear group ID if we're not currently looking at a specific packet detail
+                    // This prevents switching to an un-grouped tab from breaking the "Sync Tab Order" command
+                    if (!this.packetDetailView.classList.contains('active')) {
+                        this.activePacketGroupId = null;
+                    }
                     this.isClipperInvoked = false;
                     this.updateClipperState();
                     this.updateAddPageVisibility();
@@ -501,7 +505,14 @@ class SidebarUI {
                 this.activeUrl = message.packet.activeUrl || null;
                 this.activePacketGroupId = message.packet.groupId || null;
                 this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
-                this.showPacketDetailView(message.packet);
+                
+                // If already showing THIS packet, just update highlights surgically
+                if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packet.id)) {
+                    this.updateItemHighlights();
+                } else {
+                    this.showPacketDetailView(message.packet);
+                }
+                
                 // Sync navigation index
                 this.lastNavigatedIndex = this.getActiveItemIndex();
                 this.updateClipperState();
@@ -873,14 +884,37 @@ class SidebarUI {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (resp.success) {
                 this.activeUrl = resp.tab.url;
-                // Refresh highlight
-                this.showPacketDetailView(this.currentPacket);
-                // Also update button visibility
+                // Surgical update instead of destructive re-render
+                this.updateItemHighlights();
+                // Update button visibility (keeps DOM mostly intact)
                 await this.updateAddPageVisibility(resp.tab);
             }
         } catch (e) {
             console.error('[Sidebar] syncActiveTab failed:', e);
         }
+    }
+
+    /**
+     * Surgical update of active classes without destroying DOM nodes.
+     * Prevents the "two-click" issue caused by destructive innerHTML calls during focus.
+     */
+    updateItemHighlights() {
+        const allCards = document.querySelectorAll('.packet-page-card, .packet-media-card');
+        allCards.forEach(card => {
+            const index = card.getAttribute('data-index');
+            const item = this.currentPacket.urls[index];
+            if (!item) return;
+
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            let itemUrl;
+            if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
+            else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+            
+            const isActive = itemUrl && this.urlsMatch(itemUrl, this.activeUrl);
+            if (isActive) card.classList.add('active');
+            else card.classList.remove('active');
+        });
     }
 
     async updateAddPageVisibility(tab) {
@@ -1970,8 +2004,23 @@ class SidebarUI {
     }
 
     async syncTabOrder() {
-        if (!this.currentPacket || this.activePacketGroupId === null) {
-            console.warn('[SyncTabOrder] No active packet or group');
+        if (!this.currentPacket) return;
+
+        // Fallback: If we lost our group ID (e.g. extension reload), try to look it up using the packet ID
+        if (this.activePacketGroupId === null) {
+            console.log('[SyncTabOrder] Group ID missing locally, attempting background lookup...');
+            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+            for (const [gid, pid] of Object.entries(activeGroups)) {
+                if (String(pid) === String(this.currentPacket.id)) {
+                    this.activePacketGroupId = parseInt(gid, 10);
+                    break;
+                }
+            }
+        }
+
+        if (this.activePacketGroupId === null) {
+            console.warn('[SyncTabOrder] No active group found for this packet');
+            this.showNotification('Cannot sync: No tab group found for this packet', 'info');
             return;
         }
 
