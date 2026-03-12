@@ -231,14 +231,49 @@ async function initiateAudioRecording(streamId, targetTabId) {
 }
 
 // Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
+/**
+ * Normalizes a URL for comparison.
+ */
 function normalizeUrl(url) {
     if (!url) return '';
     try {
+        // Handle chrome-extension:// URLs specially to avoid aggressive stripping
+        if (url.startsWith('chrome-extension://')) {
+            try {
+                const parsed = new URL(url);
+                // Remove trailing slash from pathname and lowercase
+                let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
+                // Get search params, sort them, and reconstruct string to ensure stable order
+                const search = new URLSearchParams(parsed.search);
+                search.sort();
+                const searchString = search.toString();
+                return `extension:${path}${searchString ? '?' + searchString : ''}`;
+            } catch (e) { }
+        }
+
         // Remove hash and trailing slash, then lowercase
         let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
         // Remove protocol and www.
         return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
     } catch (e) { return url; }
+}
+
+/**
+ * Generates the canonical URL for a packet item.
+ */
+function getItemUrl(item) {
+    if (!item) return null;
+    const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+    
+    if (type === 'page' || type === 'link') {
+        return typeof item === 'string' ? item : item.url;
+    } else if (type === 'local') {
+        // Note: ensure parameters match sidebar.js exactly
+        return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name || '')}`);
+    } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
+        return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType || '')}&name=${encodeURIComponent(item.name || '')}`);
+    }
+    return null;
 }
 
 function urlsMatch(u1, u2) {
@@ -749,23 +784,15 @@ async function handleMessage(request, sender, sendResponse) {
                         break;
                     }
 
-                    // Check if this packet already has an active tab group
-                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-                    const groups = await chrome.tabGroups.query({});
-                    let existingGroupId = null;
-                    for (const g of groups) {
-                        if (String(activeGroups[g.id]) === String(request.id)) {
-                            existingGroupId = g.id;
-                            break;
-                        }
-                    }
+                    // Unified group lookup/enforcement
+                    const targetGroupId = await getOrCreateGroupForPacket(request.id);
 
-                    if (existingGroupId !== null) {
-                        // Focus the existing group
-                        const tabsInGroup = await chrome.tabs.query({ groupId: existingGroupId });
+                    if (targetGroupId !== null) {
+                        // Focus the existing group if it has tabs
+                        const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
                         if (tabsInGroup.length > 0) {
                             await chrome.tabs.update(tabsInGroup[0].id, { active: true });
-                            sendResponse({ success: true, groupId: existingGroupId });
+                            sendResponse({ success: true, groupId: targetGroupId });
                             return;
                         }
                     }
@@ -1054,47 +1081,17 @@ async function handleMessage(request, sender, sendResponse) {
             case 'joinPacketGroup': {
                 try {
                     const { tabId, packetId } = request;
-                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-                    const groups = await chrome.tabGroups.query({});
-
-                    let targetGroupId = null;
-                    for (const g of groups) {
-                        if (String(activeGroups[g.id]) === String(packetId)) {
-                            targetGroupId = g.id;
-                            break;
-                        }
-                    }
-
-                    if (targetGroupId !== null) {
-                        await chrome.tabs.group({ tabIds: [tabId], groupId: targetGroupId });
+                    const targetGroupId = await getOrCreateGroupForPacket(packetId, tabId);
+                    
+                    if (targetGroupId) {
                         // Map the tab so we know it belongs to this packet even if URL is duplicate elsewhere
-                        const [tab] = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, active: true }); // We might not have the tab object, but we have tabId
                         try {
                             const t = await chrome.tabs.get(tabId);
                             if (t && t.url) await setTabMapping(tabId, t.url, packetId);
                         } catch (e) { }
                         sendResponse({ success: true, groupId: targetGroupId });
                     } else {
-                        // Create new group
-                        targetGroupId = await chrome.tabs.group({ tabIds: [tabId] });
-                        let packetName = 'Packet';
-                        try {
-                            const db = sqliteManager.getDatabase('packets');
-                            if (db) {
-                                const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
-                                if (result.length && result[0].values.length) {
-                                    packetName = result[0].values[0][0];
-                                }
-                            }
-                        } catch (e) { }
-
-                        const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
-                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
-
-                        activeGroups[targetGroupId] = packetId;
-                        await chrome.storage.local.set({ activeGroups });
-                        sendResponse({ success: true, groupId: targetGroupId });
+                        throw new Error('Failed to join or create group');
                     }
                 } catch (err) {
                     console.error('joinPacketGroup error:', err);
@@ -1105,42 +1102,11 @@ async function handleMessage(request, sender, sendResponse) {
             case 'openTabInGroup': {
                 try {
                     const { url, groupId, packetId } = request;
-                    let targetGroupId = groupId;
+                    
+                    // Unified group lookup/enforcement
+                    const targetGroupId = await getOrCreateGroupForPacket(packetId, null, groupId);
 
-                    // Always try to find existing group by packetId if we have it
-                    if (packetId) {
-                        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-                        const groups = await chrome.tabGroups.query({});
-
-                        // CRITICAL: Verify that the provided targetGroupId still belongs to this packet.
-                        // If it doesn't match our mapping, we MUST NOT use it as it belongs to another packet.
-                        if (targetGroupId !== undefined && targetGroupId !== null) {
-                            if (String(activeGroups[targetGroupId]) !== String(packetId)) {
-                                console.log(`[SW] Provided groupId ${targetGroupId} belongs to packet ${activeGroups[targetGroupId]}, not ${packetId}. Resetting.`);
-                                targetGroupId = null;
-                            }
-                        }
-
-                        if (targetGroupId === null || targetGroupId === undefined) {
-                            // Search all groups for one mapped to this packet
-                            for (const g of groups) {
-                                if (String(activeGroups[g.id]) === String(packetId)) {
-                                    targetGroupId = g.id;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    let groupExists = false;
-                    try {
-                        if (targetGroupId !== undefined && targetGroupId !== null) {
-                            await chrome.tabGroups.get(targetGroupId);
-                            groupExists = true;
-                        }
-                    } catch (e) { }
-
-                    if (groupExists) {
+                    if (targetGroupId !== null) {
                         const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
 
                         // Look for existing tab using both current URL and mapped URL (for redirects)
@@ -1166,32 +1132,13 @@ async function handleMessage(request, sender, sendResponse) {
                             await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGroupId });
                             await setTabMapping(newTab.id, url, packetId);
                         }
-                        sendResponse({ success: true });
+                        sendResponse({ success: true, groupId: targetGroupId });
                     } else {
+                        // This case should ideally not happen with getOrCreateGroupForPacket
                         const newTab = await chrome.tabs.create({ url, active: true });
-                        targetGroupId = await chrome.tabs.group({ tabIds: [newTab.id] });
-                        let packetName = 'Packet';
-                        if (packetId) {
-                            try {
-                                const db = sqliteManager.getDatabase('packets');
-                                if (db) {
-                                    const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
-                                    if (result.length && result[0].values.length) {
-                                        packetName = result[0].values[0][0];
-                                    }
-                                }
-                            } catch (e) { }
-                        }
-                        const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
-                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
-                        if (packetId) {
-                            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-                            activeGroups[targetGroupId] = packetId;
-                            await chrome.storage.local.set({ activeGroups });
-                        }
+                        const newGroupId = await getOrCreateGroupForPacket(packetId, newTab.id);
                         await setTabMapping(newTab.id, url, packetId);
-                        sendResponse({ success: true, newGroupId: targetGroupId });
+                        sendResponse({ success: true, newGroupId });
                     }
                 } catch (err) {
                     console.error('openTabInGroup error:', err);
@@ -1803,19 +1750,27 @@ async function syncTabOrderForPacket(packetId) {
         if (!result.length || !result[0].values.length) return;
 
         const urls = JSON.parse(result[0].values[0][0]);
-        const packetUrls = urls.map(item => {
-            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-            if (type === 'page' || type === 'link') {
-                return typeof item === 'string' ? item : item.url;
-            } else if (type === 'local') {
-                return chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
-            } else if (type === 'media') {
-                return chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-            }
-            return null;
-        }).filter(u => u !== null);
+        
+        // Categorize items into sections: Pages (Web/Local) and Media
+        const pages = [];
+        const mediaList = []; // Named mediaList to avoid conflict with 'media' type string
 
-        console.log(`[SyncTabOrder] Packet has ${packetUrls.length} URLs to match`);
+        urls.forEach(item => {
+            const url = getItemUrl(item);
+            if (!url) return;
+
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            if (type === 'page' || type === 'link' || type === 'local') {
+                pages.push(url);
+            } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
+                mediaList.push(url);
+            }
+        });
+
+        // Combined list in sectional order: Pages first, then Media
+        const packetUrls = [...pages, ...mediaList];
+
+        console.log(`[SyncTabOrder] Packet has ${packetUrls.length} URLs to match (Pages: ${pages.length}, Media: ${mediaList.length})`);
 
         // Find the group mapped to this packet
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
@@ -1902,6 +1857,105 @@ async function syncTabOrderForPacket(packetId) {
     } catch (e) {
         console.error('[SyncTabOrder] Error:', e);
     }
+}
+
+/**
+ * Ensures a 1:1 mapping between a packet and a tab group.
+ * Finds existing group, cleans up duplicates, or creates new if needed.
+ */
+async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId) {
+    if (!packetId) return null;
+
+    let { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+    const groups = await chrome.tabGroups.query({});
+    
+    // Find all groups currently mapped to this packetId
+    let matchingGroups = groups.filter(g => String(activeGroups[g.id]) === String(packetId));
+    
+    // Check if hintGroupId is actually mapped to this packet
+    if (hintGroupId && !matchingGroups.some(g => g.id === hintGroupId)) {
+        if (String(activeGroups[hintGroupId]) === String(packetId)) {
+            try {
+                const hint = await chrome.tabGroups.get(hintGroupId);
+                matchingGroups.push(hint);
+            } catch (e) { }
+        }
+    }
+
+    let targetGroupId = null;
+    if (matchingGroups.length > 0) {
+        // Preference:
+        // 1. Group in current window
+        // 2. The hint group (if valid)
+        // 3. Any existing group
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const currentWindowId = activeTab?.windowId;
+        
+        const inWindow = matchingGroups.find(g => g.windowId === currentWindowId);
+        const hinted = hintGroupId ? matchingGroups.find(g => g.id === hintGroupId) : null;
+        
+        targetGroupId = (inWindow || hinted || matchingGroups[0]).id;
+
+        // Cleanup: If multiple groups exist for same packet, merge or unmap
+        for (const g of matchingGroups) {
+            if (g.id !== targetGroupId) {
+                console.log(`[SW] Cleaning up redundant group ${g.id} for packet ${packetId}`);
+                // Move tabs to target if in the same window, otherwise just orphans
+                if (g.windowId === (inWindow || hinted || matchingGroups[0]).windowId) {
+                    try {
+                        const tabsToMove = await chrome.tabs.query({ groupId: g.id });
+                        if (tabsToMove.length > 0) {
+                            await chrome.tabs.group({ tabIds: tabsToMove.map(t => t.id), groupId: targetGroupId });
+                        }
+                    } catch (e) { }
+                }
+                delete activeGroups[g.id];
+            }
+        }
+    }
+
+    if (targetGroupId) {
+        if (tabIdToJoin) {
+            await chrome.tabs.group({ tabIds: [tabIdToJoin], groupId: targetGroupId });
+        }
+    } else {
+        // Create new group ONLY if we have a tab to start it with.
+        // This prevents "swallowing" an unrelated active tab just because the user viewed a packet.
+        if (tabIdToJoin) {
+            targetGroupId = await chrome.tabs.group({ tabIds: [tabIdToJoin] });
+        } else {
+            // Passive case: No group exists and no tab provided to start one. 
+            // Just return null so we don't force a group on the user.
+            await chrome.storage.local.set({ activeGroups });
+            return null;
+        }
+
+        if (targetGroupId) {
+            let packetName = 'Packet';
+            try {
+                const db = sqliteManager.getDatabase('packets');
+                if (db) {
+                    const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
+                    if (result.length && result[0].values.length) packetName = result[0].values[0][0];
+                }
+            } catch (e) { }
+
+            const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
+            activeGroups[targetGroupId] = packetId;
+        }
+    }
+
+    // Final purge of any other mappings for this packetId to enforce 1:1
+    for (const [gid, pid] of Object.entries(activeGroups)) {
+        if (String(pid) === String(packetId) && parseInt(gid) !== targetGroupId) {
+            delete activeGroups[gid];
+        }
+    }
+
+    await chrome.storage.local.set({ activeGroups });
+    return targetGroupId;
 }
 
 /**

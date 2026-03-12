@@ -1741,8 +1741,8 @@ class SidebarUI {
                 card.addEventListener('click', async () => {
                     if (this.editMode) return;
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
-                    if (resp && resp.success && resp.newGroupId) {
-                        this.activePacketGroupId = resp.newGroupId;
+                    if (resp && resp.success) {
+                        this.activePacketGroupId = resp.groupId || resp.newGroupId || this.activePacketGroupId;
                     }
                     window.focus(); // Reclaim focus
                 });
@@ -1774,8 +1774,8 @@ class SidebarUI {
                 card.addEventListener('click', async () => {
                     if (this.editMode) return;
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
-                    if (resp && resp.success && resp.newGroupId) {
-                        this.activePacketGroupId = resp.newGroupId;
+                    if (resp && resp.success) {
+                        this.activePacketGroupId = resp.groupId || resp.newGroupId || this.activePacketGroupId;
                     }
                     window.focus(); // Reclaim focus
                 });
@@ -2014,15 +2014,12 @@ class SidebarUI {
     async syncTabOrder() {
         if (!this.currentPacket) return;
 
-        // Fallback: If we lost our group ID (e.g. extension reload), try to look it up using the packet ID
+        // Fallback: If we lost our group ID (e.g. extension reload), try to look it up/enforce it in the background
         if (this.activePacketGroupId === null) {
             console.log('[SyncTabOrder] Group ID missing locally, attempting background lookup...');
-            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
-            for (const [gid, pid] of Object.entries(activeGroups)) {
-                if (String(pid) === String(this.currentPacket.id)) {
-                    this.activePacketGroupId = parseInt(gid, 10);
-                    break;
-                }
+            const resp = await this.sendMessage({ action: 'playPacket', id: this.currentPacket.id });
+            if (resp && resp.success && resp.groupId) {
+                this.activePacketGroupId = resp.groupId;
             }
         }
 
@@ -2496,7 +2493,10 @@ class SidebarUI {
                         });
 
                         try {
-                            await this.sendMessage({ action: 'playPacket', id: card.dataset.id });
+                            const resp = await this.sendMessage({ action: 'playPacket', id: card.dataset.id });
+                            if (resp && resp.success && resp.groupId) {
+                                this.activePacketGroupId = resp.groupId;
+                            }
                         } catch (error) {
                             console.error('Play failed:', error);
                             this.showNotification('Failed to open packet', 'error');
