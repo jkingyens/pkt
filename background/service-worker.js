@@ -24,6 +24,8 @@ let sidebarPort = null;
 // Track open terminal tabs: packetId -> tabId
 let terminalTabs = {};
 
+const NETWORK_BLOCK_RULE_ID = 1;
+
 async function syncBookmarkCache() {
     try {
         bookmarkCache = await chrome.bookmarks.getTree();
@@ -125,7 +127,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function syncNetworkStatus() {
     try {
         const { networkEnabled } = await chrome.storage.local.get('networkEnabled');
-        const ruleId = 1;
         const isDisabled = networkEnabled === false;
 
         if (isDisabled) {
@@ -133,7 +134,7 @@ async function syncNetworkStatus() {
             await updateBadge({});
             await chrome.declarativeNetRequest.updateDynamicRules({
                 addRules: [{
-                    id: ruleId,
+                    id: NETWORK_BLOCK_RULE_ID,
                     priority: 100,
                     action: { type: 'block' },
                     condition: {
@@ -141,12 +142,12 @@ async function syncNetworkStatus() {
                         resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
                     }
                 }],
-                removeRuleIds: [ruleId]
+                removeRuleIds: [NETWORK_BLOCK_RULE_ID]
             });
         } else {
             console.log('[SW-Startup] Network kill switch is DISABLED (allowing requests)');
             await chrome.declarativeNetRequest.updateDynamicRules({
-                removeRuleIds: [ruleId]
+                removeRuleIds: [NETWORK_BLOCK_RULE_ID]
             });
         }
     } catch (e) {
@@ -1489,7 +1490,7 @@ async function handleMessage(request, sender, sendResponse) {
                         // Block all network requests (HTTP/HTTPS)
                         await chrome.declarativeNetRequest.updateDynamicRules({
                             addRules: [{
-                                id: ruleId,
+                                id: NETWORK_BLOCK_RULE_ID,
                                 priority: 100, // Higher priority
                                 action: { type: 'block' },
                                 condition: {
@@ -1498,12 +1499,12 @@ async function handleMessage(request, sender, sendResponse) {
                                     resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
                                 }
                             }],
-                            removeRuleIds: [ruleId]
+                            removeRuleIds: [NETWORK_BLOCK_RULE_ID]
                         });
                     } else {
                         // Allow network requests by removing the block rule
                         await chrome.declarativeNetRequest.updateDynamicRules({
-                            removeRuleIds: [ruleId]
+                            removeRuleIds: [NETWORK_BLOCK_RULE_ID]
                         });
                     }
                     console.log(`[SW] Network kill switch: ${enabled ? 'OFF' : 'ON'}`);
