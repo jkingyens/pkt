@@ -1098,15 +1098,16 @@ async function handleMessage(request, sender, sendResponse) {
                         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                         const groups = await chrome.tabGroups.query({});
 
-                        // Check if the provided targetGroupId still actually belongs to this packet
-                        let providedIsGood = false;
+                        // CRITICAL: Verify that the provided targetGroupId still belongs to this packet.
+                        // If it doesn't match our mapping, we MUST NOT use it as it belongs to another packet.
                         if (targetGroupId !== undefined && targetGroupId !== null) {
-                            if (String(activeGroups[targetGroupId]) === String(packetId)) {
-                                providedIsGood = true;
+                            if (String(activeGroups[targetGroupId]) !== String(packetId)) {
+                                console.log(`[SW] Provided groupId ${targetGroupId} belongs to packet ${activeGroups[targetGroupId]}, not ${packetId}. Resetting.`);
+                                targetGroupId = null;
                             }
                         }
 
-                        if (!providedIsGood) {
+                        if (targetGroupId === null || targetGroupId === undefined) {
                             // Search all groups for one mapped to this packet
                             for (const g of groups) {
                                 if (String(activeGroups[g.id]) === String(packetId)) {
@@ -1834,34 +1835,50 @@ async function syncTabOrderForPacket(packetId) {
 
         console.log(`[SyncTabOrder] Identified ${tabs.length} tabs in group ${targetGroupId}`);
 
+        // Get window ID for this group to find tabs outside the group but in the same window
+        const windowId = tabs[0].windowId;
+        const allTabsInWindow = await chrome.tabs.query({ windowId });
+
         // Find the start index of the group in its window
         const startPos = Math.min(...tabs.map(t => t.index));
         console.log(`[SyncTabOrder] Group starts at window index ${startPos}`);
 
         // For each URL in the packet, if an open tab matches it, move it to the correct position
         let moveCount = 0;
+        let contiguousOffset = 0;
+
         for (let i = 0; i < packetUrls.length; i++) {
             const targetUrl = packetUrls[i];
             
-            // Robust match: Check current URL, pending URL, and our own cached mapped URL
-            const matchingTab = tabs.find(t => {
+            // Robust match: Check EVERY tab in the window, even if it's currently outside the group
+            const matchingTab = allTabsInWindow.find(t => {
                 const turl = t.url || t.pendingUrl;
                 const mapped = getMappedUrlSync(t.id);
                 return (turl && urlsMatch(turl, targetUrl)) || (mapped && urlsMatch(mapped, targetUrl));
             });
 
             if (matchingTab) {
-                const targetIndex = startPos + i;
+                const targetIndex = startPos + contiguousOffset;
+                
+                // 1. Explicitly ensure it's in the group (fixes "kicked out" bug)
+                if (matchingTab.groupId !== targetGroupId) {
+                    console.log(`[SyncTabOrder] Adding tab ${matchingTab.id} to group ${targetGroupId}`);
+                    await chrome.tabs.group({ tabIds: [matchingTab.id], groupId: targetGroupId });
+                }
+
+                // 2. Move to correct relative position
                 if (matchingTab.index !== targetIndex) {
                     console.log(`[SyncTabOrder] Moving tab ${matchingTab.id} to index ${targetIndex} (was ${matchingTab.index})`);
                     await chrome.tabs.move(matchingTab.id, { index: targetIndex });
                     moveCount++;
                 }
+                
+                contiguousOffset++;
             } else {
                 console.log(`[SyncTabOrder] No tab found for URL: ${targetUrl.substring(0, 50)}...`);
             }
         }
-        console.log(`[SyncTabOrder] Success. Moved ${moveCount} tabs.`);
+        console.log(`[SyncTabOrder] Success. Moved ${moveCount} tabs. Total size: ${contiguousOffset}`);
     } catch (e) {
         console.error('[SyncTabOrder] Error:', e);
     }
