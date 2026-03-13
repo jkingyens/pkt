@@ -27,6 +27,21 @@
     let isPageLoading = false;
     let loadInterval = null;
     let loadProgress = 0;
+    let isNetworkOffline = false;
+
+    // Listen for offline state changes from sidebar
+    chrome.storage.local.get('isNetworkOffline').then(data => {
+        isNetworkOffline = !!data.isNetworkOffline;
+        if (pipWindow) updatePipStatus();
+    });
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.isNetworkOffline) {
+            isNetworkOffline = !!changes.isNetworkOffline.newValue;
+            if (pipWindow) updatePipStatus();
+            renderStructure(); // Re-render to grey out/restore slides
+        }
+    });
 
     const ICONS = {
         play: `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>`,
@@ -150,55 +165,79 @@
         }
     }
 
+    function isOnlineRequired(item) {
+        if (!item) return false;
+        const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+        // Pages and Links require internet (unless we add a more granular check for local files later)
+        // Media (internally hosted), Local, and WASM are offline-capable.
+        return type === 'page' || type === 'link';
+    }
+
     async function startPlayback(index = 0) {
         if (items.length === 0) return;
-        currentSlideIndex = Math.max(0, Math.min(index, items.length - 1));
-        const item = items[currentSlideIndex];
-        const url = getItemUrl(item);
+        const targetIndex = Math.max(0, Math.min(index, items.length - 1));
+        const item = items[targetIndex];
 
-        if (!url) {
-            console.error('No URL for item at index', currentSlideIndex);
-            return;
+        // Block navigation to online items if offline
+        const isBlocked = isNetworkOffline && isOnlineRequired(item);
+        
+        if (isBlocked) {
+            console.warn('Navigation blocked: Offline and item requires online access');
+            if (pipWindow) {
+                updatePipStatus();
+            }
+        } else {
+            currentSlideIndex = targetIndex;
+            const url = getItemUrl(item);
+
+            if (!url) {
+                console.error('No URL for item at index', currentSlideIndex);
+                return;
+            }
+
+            isPageLoading = true;
+            loadProgress = 0;
+            updateProgressBar();
+            startLoadSimulation();
+
+            try {
+                // 1. Manage content window
+                if (contentTabId) {
+                    try {
+                        await chrome.tabs.update(contentTabId, { url, active: true });
+                        // Removed: auto-fullscreen enforcement
+                    } catch (e) {
+                        contentTabId = null; // Tab probably closed
+                    }
+                }
+
+                if (!contentTabId) {
+                    const win = await chrome.windows.create({ 
+                        url, 
+                        type: 'normal', 
+                        state: 'maximized' 
+                    });
+                    contentTabId = win.tabs[0].id;
+                }
+
+                // 1.5 Inject keyboard listener
+                if (contentTabId) {
+                    injectKeyboardListener(contentTabId);
+                }
+            } catch (err) {
+                console.error('Playback failed:', err);
+            }
         }
 
-        isPageLoading = true;
-        loadProgress = 0;
-        updateProgressBar();
-        startLoadSimulation();
-
         try {
-            // 1. Manage content window
-            if (contentTabId) {
-                try {
-                    await chrome.tabs.update(contentTabId, { url, active: true });
-                    // Removed: auto-fullscreen enforcement
-                } catch (e) {
-                    contentTabId = null; // Tab probably closed
-                }
-            }
-
-            if (!contentTabId) {
-                const win = await chrome.windows.create({ 
-                    url, 
-                    type: 'normal', 
-                    state: 'maximized' 
-                });
-                contentTabId = win.tabs[0].id;
-            }
-
-            // 1.5 Inject keyboard listener
-            if (contentTabId) {
-                injectKeyboardListener(contentTabId);
-            }
-
-            // 2. Manage PiP controller
+            // Manage PiP controller - always ensure it's open if playback is "started"
             if (!pipWindow) {
                 await openPipController();
             } else {
                 updatePipStatus();
             }
         } catch (err) {
-            console.error('Playback failed:', err);
+            console.error('PiP management failed:', err);
         }
     }
 
@@ -254,6 +293,22 @@
                     position: relative;
                     margin-bottom: 12px;
                     height: 24px;
+                }
+                .network-indicator {
+                    position: absolute;
+                    left: 0;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background: var(--success);
+                    box-shadow: 0 0 8px var(--success);
+                    transition: all 0.3s ease;
+                }
+                .network-indicator.offline {
+                    background: var(--danger);
+                    box-shadow: 0 0 8px var(--danger);
                 }
                 .pip-controls {
                     display: flex;
@@ -377,6 +432,11 @@
         title.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.1em; opacity: 0.8;';
         header.appendChild(title);
 
+        const networkStatus = pipWindow.document.createElement('div');
+        networkStatus.id = 'pip-network-indicator';
+        networkStatus.className = 'network-indicator';
+        header.appendChild(networkStatus);
+
         const btnGroup = pipWindow.document.createElement('div');
         btnGroup.style.cssText = 'position: absolute; right: 0; top: 0; display: flex; gap: 4px;';
 
@@ -441,8 +501,19 @@
         const nextBtn = pipWindow.document.getElementById('pip-next-btn');
         const fsBtn = pipWindow.document.getElementById('pip-fs-btn');
         const trueFsBtn = pipWindow.document.getElementById('pip-true-fs-btn');
+        const netInd = pipWindow.document.getElementById('pip-network-indicator');
         
         if (title) title.textContent = stackTitle.textContent;
+
+        if (netInd) {
+            if (isNetworkOffline) {
+                netInd.classList.add('offline');
+                netInd.title = 'Offline - Web slides unavailable';
+            } else {
+                netInd.classList.remove('offline');
+                netInd.title = 'Online';
+            }
+        }
         
         if (counter) {
             if (isPageLoading) {
@@ -465,8 +536,14 @@
         }
 
         if (nextBtn) {
-            nextBtn.disabled = isPageLoading;
             const isLastSlide = currentSlideIndex === items.length - 1;
+            const nextItem = items[currentSlideIndex + 1];
+            const nextRequiresOnline = isOnlineRequired(nextItem);
+            
+            const isBlocked = isNetworkOffline && nextRequiresOnline && !isLastSlide;
+            
+            nextBtn.disabled = isPageLoading || isBlocked;
+            
             if (isLastSlide) {
                 nextBtn.innerHTML = `Finish ${ICONS.finish}`;
                 nextBtn.onclick = async () => {
@@ -646,11 +723,13 @@
         
         items.forEach((item, index) => {
             const card = document.createElement('div');
-            card.className = 'stack-item';
-            card.draggable = true;
+            const isDisabled = isNetworkOffline && isOnlineRequired(item);
+            card.className = `stack-item ${isDisabled ? 'disabled' : ''}`;
+            card.draggable = !isDisabled;
             card.dataset.index = index;
             card.innerHTML = `
                 <div class="item-index">${index + 1}</div>
+                ${isDisabled ? '<div class="offline-badge">Offline</div>' : ''}
                 <div class="item-icon-box">${getIcon(item.type)}</div>
                 <div class="item-content">
                     <div class="item-name">${escapeHtml(item.name || 'Untitled')}</div>
@@ -662,16 +741,18 @@
                 </div>
             `;
 
-            card.addEventListener('click', () => {
-                const url = getItemUrl(item);
-                if (url) {
-                    chrome.runtime.sendMessage({
-                        action: 'openTabInGroup',
-                        url: url,
-                        packetId: packetId
-                    });
-                }
-            });
+            if (!isDisabled) {
+                card.addEventListener('click', () => {
+                    const url = getItemUrl(item);
+                    if (url) {
+                        chrome.runtime.sendMessage({
+                            action: 'openTabInGroup',
+                            url: url,
+                            packetId: packetId
+                        });
+                    }
+                });
+            }
 
             card.addEventListener('mouseenter', () => {
                 const url = getItemUrl(item);

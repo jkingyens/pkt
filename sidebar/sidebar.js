@@ -1679,8 +1679,11 @@ class SidebarUI {
     }
 
     async enforceOfflineState(isOffline) {
+        // Sync to storage so other windows (stack PIP) can react
+        chrome.storage.local.set({ isNetworkOffline: isOffline });
+
         // 1. Update UI (grey out items)
-        const cards = document.querySelectorAll('.packet-page-card:not(.local):not(.wasm)');
+        const cards = document.querySelectorAll('.packet-page-card:not(.local):not(.wasm):not(.stack)');
         cards.forEach(card => {
             if (isOffline) {
                 card.classList.add('disabled');

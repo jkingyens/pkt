@@ -1431,7 +1431,8 @@ h1 {
   font-weight: 800;
 }
 
-.packet-page-card.hover-highlight {
+.packet-page-card.hover-highlight,
+.packet-media-card.hover-highlight {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.4);
   transform: translateY(-2px);
