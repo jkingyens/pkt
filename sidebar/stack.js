@@ -11,6 +11,7 @@
     const statusBadge = document.getElementById('status-badge');
     const flowSvg = document.getElementById('flow-svg');
     const dropZone = document.getElementById('drop-zone');
+    const playBtn = document.getElementById('play-btn');
 
     if (!stackId || !packetId) {
         loading.innerHTML = '<div class="error">Missing stack ID or packet ID.</div>';
@@ -20,6 +21,19 @@
     const dbName = `packet_${packetId}`;
     let items = [];
     let currentActiveUrl = null;
+    let pipWindow = null;
+    let contentTabId = null;
+    let currentSlideIndex = 0;
+    let isPageLoading = false;
+    let loadInterval = null;
+    let loadProgress = 0;
+
+    const ICONS = {
+        play: `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>`,
+        restart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
+        next: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M5 12h14M12 5l7 7-7 7"/></svg>`,
+        finish: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M20 6L9 17l-5-5"/></svg>`
+    };
 
     async function loadStack() {
         try {
@@ -132,6 +146,318 @@
             // Fallback for malformed URLs
             return url.split('#')[0].replace(/\/$/, '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
         }
+    }
+
+    async function startPlayback(index = 0) {
+        if (items.length === 0) return;
+        currentSlideIndex = Math.max(0, Math.min(index, items.length - 1));
+        const item = items[currentSlideIndex];
+        const url = getItemUrl(item);
+
+        if (!url) {
+            console.error('No URL for item at index', currentSlideIndex);
+            return;
+        }
+
+        isPageLoading = true;
+        loadProgress = 0;
+        updateProgressBar();
+        startLoadSimulation();
+
+        try {
+            // 1. Manage content window
+            if (contentTabId) {
+                try {
+                    await chrome.tabs.update(contentTabId, { url, active: true });
+                } catch (e) {
+                    contentTabId = null; // Tab probably closed
+                }
+            }
+
+            if (!contentTabId) {
+                const win = await chrome.windows.create({ 
+                    url, 
+                    type: 'normal', 
+                    state: 'fullscreen' 
+                });
+                contentTabId = win.tabs[0].id;
+            }
+
+            // 2. Manage PiP controller
+            if (!pipWindow) {
+                await openPipController();
+            } else {
+                updatePipStatus();
+            }
+        } catch (err) {
+            console.error('Playback failed:', err);
+        }
+    }
+
+    async function openPipController() {
+        if (!('documentPictureInPicture' in window)) {
+            console.warn('PiP not supported');
+            return;
+        }
+
+        try {
+            pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 340,
+                height: 220,
+            });
+
+            // Copy style sheets
+            [...document.styleSheets].forEach((styleSheet) => {
+                try {
+                    const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+                    const style = document.createElement('style');
+                    style.textContent = cssRules;
+                    pipWindow.document.head.appendChild(style);
+                } catch (e) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = styleSheet.href;
+                    pipWindow.document.head.appendChild(link);
+                }
+            });
+
+            pipWindow.document.body.style.cssText = `
+                background: var(--bg);
+                color: var(--text);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                overflow: hidden;
+                user-select: none;
+            `;
+
+            // Inject additional premium styles
+            const globalStyle = pipWindow.document.createElement('style');
+            globalStyle.textContent = `
+                .pip-controls {
+                    display: flex;
+                    gap: 16px;
+                    justify-content: center;
+                    align-items: center;
+                    margin: 24px 0;
+                }
+                .play-btn, .restart-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    cursor: pointer;
+                }
+                .play-btn:disabled {
+                    opacity: 0.4;
+                    cursor: not-allowed;
+                    filter: grayscale(1);
+                }
+                .play-btn svg, .restart-btn svg {
+                    flex-shrink: 0;
+                }
+                .pip-counter {
+                    font-family: "JetBrains Mono", monospace;
+                    font-size: 11px;
+                    letter-spacing: 0.1em;
+                    opacity: 0.6;
+                    text-transform: uppercase;
+                }
+                .progress-container {
+                    width: 100%;
+                    height: 8px;
+                    background: var(--border);
+                    border-radius: 4px;
+                    overflow: hidden;
+                    margin-top: 16px;
+                    position: relative;
+                }
+                .progress-bar {
+                    height: 100%;
+                    width: 0%;
+                    background: var(--success);
+                    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
+                }
+                .progress-bar.loading {
+                    background: var(--primary);
+                    animation: shimmer 1.5s infinite linear;
+                    background-image: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+                    background-size: 200% 100%;
+                }
+                @keyframes shimmer {
+                    from { background-position: 200% 0; }
+                    to { background-position: -200% 0; }
+                }
+            `;
+            pipWindow.document.head.appendChild(globalStyle);
+
+            renderPipContent();
+
+            pipWindow.document.body.addEventListener('click', async (e) => {
+                // Ignore if clicking a button
+                if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+                
+                if (contentTabId) {
+                    try {
+                        const tab = await chrome.tabs.get(contentTabId);
+                        await chrome.windows.update(tab.windowId, { focused: true });
+                    } catch (err) {
+                        console.error('Focus failed:', err);
+                    }
+                }
+            });
+
+            pipWindow.addEventListener('pagehide', () => {
+                if (contentTabId) {
+                    try {
+                        chrome.tabs.remove(contentTabId);
+                    } catch (e) {}
+                    contentTabId = null;
+                }
+                pipWindow = null;
+            });
+        } catch (e) {
+            console.error('Failed to open PiP:', e);
+        }
+    }
+
+    function renderPipContent() {
+        if (!pipWindow) return;
+        pipWindow.document.body.innerHTML = '';
+        
+        const container = pipWindow.document.createElement('div');
+        container.style.cssText = 'text-align: center; width: 100%; padding: 0 24px; box-sizing: border-box;';
+
+        const title = pipWindow.document.createElement('div');
+        title.id = 'pip-title';
+        title.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px; letter-spacing: 0.1em; opacity: 0.8;';
+        container.appendChild(title);
+
+        const controls = pipWindow.document.createElement('div');
+        controls.className = 'pip-controls';
+        
+        const restartBtnPip = pipWindow.document.createElement('button');
+        restartBtnPip.innerHTML = `${ICONS.restart} Restart`;
+        restartBtnPip.className = 'restart-btn';
+        restartBtnPip.addEventListener('click', restartPlayback);
+        controls.appendChild(restartBtnPip);
+
+        const nextBtn = pipWindow.document.createElement('button');
+        nextBtn.id = 'pip-next-btn';
+        nextBtn.innerHTML = `Next ${ICONS.next}`;
+        nextBtn.className = 'play-btn';
+        // nextBtn.addEventListener('click', advanceSlide); // REMOVED: Managed by updatePipStatus
+        controls.appendChild(nextBtn);
+
+        container.appendChild(controls);
+
+        const counter = pipWindow.document.createElement('div');
+        counter.id = 'pip-counter';
+        counter.className = 'pip-counter';
+        container.appendChild(counter);
+
+        const progressContainer = pipWindow.document.createElement('div');
+        progressContainer.className = 'progress-container';
+        const progressBar = pipWindow.document.createElement('div');
+        progressBar.id = 'pip-progress-bar';
+        progressBar.className = 'progress-bar';
+        progressContainer.appendChild(progressBar);
+        container.appendChild(progressContainer);
+
+        pipWindow.document.body.appendChild(container);
+        updatePipStatus();
+    }
+
+    function updatePipStatus() {
+        if (!pipWindow) return;
+        const title = pipWindow.document.getElementById('pip-title');
+        const counter = pipWindow.document.getElementById('pip-counter');
+        const nextBtn = pipWindow.document.getElementById('pip-next-btn');
+        
+        if (title) title.textContent = stackTitle.textContent;
+        
+        if (counter) {
+            if (isPageLoading) {
+                counter.textContent = 'Loading Page...';
+                counter.style.color = 'var(--primary)';
+                counter.style.opacity = '1';
+            } else {
+                counter.textContent = `Slide ${currentSlideIndex + 1} of ${items.length}`;
+                counter.style.color = 'var(--text-secondary)';
+                counter.style.opacity = '0.6';
+            }
+        }
+        
+        if (nextBtn) {
+            nextBtn.disabled = isPageLoading;
+            const isLastSlide = currentSlideIndex === items.length - 1;
+            if (isLastSlide) {
+                nextBtn.innerHTML = `Finish ${ICONS.finish}`;
+                nextBtn.onclick = async () => {
+                    if (contentTabId) {
+                        try {
+                            await chrome.tabs.remove(contentTabId);
+                        } catch (e) {}
+                        contentTabId = null;
+                    }
+                    pipWindow.close();
+                };
+            } else {
+                nextBtn.innerHTML = `Next ${ICONS.next}`;
+                nextBtn.onclick = advanceSlide;
+            }
+        }
+        
+        updateProgressBar();
+    }
+
+    function updateProgressBar() {
+        if (!pipWindow) return;
+        const bar = pipWindow.document.getElementById('pip-progress-bar');
+        if (!bar) return;
+
+        if (isPageLoading) {
+            bar.classList.add('loading');
+            bar.style.transition = 'width 0.5s ease-out';
+            bar.style.width = `${Math.max(5, loadProgress)}%`;
+        } else {
+            bar.classList.remove('loading');
+            bar.style.transition = 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
+            const progress = ((currentSlideIndex + 1) / items.length) * 100;
+            bar.style.width = `${progress}%`;
+        }
+    }
+
+    function startLoadSimulation() {
+        if (loadInterval) clearInterval(loadInterval);
+        loadInterval = setInterval(() => {
+            if (!isPageLoading) {
+                clearInterval(loadInterval);
+                return;
+            }
+            if (loadProgress < 95) {
+                // Slower increment as it gets higher
+                const increment = Math.max(0.5, (100 - loadProgress) / 20);
+                loadProgress += increment;
+                updateProgressBar();
+            }
+        }, 100);
+    }
+
+    async function advanceSlide() {
+        if (currentSlideIndex < items.length - 1) {
+            currentSlideIndex++;
+            await startPlayback(currentSlideIndex);
+        }
+    }
+
+    function restartPlayback() {
+        startPlayback(0);
     }
 
     function getItemUrl(item) {
@@ -500,6 +826,17 @@
     }
 
     window.addEventListener('resize', drawConnectors);
+    
+    playBtn.addEventListener('click', () => startPlayback(0));
+
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+        if (tabId === contentTabId && changeInfo.status === 'complete') {
+            isPageLoading = false;
+            loadProgress = 100;
+            if (loadInterval) clearInterval(loadInterval);
+            updatePipStatus(); 
+        }
+    });
     
     // Initial load
     loadStack();
