@@ -514,6 +514,7 @@ class SidebarUI {
                         this.activePacketGroupId = null;
                     }
                     this.isClipperInvoked = false;
+                    this.resetEditMode(); // Always reset edit mode when navigating to a non-packet tab
                     this.updateClipperState();
                     this.updateAddPageVisibility();
                     this.updateItemHighlights();
@@ -1344,6 +1345,14 @@ class SidebarUI {
     }
 
     // ===== NAVIGATION =====
+    resetEditMode() {
+        this.editMode = false;
+        document.body.classList.remove('edit-mode');
+        if (this.packetDetailView) this.packetDetailView.classList.remove('edit-mode');
+        if (this.constructorView) this.constructorView.classList.remove('edit-mode');
+        if (this.editToggleBtn) this.editToggleBtn.classList.remove('active');
+        this.updateClipperState();
+    }
 
     toggleEditMode() {
         this.editMode = !this.editMode;
@@ -1602,11 +1611,8 @@ class SidebarUI {
             view.classList.add('active');
             // Disable edit mode when switching views
             if (viewId !== 'packetDetailView') {
-                this.editMode = false;
-                if (this.packetDetailView) this.packetDetailView.classList.remove('edit-mode');
-                if (this.editToggleBtn) this.editToggleBtn.classList.remove('active');
+                this.resetEditMode();
             }
-            this.updateClipperState();
         } else {
             console.error(`[SidebarUI] View not found: ${viewId}`);
         }
@@ -2003,6 +2009,11 @@ class SidebarUI {
     }
 
     async showPacketDetailView(packet) {
+        // Switching between different packets or entering a packet should reset edit mode
+        if (!this.currentPacket || String(this.currentPacket.id) !== String(packet.id)) {
+            this.resetEditMode();
+        }
+
         this.currentPacket = packet;
         this.isClipperManuallyCancelled = false;
         this.activePacketGroupId = packet.groupId || null;
