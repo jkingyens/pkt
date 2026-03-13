@@ -1,15 +1,15 @@
 # ✳️ Wildcard
 
-**Wildcard** is a modern authoring environment built directly into your browser. It is a local-first, AI-powered workspace designed to turn the web from a collection of silos into a personal canvas for building, organizing, and automating your knowledge.
+**Wildcard** is a modern authoring environment built directly into your browser. It is a local-first, AI-powered canvas for collecting ideas, organizing your thoughts, and expressing yourself through a **Stack**.
 
 ---
 
 ## 🏗 The Wildcard Philosophy
 
 In the traditional web, data lives in tabs and servers. In Wildcard, your browser becomes a creative workspace where you can:
-- **Clip** anything from the web into organized collections.
-- **Build** interactive "Stacks" that connect your research, media, and data.
-- **Script** complex behaviors using natural language, powered by AI and WebAssembly.
+- **Collect** ideas and media from the web into organized collections.
+- **Express** yourself by building interactive "Stacks" that connect your research, media, and data.
+- **Share** your vision—present your Stacks in front of a group or share them for individual consumption.
 
 ---
 
