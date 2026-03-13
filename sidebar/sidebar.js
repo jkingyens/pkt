@@ -581,6 +581,8 @@ class SidebarUI {
                 this.updateHoverHighlight(message.url, true);
             } else if (message.type === 'HOVER_ITEM_END') {
                 this.updateHoverHighlight(message.url, false);
+            } else if (message.type === 'TOGGLE_SIDEBAR') {
+                window.close();
             }
         });
     }

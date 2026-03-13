@@ -115,12 +115,22 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && (changes.activeGroups || changes.networkEnabled)) {
-        chrome.tabs.query({}).then(tabs => {
-            for (const tab of tabs) {
-                updateBadge({ tabId: tab.id }).catch(() => { });
-            }
-        });
+    if (area === 'local') {
+        if (changes.activeGroups || changes.networkEnabled) {
+            chrome.tabs.query({}).then(tabs => {
+                for (const tab of tabs) {
+                    updateBadge({ tabId: tab.id }).catch(() => { });
+                }
+            });
+        }
+        if (changes.playbackTabIds) {
+            tabToUrlMapCached.playbackTabIds = changes.playbackTabIds.newValue || [];
+            chrome.tabs.query({}).then(tabs => {
+                for (const tab of tabs) {
+                    updateBadge({ tabId: tab.id }).catch(() => { });
+                }
+            });
+        }
     }
 });
 
@@ -205,6 +215,18 @@ function isMediaPage(url) {
     }
 }
 
+function isStackEditorOrPlayback(tabId, url) {
+    if (!url && !tabId) return false;
+    // 1. Stack Editor itself
+    if (url && url.includes('sidebar/stack.html')) return true;
+    
+    // 2. Check if this tab is registered for playback
+    const playbackTabIds = tabToUrlMapCached.playbackTabIds || [];
+    if (tabId && playbackTabIds.includes(tabId)) return true;
+
+    return false;
+}
+
 async function initiateAudioRecording(streamId, targetTabId) {
     console.log('[SW] initiateAudioRecording for tab:', targetTabId);
 
@@ -255,7 +277,7 @@ function normalizeUrl(url) {
         // Remove hash and trailing slash, then lowercase
         let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
         
-        // Strip packetId from standard URLs if present
+        // Strip non-essential parameters for matching identity
         if (parsed.searchParams.has('packetId')) {
             const cleanSearch = new URLSearchParams(parsed.search);
             cleanSearch.delete('packetId');
@@ -641,8 +663,9 @@ async function initializeSQLite() {
             await sqliteManager.ensureWitsCollection();
 
             // Load tab mappings into memory cache
-            const { tabToUrlMap = {} } = await chrome.storage.local.get('tabToUrlMap');
+            const { tabToUrlMap = {}, playbackTabIds = [] } = await chrome.storage.local.get(['tabToUrlMap', 'playbackTabIds']);
             tabToUrlMapCached = tabToUrlMap;
+            tabToUrlMapCached.playbackTabIds = playbackTabIds;
 
             // Also sync bookmarks cache
             await syncBookmarkCache();
@@ -669,9 +692,20 @@ async function initializeSQLite() {
 }
 
 // Open side panel when extension icon is clicked
-chrome.action.onClicked.addListener((tab) => {
-    // 1. Synchronous check: Do we have an active port?
-    // Using 'async/await' here breaks the "user gesture" required for sidePanel.open()
+chrome.action.onClicked.addListener(async (tab) => {
+    // Check if this is a stack editor or playback tab
+    if (isStackEditorOrPlayback(tab.id, tab.url)) {
+        if (sidebarPort) {
+            // Sidebar is OPEN! Toggle it closed
+            chrome.runtime.sendMessage({ type: 'TOGGLE_SIDEBAR' }).catch(() => { });
+        } else {
+            // Sidebar is CLOSED! Open it
+            chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
+        }
+        return;
+    }
+
+    // Standard external page behavior (clipper / add to packet)
     if (sidebarPort) {
         // Sidebar is OPEN! Delegate toggle logic to it
         chrome.runtime.sendMessage({ type: 'CLIPPER_ICON_CLICKED', tab }).catch(() => { });
@@ -1188,6 +1222,7 @@ async function handleMessage(request, sender, sendResponse) {
                             if (existing.groupId !== targetGroupId) {
                                 await chrome.tabs.group({ tabIds: [existing.id], groupId: targetGroupId });
                             }
+                            
                             await chrome.tabs.update(existing.id, { active: true });
                             await setTabMapping(existing.id, url, packetId);
                         } else {
@@ -1625,6 +1660,21 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     } catch (e) { }
 });
 
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    try {
+        const { playbackTabIds = [] } = await chrome.storage.local.get('playbackTabIds');
+        if (playbackTabIds.includes(tabId)) {
+            const newList = playbackTabIds.filter(id => id !== tabId);
+            await chrome.storage.local.set({ playbackTabIds: newList });
+            // Also update cache if we decide to maintain it globally
+            if (tabToUrlMapCached.playbackTabIds) {
+                tabToUrlMapCached.playbackTabIds = newList;
+            }
+        }
+    } catch (e) {}
+    await removeTabMapping(tabId);
+});
+
 // Also track when a tab is updated (e.g. navigation within a group)
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' || changeInfo.url) {
@@ -1744,8 +1794,12 @@ async function updateBadge({ isReadyToClip, tabId }) {
             const isSupportedPage = tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.includes('viewer.html'));
 
             const isMedia = isMediaPage(tab.url);
+            const isEditorOrPlayback = isStackEditorOrPlayback(tabId, tab.url);
 
-            if (isReadyToClip && !isMedia) {
+            if (isEditorOrPlayback) {
+                // Stack Editor & Playback HAVE NO BADGES
+                await chrome.action.setBadgeText({ text: '', tabId });
+            } else if (isReadyToClip && !isMedia) {
                 // Priority 1: Red dot for capture mode
                 await chrome.action.setBadgeText({ text: '•', tabId });
                 await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });

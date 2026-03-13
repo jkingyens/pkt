@@ -218,6 +218,13 @@
                         state: 'maximized' 
                     });
                     contentTabId = win.tabs[0].id;
+
+                    // Register this tab for playback tracking (clears badges, enables toggle)
+                    const { playbackTabIds = [] } = await chrome.storage.local.get('playbackTabIds');
+                    if (!playbackTabIds.includes(contentTabId)) {
+                        playbackTabIds.push(contentTabId);
+                        await chrome.storage.local.set({ playbackTabIds });
+                    }
                 }
 
                 // 1.5 Inject keyboard listener
