@@ -1,9 +1,6 @@
 # ✳️ Wildcard
 
-**Wildcard** is a reimagining of HyperCard for the modern web. It is a local-first, AI-powered authoring environment built directly into your browser, designed to turn the web from a collection of silos into a personal canvas for building and organizing knowledge.
-
-> [!NOTE]
-> Like the original HyperCard, Wildcard is for the "rest of us." You don't need to be a developer to build powerful, interactive mini-apps (Stacks) that interact with your data and the browser.
+**Wildcard** is a modern authoring environment built directly into your browser. It is a local-first, AI-powered workspace designed to turn the web from a collection of silos into a personal canvas for building, organizing, and automating your knowledge.
 
 ---
 
@@ -26,8 +23,8 @@ A **Stack** is your project. It's a collection of cards, data, and logic focused
 - **Media**: Clips, recordings, and images that form the visual foundation of your cards.
 - **Data**: Every stack includes a local SQLite database, giving you the power of structured data without the complexity of a server.
 
-### Functions (The "New" HyperTalk)
-Wildcard uses **AI-generated WebAssembly functions** as its scripting language. Instead of writing code, you describe the logic you want in natural language (e.g., *"Find all my bookmarks about 'space' and summarize their titles"*). Gemini generates the code, compiles it to Wasm, and executes it securely in your browser.
+### Functions (AI-Powered Logic)
+Wildcard uses **AI-generated WebAssembly functions** for scripting. Instead of writing complex code, you describe the logic you want in natural language (e.g., *"Find all my bookmarks about 'space' and summarize their titles"*). Gemini generates the code, compiles it to Wasm, and executes it securely in your browser.
 
 ---
 
