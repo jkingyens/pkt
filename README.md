@@ -1,15 +1,43 @@
-# ✳️ Wildcard CX 
+# ✳️ Wildcard
 
-Wildcard CX is a powerful, AI-optional SQLite workspace for Chrome. It combines traditional database management with a Wasm-based execution environment using WebAssembly and sandboxed, AI-generated modules.
+**Wildcard** is a reimagining of HyperCard for the modern web. It is a local-first, AI-powered authoring environment built directly into your browser, designed to turn the web from a collection of silos into a personal canvas for building and organizing knowledge.
+
+> [!NOTE]
+> Like the original HyperCard, Wildcard is for the "rest of us." You don't need to be a developer to build powerful, interactive mini-apps (Stacks) that interact with your data and the browser.
+
+---
+
+## 🏗 The Wildcard Philosophy
+
+In the traditional web, data lives in tabs and servers. In Wildcard, your browser becomes a creative workspace where you can:
+- **Clip** anything from the web into organized collections.
+- **Build** interactive "Stacks" that connect your research, media, and data.
+- **Script** complex behaviors using natural language, powered by AI and WebAssembly.
+
+---
+
+## 📚 Core Concepts
+
+### Stacks
+A **Stack** is your project. It's a collection of cards, data, and logic focused on a single topic—be it a research project, a personal database, or a custom tool for your browser.
+
+### Cards & Pages
+- **Pages**: Snapshots or live links to web content, organized within your stack.
+- **Media**: Clips, recordings, and images that form the visual foundation of your cards.
+- **Data**: Every stack includes a local SQLite database, giving you the power of structured data without the complexity of a server.
+
+### Functions (The "New" HyperTalk)
+Wildcard uses **AI-generated WebAssembly functions** as its scripting language. Instead of writing code, you describe the logic you want in natural language (e.g., *"Find all my bookmarks about 'space' and summarize their titles"*). Gemini generates the code, compiles it to Wasm, and executes it securely in your browser.
+
+---
 
 ## 🚀 Key Features
 
-- **AI-Generated Wasm Functions** — Describe the logic you want in natural language, and Gemini will generate optimized logic, compile it to Wasm, and execute it directly in your browser.
-- **SQLite Collections** — Create, manage, and persist multiple namesacked SQLite databases using [sql.js](https://github.com/sql-js/sql.js).
-- **WIT Bridging** — Type-safe communication between Wasm modules and Chrome host APIs (like Bookmarks) using WebAssembly Interface Type (WIT) definitions.
-- **Project Overlays (Packets)** — Group URLs and Wasm modules into logical "Packets" that can be restored and executed in a single click.
-- **Entry Inspection** — Browse schemas and click individual row IDs to see full entry previews.
-- **Full Privacy** — All processing happens locally. No data ever leaves your device (except for the AI prompts sent to Gemini).
+- **Personal SQLite Collections** — Manage multiple, namespaced SQLite databases using [sql.js](https://github.com/sql-js/sql.js).
+- **AI-Powered Authoring** — Describe your goal, and Wildcard builds the logic for you.
+- **Fluid Capture** — A built-in clipper to bring any part of the web into your Stacks.
+- **WIT Bridging** — Secure, type-safe access to Chrome host APIs (Bookmarks, Tabs) from your scripts.
+- **Full Privacy** — Your data stays in your browser. Safe, local-first, and private by design.
 
 ---
 
@@ -17,55 +45,39 @@ Wildcard CX is a powerful, AI-optional SQLite workspace for Chrome. It combines 
 
 ```
 .
-├── manifest.json     # Extension configuration
-├── background/       # Service worker (handles SQL management & Wasm execution)
-├── sidebar/          # UI (Sidebar, CSS, and UI controllers)
+├── manifest.json     # Extension heart
+├── background/       # Service worker (The "Engine" - handles SQL & Wasm)
+├── sidebar/          # The Workspace (UI, CSS, and interaction controllers)
 ├── src/
-│   └── sqlite-manager.js # Shared SQLite management logic
-├── icons/            # Extension icons
-├── vendor/           # Third-party dependencies
-└── zig/              # Sandboxed execution assets/scripts
+│   └── sqlite-manager.js # Database management core
+├── icons/            # Extension visuals
+├── vendor/           # Powering tools (sql.js, etc.)
+└── zig/              # Script execution assets
 ```
 
 ---
 
-## ⚡️ Getting Started
-
-### Prerequisites
-- Google Chrome
+## ⚡️ Quick Start
 
 ### Installation
-1. Clone the repository.
-2. Open `chrome://extensions/` in Chrome.
+1. Clone this repository.
+2. Go to `chrome://extensions/` in Google Chrome.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the root directory of this repository.
+4. Click **Load unpacked** and select the extension directory.
 
-### Initial Setup
-1. Open the **Wildcard CX** sidebar from the extension bar.
+### Setup Your AI Assistant
+1. Open the Wildcard sidebar.
 2. Click the ⚙️ (Settings) icon.
-3. Enter your **Gemini API Key**.
-4. Click **Fetch Models** and select a model (e.g., `gemini-1.5-pro`).
-5. Click **Save Settings**.
-
----
-
-## 🏗 Developing Wasm Functions
-
-Wildcard CX uses an AI-First development flow:
-
-1. Click **✨ Generate WASM** in a Packet view.
-2. Describe your goal (e.g., "Find all bookmarks with 'coding' in the title and extract their URLs").
-3. Wildcard CX fetches your current database schema and WIT definitions to provide the AI with full context.
-4. The AI generates optimized code which is compiled in-browser and executed.
-5. Results and logs are displayed in an interactive modal.
+3. Add your **Gemini API Key**.
+4. Select a model (e.g., `gemini-1.5-pro`) and click **Save Settings**.
 
 ---
 
 ## 🔒 Security & Privacy
 
-- **Local-First**: Your databases are stored in `chrome.storage.local`. They are never synced to a cloud unless you manually export them.
-- **Wasm Sandbox**: All generated code runs in a isolated WebAssembly environment via a Service Worker.
-- **CSP**: The extension uses a strict Content Security Policy (`wasm-unsafe-eval`) to allow local Wasm compilation while preventing remote script execution.
+- **Local-First**: Your databases live in `chrome.storage.local`.
+- **Wasm Sandbox**: All AI-generated scripts run in a strictly isolated environment.
+- **Privacy**: No browsing data or database content ever leaves your machine. AI prompts only contain the necessary context for code generation.
 
 ---
 
