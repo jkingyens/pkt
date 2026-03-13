@@ -205,6 +205,28 @@
                 }
             });
 
+            card.addEventListener('mouseenter', () => {
+                const url = getItemUrl(item);
+                if (url) {
+                    chrome.runtime.sendMessage({
+                        type: 'HOVER_ITEM_START',
+                        url: url,
+                        packetId: packetId
+                    });
+                }
+            });
+
+            card.addEventListener('mouseleave', () => {
+                const url = getItemUrl(item);
+                if (url) {
+                    chrome.runtime.sendMessage({
+                        type: 'HOVER_ITEM_END',
+                        url: url,
+                        packetId: packetId
+                    });
+                }
+            });
+
             card.querySelector('.remove-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 removeItem(index);

@@ -576,6 +576,10 @@ class SidebarUI {
                 }
             } else if (message.type === 'OFFSCREEN_LOG') {
                 console.log('[Offscreen-Relay]', message.message);
+            } else if (message.type === 'HOVER_ITEM_START') {
+                this.updateHoverHighlight(message.url, true);
+            } else if (message.type === 'HOVER_ITEM_END') {
+                this.updateHoverHighlight(message.url, false);
             }
         });
     }
@@ -1028,6 +1032,33 @@ class SidebarUI {
             // Handle Wasm types based on lastNavigatedIndex
             if (type === 'wasm' && index === this.lastNavigatedIndex) {
                 card.classList.add('active');
+            }
+        });
+    }
+
+    updateHoverHighlight(url, active) {
+        if (!this.currentPacket) return;
+        const norm = this.normalizeUrl(url);
+        const allCards = document.querySelectorAll('.packet-page-card, .packet-media-card');
+
+        allCards.forEach(card => {
+            const index = parseInt(card.getAttribute('data-index'), 10);
+            const item = this.currentPacket.urls[index];
+            if (!item) return;
+
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            let itemUrl;
+            if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
+            else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'stack') itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+
+            if (itemUrl && norm === this.normalizeUrl(itemUrl)) {
+                if (active) {
+                    card.classList.add('hover-highlight');
+                } else {
+                    card.classList.remove('hover-highlight');
+                }
             }
         });
     }
