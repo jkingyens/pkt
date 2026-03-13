@@ -33,7 +33,8 @@
         restart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
         next: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M5 12h14M12 5l7 7-7 7"/></svg>`,
         finish: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M20 6L9 17l-5-5"/></svg>`,
-        fullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
+        fullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`,
+        trueFullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M12 17v4M8 21h8"/></svg>`
     };
 
     async function loadStack() {
@@ -185,6 +186,11 @@
                 contentTabId = win.tabs[0].id;
             }
 
+            // 1.5 Inject keyboard listener
+            if (contentTabId) {
+                injectKeyboardListener(contentTabId);
+            }
+
             // 2. Manage PiP controller
             if (!pipWindow) {
                 await openPipController();
@@ -205,7 +211,7 @@
         try {
             pipWindow = await window.documentPictureInPicture.requestWindow({
                 width: 340,
-                height: 220,
+                height: 180,
             });
 
             // Copy style sheets
@@ -230,8 +236,8 @@
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                justify-content: center;
-                height: 100vh;
+                justify-content: flex-start;
+                padding-top: 16px;
                 margin: 0;
                 overflow: hidden;
                 user-select: none;
@@ -240,12 +246,21 @@
             // Inject additional premium styles
             const globalStyle = pipWindow.document.createElement('style');
             globalStyle.textContent = `
+                .pip-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 100%;
+                    position: relative;
+                    margin-bottom: 12px;
+                    height: 24px;
+                }
                 .pip-controls {
                     display: flex;
-                    gap: 16px;
+                    gap: 20px;
                     justify-content: center;
                     align-items: center;
-                    margin: 24px 0;
+                    margin: 16px 0;
                 }
                 .play-btn, .restart-btn {
                     display: flex;
@@ -255,14 +270,11 @@
                     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                     cursor: pointer;
                 }
-                .fullscreen-btn {
-                    position: absolute;
-                    top: 12px;
-                    right: 12px;
+                .fullscreen-btn, .true-fs-btn {
                     background: transparent;
                     color: var(--text-secondary);
                     border: none;
-                    padding: 6px;
+                    padding: 4px;
                     border-radius: 4px;
                     cursor: pointer;
                     opacity: 0.6;
@@ -271,12 +283,12 @@
                     align-items: center;
                     justify-content: center;
                 }
-                .fullscreen-btn:hover {
+                .fullscreen-btn:hover, .true-fs-btn:hover {
                     opacity: 1;
                     background: var(--border);
                     color: var(--text);
                 }
-                .play-btn:disabled, .fullscreen-btn:disabled {
+                .play-btn:disabled, .fullscreen-btn:disabled, .true-fs-btn:disabled {
                     opacity: 0.4;
                     cursor: not-allowed;
                     filter: grayscale(1);
@@ -290,6 +302,7 @@
                     letter-spacing: 0.1em;
                     opacity: 0.6;
                     text-transform: uppercase;
+                    margin-bottom: 12px;
                 }
                 .progress-container {
                     width: 100%;
@@ -356,18 +369,35 @@
         const container = pipWindow.document.createElement('div');
         container.style.cssText = 'text-align: center; width: 100%; padding: 0 24px; box-sizing: border-box; position: relative;';
 
-        const fsBtn = pipWindow.document.createElement('button');
-        fsBtn.id = 'pip-fs-btn';
-        fsBtn.className = 'fullscreen-btn';
-        fsBtn.title = 'Toggle Fullscreen';
-        fsBtn.innerHTML = ICONS.fullscreen;
-        fsBtn.addEventListener('click', toggleFullscreen);
-        container.appendChild(fsBtn);
+        const header = pipWindow.document.createElement('div');
+        header.className = 'pip-header';
 
         const title = pipWindow.document.createElement('div');
         title.id = 'pip-title';
-        title.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px; letter-spacing: 0.1em; opacity: 0.8;';
-        container.appendChild(title);
+        title.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.1em; opacity: 0.8;';
+        header.appendChild(title);
+
+        const btnGroup = pipWindow.document.createElement('div');
+        btnGroup.style.cssText = 'position: absolute; right: 0; top: 0; display: flex; gap: 4px;';
+
+        const trueFsBtn = pipWindow.document.createElement('button');
+        trueFsBtn.id = 'pip-true-fs-btn';
+        trueFsBtn.className = 'true-fs-btn';
+        trueFsBtn.title = 'True Fullscreen (OS Space)';
+        trueFsBtn.innerHTML = ICONS.trueFullscreen;
+        trueFsBtn.addEventListener('click', toggleTrueFullscreen);
+        btnGroup.appendChild(trueFsBtn);
+
+        const fsBtn = pipWindow.document.createElement('button');
+        fsBtn.id = 'pip-fs-btn';
+        fsBtn.className = 'fullscreen-btn';
+        fsBtn.title = 'Maximize (Stay in Space)';
+        fsBtn.innerHTML = ICONS.fullscreen;
+        fsBtn.addEventListener('click', toggleMaximized);
+        btnGroup.appendChild(fsBtn);
+
+        header.appendChild(btnGroup);
+        container.appendChild(header);
 
         const controls = pipWindow.document.createElement('div');
         controls.className = 'pip-controls';
@@ -410,6 +440,7 @@
         const counter = pipWindow.document.getElementById('pip-counter');
         const nextBtn = pipWindow.document.getElementById('pip-next-btn');
         const fsBtn = pipWindow.document.getElementById('pip-fs-btn');
+        const trueFsBtn = pipWindow.document.getElementById('pip-true-fs-btn');
         
         if (title) title.textContent = stackTitle.textContent;
         
@@ -427,6 +458,10 @@
         
         if (fsBtn) {
             fsBtn.disabled = isPageLoading;
+        }
+
+        if (trueFsBtn) {
+            trueFsBtn.disabled = isPageLoading;
         }
 
         if (nextBtn) {
@@ -485,15 +520,55 @@
         }, 100);
     }
 
-    async function toggleFullscreen() {
+    async function toggleMaximized() {
         if (!contentTabId) return;
         try {
             const tab = await chrome.tabs.get(contentTabId);
-            // Use 'maximized' instead of 'fullscreen' on macOS to keep PiP visible
             await chrome.windows.update(tab.windowId, { state: 'maximized', focused: true });
         } catch (err) {
-            console.error('Fullscreen toggle failed:', err);
+            console.error('Maximize toggle failed:', err);
         }
+    }
+
+    async function toggleTrueFullscreen() {
+        if (!contentTabId) return;
+        try {
+            const tab = await chrome.tabs.get(contentTabId);
+            await chrome.windows.update(tab.windowId, { state: 'fullscreen', focused: true });
+        } catch (err) {
+            console.error('True Fullscreen toggle failed:', err);
+        }
+    }
+
+    function injectKeyboardListener(tabId) {
+        chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+                // Remove existing listener if any
+                if (window.__wildcardKeyboardListener) {
+                    window.removeEventListener('keydown', window.__wildcardKeyboardListener);
+                }
+
+                window.__wildcardKeyboardListener = (e) => {
+                    // Only handle if not in an input/textarea
+                    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) || 
+                        document.activeElement.isContentEditable) {
+                        return;
+                    }
+
+                    const keys = ['ArrowRight', 'ArrowLeft', 'Space', 'Enter', 'r', 'R'];
+                    if (keys.includes(e.key)) {
+                        e.preventDefault();
+                        chrome.runtime.sendMessage({
+                            type: 'STACK_NAVIGATION',
+                            action: e.key
+                        });
+                    }
+                };
+
+                window.addEventListener('keydown', window.__wildcardKeyboardListener);
+            }
+        }).catch(err => console.error('Script injection failed:', err));
     }
 
     async function advanceSlide() {
@@ -529,6 +604,26 @@
         }
         return null;
     }
+
+    chrome.runtime.onMessage.addListener((message) => {
+        if (message.type === 'STACK_NAVIGATION' && contentTabId) {
+            switch (message.action) {
+                case 'ArrowRight':
+                case 'Space':
+                case 'Enter':
+                    advanceSlide();
+                    break;
+                case 'ArrowLeft':
+                    currentSlideIndex = Math.max(0, currentSlideIndex - 1);
+                    startPlayback(currentSlideIndex);
+                    break;
+                case 'r':
+                case 'R':
+                    restartPlayback();
+                    break;
+            }
+        }
+    });
 
     function updateActiveHighlight(activeUrl) {
         currentActiveUrl = activeUrl;
