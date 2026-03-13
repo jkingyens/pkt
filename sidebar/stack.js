@@ -32,7 +32,8 @@
         play: `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>`,
         restart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
         next: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M5 12h14M12 5l7 7-7 7"/></svg>`,
-        finish: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M20 6L9 17l-5-5"/></svg>`
+        finish: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M20 6L9 17l-5-5"/></svg>`,
+        fullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`
     };
 
     async function loadStack() {
@@ -169,6 +170,7 @@
             if (contentTabId) {
                 try {
                     await chrome.tabs.update(contentTabId, { url, active: true });
+                    // Removed: auto-fullscreen enforcement
                 } catch (e) {
                     contentTabId = null; // Tab probably closed
                 }
@@ -178,7 +180,7 @@
                 const win = await chrome.windows.create({ 
                     url, 
                     type: 'normal', 
-                    state: 'fullscreen' 
+                    state: 'maximized' 
                 });
                 contentTabId = win.tabs[0].id;
             }
@@ -253,7 +255,28 @@
                     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                     cursor: pointer;
                 }
-                .play-btn:disabled {
+                .fullscreen-btn {
+                    position: absolute;
+                    top: 12px;
+                    right: 12px;
+                    background: transparent;
+                    color: var(--text-secondary);
+                    border: none;
+                    padding: 6px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    opacity: 0.6;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .fullscreen-btn:hover {
+                    opacity: 1;
+                    background: var(--border);
+                    color: var(--text);
+                }
+                .play-btn:disabled, .fullscreen-btn:disabled {
                     opacity: 0.4;
                     cursor: not-allowed;
                     filter: grayscale(1);
@@ -331,7 +354,15 @@
         pipWindow.document.body.innerHTML = '';
         
         const container = pipWindow.document.createElement('div');
-        container.style.cssText = 'text-align: center; width: 100%; padding: 0 24px; box-sizing: border-box;';
+        container.style.cssText = 'text-align: center; width: 100%; padding: 0 24px; box-sizing: border-box; position: relative;';
+
+        const fsBtn = pipWindow.document.createElement('button');
+        fsBtn.id = 'pip-fs-btn';
+        fsBtn.className = 'fullscreen-btn';
+        fsBtn.title = 'Toggle Fullscreen';
+        fsBtn.innerHTML = ICONS.fullscreen;
+        fsBtn.addEventListener('click', toggleFullscreen);
+        container.appendChild(fsBtn);
 
         const title = pipWindow.document.createElement('div');
         title.id = 'pip-title';
@@ -378,6 +409,7 @@
         const title = pipWindow.document.getElementById('pip-title');
         const counter = pipWindow.document.getElementById('pip-counter');
         const nextBtn = pipWindow.document.getElementById('pip-next-btn');
+        const fsBtn = pipWindow.document.getElementById('pip-fs-btn');
         
         if (title) title.textContent = stackTitle.textContent;
         
@@ -393,6 +425,10 @@
             }
         }
         
+        if (fsBtn) {
+            fsBtn.disabled = isPageLoading;
+        }
+
         if (nextBtn) {
             nextBtn.disabled = isPageLoading;
             const isLastSlide = currentSlideIndex === items.length - 1;
@@ -447,6 +483,17 @@
                 updateProgressBar();
             }
         }, 100);
+    }
+
+    async function toggleFullscreen() {
+        if (!contentTabId) return;
+        try {
+            const tab = await chrome.tabs.get(contentTabId);
+            // Use 'maximized' instead of 'fullscreen' on macOS to keep PiP visible
+            await chrome.windows.update(tab.windowId, { state: 'maximized', focused: true });
+        } catch (err) {
+            console.error('Fullscreen toggle failed:', err);
+        }
     }
 
     async function advanceSlide() {
