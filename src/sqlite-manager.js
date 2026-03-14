@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS wits (
   created TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
+const EVENTS_COLLECTION = 'events';
+const EVENTS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS events (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  title        TEXT NOT NULL,
+  body         TEXT,
+  is_simulated INTEGER DEFAULT 0,
+  created      TEXT NOT NULL DEFAULT (datetime('now'))
+);`;
+
 class SQLiteManager {
   constructor(SQL) {
     this.SQL = SQL;
@@ -263,6 +273,17 @@ interface sqlite {
   }
 
   /**
+   * Ensure the 'events' system collection exists with the correct schema
+   */
+  async ensureEventsCollection() {
+    let db = this.databases.get(EVENTS_COLLECTION);
+    if (!db) {
+      db = await this.initDatabase(EVENTS_COLLECTION);
+    }
+    db.exec(EVENTS_SCHEMA);
+  }
+
+  /**
    * List all active collections
    * @returns {Array<string>} Array of collection names
    */
@@ -438,4 +459,6 @@ if (typeof self !== 'undefined') {
   self.PACKETS_SCHEMA = PACKETS_SCHEMA;
   self.WITS_COLLECTION = WITS_COLLECTION;
   self.WITS_SCHEMA = WITS_SCHEMA;
+  self.EVENTS_COLLECTION = EVENTS_COLLECTION;
+  self.EVENTS_SCHEMA = EVENTS_SCHEMA;
 }

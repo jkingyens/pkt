@@ -134,10 +134,31 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
 });
 
+async function logEvent(title, body, isSimulated = 0) {
+    try {
+        await initializeSQLite();
+        const db = sqliteManager.getDatabase('events');
+        if (!db) {
+            console.error('[EventLogger] Events database not found');
+            return;
+        }
+        const escapedTitle = title.replace(/'/g, "''");
+        const escapedBody = body ? body.replace(/'/g, "''") : '';
+        db.exec(`INSERT INTO events (title, body, is_simulated) VALUES ('${escapedTitle}', '${escapedBody}', ${isSimulated ? 1 : 0})`);
+        await sqliteManager.saveCheckpoint('events', chrome.storage.local);
+        console.log(`[EventLogger] Logged: ${title}`);
+    } catch (e) {
+        console.error('[EventLogger] Failed to log event:', e);
+    }
+}
+
 async function syncNetworkStatus() {
     try {
         const { networkEnabled } = await chrome.storage.local.get('networkEnabled');
         const isDisabled = networkEnabled === false;
+
+        const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+        const wasDisabled = currentRules.some(r => r.id === NETWORK_BLOCK_RULE_ID);
 
         if (isDisabled) {
             console.log('[SW-Startup] Network kill switch is ENABLED (blocking requests)');
@@ -154,11 +175,17 @@ async function syncNetworkStatus() {
                 }],
                 removeRuleIds: [NETWORK_BLOCK_RULE_ID]
             });
+            if (!wasDisabled) {
+                await logEvent('Network Offline (Simulated)', 'Network access was disabled via extension settings.', 1);
+            }
         } else {
             console.log('[SW-Startup] Network kill switch is DISABLED (allowing requests)');
             await chrome.declarativeNetRequest.updateDynamicRules({
                 removeRuleIds: [NETWORK_BLOCK_RULE_ID]
             });
+            if (wasDisabled) {
+                await logEvent('Network Online (Simulated)', 'Network access was enabled via extension settings.', 1);
+            }
         }
     } catch (e) {
         console.error('[SW] syncNetworkStatus failed:', e);
@@ -661,6 +688,7 @@ async function initializeSQLite() {
             await sqliteManager.ensurePacketsCollection();
             await sqliteManager.ensureSchemasCollection();
             await sqliteManager.ensureWitsCollection();
+            await sqliteManager.ensureEventsCollection();
 
             // Load tab mappings into memory cache
             const { tabToUrlMap = {}, playbackTabIds = [] } = await chrome.storage.local.get(['tabToUrlMap', 'playbackTabIds']);
@@ -1544,30 +1572,8 @@ async function handleMessage(request, sender, sendResponse) {
             case 'TOGGLE_NETWORK': {
                 try {
                     const enabled = request.enabled;
-                    await chrome.storage.local.set({ networkEnabled: enabled }); // Ensure it's in storage for updateBadge
-                    await updateBadge({}); // Trigger global update
-                    if (!enabled) {
-                        // Block all network requests (HTTP/HTTPS)
-                        await chrome.declarativeNetRequest.updateDynamicRules({
-                            addRules: [{
-                                id: NETWORK_BLOCK_RULE_ID,
-                                priority: 100, // Higher priority
-                                action: { type: 'block' },
-                                condition: {
-                                    urlFilter: '*', // Match everything
-                                    // Including all possible resource types
-                                    resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
-                                }
-                            }],
-                            removeRuleIds: [NETWORK_BLOCK_RULE_ID]
-                        });
-                    } else {
-                        // Allow network requests by removing the block rule
-                        await chrome.declarativeNetRequest.updateDynamicRules({
-                            removeRuleIds: [NETWORK_BLOCK_RULE_ID]
-                        });
-                    }
-                    console.log(`[SW] Network kill switch: ${enabled ? 'OFF' : 'ON'}`);
+                    await chrome.storage.local.set({ networkEnabled: enabled });
+                    await syncNetworkStatus();
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('TOGGLE_NETWORK error:', err);

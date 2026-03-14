@@ -2656,6 +2656,8 @@ class SidebarUI {
         const sorted = filtered.sort((a, b) => {
             if (a === 'wits') return -1;
             if (b === 'wits') return 1;
+            if (a === 'events') return -1;
+            if (b === 'events') return 1;
             if (a === 'packets') return -1;
             if (b === 'packets') return 1;
             if (a === 'schemas') return -1;
@@ -2681,6 +2683,8 @@ class SidebarUI {
             let svgPath = '';
             if (name === 'packets') {
                 svgPath = '<path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"></path>';
+            } else if (name === 'events') {
+                svgPath = '<path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"></path>';
             } else if (name === 'schemas') {
                 svgPath = '<path d="M4 18h16V6H4v12zm9-11h5v3h-5V7zm0 4h5v3h-5v-3zM6 7h5v7H6V7zm0 8h13v2H6v-2z"></path>';
             } else if (name === 'wits') {
@@ -2691,7 +2695,7 @@ class SidebarUI {
             iconContainer.innerHTML = `<svg viewBox="0 0 24 24">${svgPath}</svg>`;
         }
 
-        if (name === 'packets' || name === 'schemas' || name === 'wits') {
+        if (name === 'packets' || name === 'schemas' || name === 'wits' || name === 'events') {
             clone.querySelector('.collection-item').classList.add('system-collection');
             const deleteBtn = clone.querySelector('.delete-btn');
             if (deleteBtn) {
