@@ -60,6 +60,28 @@
         }
     });
 
+    // Handle closing of content tab or editor window
+    chrome.tabs.onRemoved.addListener((tabId) => {
+        if (tabId === contentTabId) {
+            console.log('[Stack] Content tab closed, closing PiP');
+            if (pipWindow) {
+                // Remove beforeunload to avoid double close if it was trigger by a window unload
+                // however here we are reacting to a tab removal from another window.
+                pipWindow.close();
+                pipWindow = null;
+            }
+            contentTabId = null;
+        }
+    });
+
+    window.addEventListener('beforeunload', () => {
+        if (pipWindow) {
+            console.log('[Stack] Editor window closing, closing PiP');
+            pipWindow.close();
+            pipWindow = null;
+        }
+    });
+
     const ICONS = {
         play: `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>`,
         restart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
