@@ -14,8 +14,7 @@
         "offscreen",
         "contextMenus",
         "scripting",
-        "declarativeNetRequest",
-        "system.network"
+        "declarativeNetRequest"
     ],
     "host_permissions": [
         "<all_urls>"

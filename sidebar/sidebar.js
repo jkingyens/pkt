@@ -288,7 +288,9 @@ class SidebarUI {
         this.savePromptBtn = document.getElementById('savePromptBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
-        this.themeSelect = document.getElementById('themeSelect');
+        this.themeLightCard = document.getElementById('themeLight');
+        this.themeSystemCard = document.getElementById('themeSystem');
+        this.themeDarkCard = document.getElementById('themeDark');
         this.networkAccessToggle = document.getElementById('networkAccessToggle');
 
         this.terminalTabs = {}; // packetId -> tabId
@@ -391,7 +393,7 @@ class SidebarUI {
         this.geminiApiKey = '';
         this.geminiModel = '';
         this.geminiSystemPrompt = '';
-        this.theme = 'light';
+        this.theme = 'system';
         this.networkEnabled = true;
         this.activeUrl = null;
         this.isClipperManuallyCancelled = false;
@@ -414,6 +416,13 @@ class SidebarUI {
         // Online status listeners
         window.addEventListener('online', () => this.updateOnlineStatus());
         window.addEventListener('offline', () => this.updateOnlineStatus());
+        
+        // Theme listener
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            if (this.theme === 'system') {
+                this.applyTheme();
+            }
+        });
         
         // Polling fallback every 5s (sometimes extension side panels miss window events)
         setInterval(() => this.updateOnlineStatus(), 5000);
@@ -1122,11 +1131,9 @@ class SidebarUI {
         this.saveApiKeyBtn.addEventListener('click', () => this.saveApiKey());
         this.savePromptBtn.addEventListener('click', () => this.savePrompt());
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
-        this.themeSelect.addEventListener('change', () => {
-            this.theme = this.themeSelect.value;
-            this.applyTheme();
-            this.saveAutoSettings();
-        });
+        this.themeLightCard.addEventListener('click', () => this.setTheme('light'));
+        this.themeSystemCard.addEventListener('click', () => this.setTheme('system'));
+        this.themeDarkCard.addEventListener('click', () => this.setTheme('dark'));
         this.geminiModelSelect.addEventListener('change', () => this.saveAutoSettings());
         this.networkAccessToggle.addEventListener('change', () => this.saveNetworkSettings());
         this.restoreDefaultPromptBtn.addEventListener('click', () => this.restoreDefaultPrompt());
@@ -2672,12 +2679,29 @@ class SidebarUI {
         nameEl.textContent = name;
         nameEl.setAttribute('data-name', name);
 
+        const iconContainer = clone.querySelector('.collection-icon-container');
+        if (iconContainer) {
+            let svgPath = '';
+            if (name === 'packets') {
+                svgPath = '<path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"></path>';
+            } else if (name === 'schemas') {
+                svgPath = '<path d="M4 18h16V6H4v12zm9-11h5v3h-5V7zm0 4h5v3h-5v-3zM6 7h5v7H6V7zm0 8h13v2H6v-2z"></path>';
+            } else if (name === 'wits') {
+                svgPath = '<path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"></path>';
+            } else {
+                svgPath = '<path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path>';
+            }
+            iconContainer.innerHTML = `<svg viewBox="0 0 24 24">${svgPath}</svg>`;
+        }
+
         if (name === 'packets' || name === 'schemas' || name === 'wits') {
             clone.querySelector('.collection-item').classList.add('system-collection');
             const deleteBtn = clone.querySelector('.delete-btn');
             if (deleteBtn) {
                 deleteBtn.disabled = true;
                 deleteBtn.title = `Cannot delete system collection "${name}"`;
+                deleteBtn.style.opacity = '0.3';
+                deleteBtn.style.cursor = 'not-allowed';
             }
         }
 
@@ -3717,7 +3741,7 @@ class SidebarUI {
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.showView('settingsView');
-        this.themeSelect.value = this.theme;
+        this.updateThemeUI();
         this.renderModelSelect();
     }
 
@@ -3754,9 +3778,8 @@ class SidebarUI {
 
     async saveAutoSettings() {
         const model = this.geminiModelSelect.value;
-        const theme = this.themeSelect.value;
+        const theme = this.theme;
         this.geminiModel = model;
-        this.theme = theme;
         await chrome.storage.local.set({
             geminiModel: model,
             theme: theme
@@ -3785,13 +3808,13 @@ class SidebarUI {
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
         this.geminiSystemPrompt = data.geminiSystemPrompt || '';
-        this.theme = data.theme || 'light';
+        this.theme = data.theme || 'system';
         this.networkEnabled = data.networkEnabled !== false; // Default to true
 
         // Populate UI
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
-        this.themeSelect.value = this.theme;
+        this.updateThemeUI();
         if (this.networkAccessToggle) this.networkAccessToggle.checked = this.networkEnabled;
         this.renderModelSelect();
         this.geminiModelSelect.value = this.geminiModel;
@@ -3810,11 +3833,30 @@ class SidebarUI {
     }
 
     applyTheme() {
-        if (this.theme === 'dark') {
+        let activeTheme = this.theme;
+        if (activeTheme === 'system') {
+            activeTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        if (activeTheme === 'dark') {
             document.body.classList.add('dark-mode');
         } else {
             document.body.classList.remove('dark-mode');
         }
+        this.updateThemeUI();
+    }
+
+    setTheme(theme) {
+        this.theme = theme;
+        this.applyTheme();
+        this.saveAutoSettings();
+    }
+
+    updateThemeUI() {
+        if (!this.themeLightCard) return;
+        this.themeLightCard.classList.toggle('active', this.theme === 'light');
+        this.themeSystemCard.classList.toggle('active', this.theme === 'system');
+        this.themeDarkCard.classList.toggle('active', this.theme === 'dark');
     }
 
     async fetchAvailableModels() {
