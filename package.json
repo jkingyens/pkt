@@ -4,7 +4,10 @@
   "description": "Wildcard CX is a powerful, AI-optional SQLite workspace for Chrome. It combines traditional database management with a Wasm-based execution environment using WebAssembly and sandboxed, AI-generated modules.",
   "main": "sql-wasm.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "id:generate": "node scripts/extension-id.js generate",
+    "id:apply": "node scripts/extension-id.js apply",
+    "id:reset": "node scripts/extension-id.js reset"
   },
   "repository": {
     "type": "git",
