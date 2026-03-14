@@ -1,8 +1,8 @@
 {
-  "name": "extension",
-  "version": "1.0.0",
+  "name": "wildcard",
+  "version": "0.1.0",
   "description": "Wildcard CX is a powerful, AI-optional SQLite workspace for Chrome. It combines traditional database management with a Wasm-based execution environment using WebAssembly and sandboxed, AI-generated modules.",
-  "main": "sql-wasm.js",
+  "main": "manifest.json",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "id:generate": "node scripts/extension-id.js generate",
@@ -11,16 +11,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jkingyens/pkt.git"
+    "url": "git+https://github.com/jkingyens/wildcard.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/jkingyens/pkt/issues"
+    "url": "https://github.com/jkingyens/wildcard/issues"
   },
-  "homepage": "https://github.com/jkingyens/pkt#readme",
+  "homepage": "https://github.com/jkingyens/wildcard#readme",
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2",
     "ghostty-web": "^0.4.0"
