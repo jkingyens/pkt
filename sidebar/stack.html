@@ -21,15 +21,17 @@
             --gap: 60px;
         }
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #0f172a;
-                --bg-alt: #1e293b;
-                --surface: #1e293b;
-                --text: #f1f5f9;
-                --text-secondary: #94a3b8;
-                --border: #334155;
-            }
+
+
+        body.dark-mode {
+            --bg: #0f172a;
+            --bg-alt: #1e293b;
+            --surface: #1e293b;
+            --text: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+            --primary: #818cf8;
+            --primary-light: #a5b4fc;
         }
 
         body, html {
@@ -393,6 +395,7 @@
     </style>
 </head>
 <body>
+    <script src="theme-init.js"></script>
     <div id="loading">
         <div class="spinner"></div>
         <div style="font-weight: 600; color: var(--text-secondary);">Sequencing Stack...</div>

@@ -6,15 +6,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Media Preview - Wildcard</title>
     <style>
+        :root {
+            --bg: #f8fafc;
+            --text: #1e293b;
+        }
+
+        body.dark-mode {
+            --bg: #0f172a;
+            --text: white;
+        }
+
         body {
             margin: 0;
             padding: 0;
-            background: #0f172a;
+            background: var(--bg);
             display: flex;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            color: white;
+            color: var(--text);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
@@ -63,6 +73,7 @@
 </head>
 
 <body>
+    <script src="theme-init.js"></script>
     <div class="container" id="container">
         <div id="loading">Loading media...</div>
     </div>

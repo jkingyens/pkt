@@ -29,17 +29,34 @@
     let loadProgress = 0;
     let isNetworkOffline = false;
 
-    // Listen for offline state changes from sidebar
-    chrome.storage.local.get('isNetworkOffline').then(data => {
+    // Listen for theme and offline state changes
+    chrome.storage.local.get(['isNetworkOffline', 'theme'], (data) => {
         isNetworkOffline = !!data.isNetworkOffline;
         if (pipWindow) updatePipStatus();
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && changes.isNetworkOffline) {
-            isNetworkOffline = !!changes.isNetworkOffline.newValue;
-            if (pipWindow) updatePipStatus();
-            renderStructure(); // Re-render to grey out/restore slides
+        if (area === 'local') {
+            if (changes.isNetworkOffline) {
+                isNetworkOffline = !!changes.isNetworkOffline.newValue;
+                if (pipWindow) updatePipStatus();
+                renderStructure(); // Re-render to grey out/restore slides
+            }
+            if (changes.theme) {
+                const theme = changes.theme.newValue;
+                let shouldBeDark = theme === 'dark';
+                if (theme === 'system') {
+                    shouldBeDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                }
+                
+                if (pipWindow) {
+                    if (shouldBeDark) {
+                        pipWindow.document.body.classList.add('dark-mode');
+                    } else {
+                        pipWindow.document.body.classList.remove('dark-mode');
+                    }
+                }
+            }
         }
     });
 
@@ -289,6 +306,20 @@
                 overflow: hidden;
                 user-select: none;
             `;
+
+            // Initial theme sync for PiP
+            chrome.storage.local.get(['theme'], (result) => {
+                const theme = result.theme || 'system';
+                let isDark = theme === 'dark';
+                if (theme === 'system') {
+                    isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                }
+                if (isDark) {
+                    pipWindow.document.body.classList.add('dark-mode');
+                } else {
+                    pipWindow.document.body.classList.remove('dark-mode');
+                }
+            });
 
             // Inject additional premium styles
             const globalStyle = pipWindow.document.createElement('style');

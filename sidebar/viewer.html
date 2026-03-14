@@ -5,13 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Page - Wildcard</title>
     <style>
+        :root {
+            --bg: #f8f9fa;
+            --loading-bg: white;
+            --loading-text: #666;
+            --error-text: #ef4444;
+        }
+
+        body.dark-mode {
+            --bg: #0f172a;
+            --loading-bg: #1e293b;
+            --loading-text: #94a3b8;
+        }
+
         body, html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: #f8f9fa;
+            background: var(--bg);
         }
         #content-frame {
             width: 100%;
@@ -28,16 +41,16 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            background: white;
+            background: var(--loading-bg);
             z-index: 1000;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: #666;
+            color: var(--loading-text);
         }
         #loading.hidden {
             display: none;
         }
         .error {
-            color: #ef4444;
+            color: var(--error-text);
             text-align: center;
             padding: 50px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -45,6 +58,7 @@
     </style>
 </head>
 <body>
+    <script src="theme-init.js"></script>
     <div id="loading">Loading page...</div>
     <iframe id="content-frame" class="hidden"></iframe>
 

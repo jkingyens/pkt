@@ -3,13 +3,25 @@
 
 <head>
     <style>
+        :root {
+            --island-bg: #000000;
+            --island-text: white;
+            --indicator-bg: #ff3b30;
+            --record-fill: #ff453a;
+            --stop-fill: white;
+        }
+
+        body.dark-mode {
+            --island-bg: #000000; /* Keep black for "Island" look, or adjust as needed */
+        }
+
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background: #000000;
+            background: var(--island-bg);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: white;
+            color: var(--island-text);
             user-select: none;
         }
 
@@ -33,7 +45,7 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #ff3b30;
+            background: var(--indicator-bg);
             display: none;
         }
 
@@ -57,7 +69,7 @@
         }
 
         #record-btn svg {
-            fill: #ff453a;
+            fill: var(--record-fill);
             width: 24px;
             height: 24px;
         }
@@ -67,7 +79,7 @@
         }
 
         #stop-btn svg {
-            fill: white;
+            fill: var(--stop-fill);
             width: 20px;
             height: 20px;
         }
@@ -75,6 +87,7 @@
 </head>
 
 <body>
+    <script src="../sidebar/theme-init.js"></script>
     <div class="island">
         <div class="status">
             <div id="indicator" class="indicator"></div>

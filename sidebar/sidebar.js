@@ -751,14 +751,12 @@ class SidebarUI {
             --border: #e2e8f0;
             --radius: 12px;
         }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #0f172a;
-                --surface: #1e293b;
-                --text: #f1f5f9;
-                --text-muted: #94a3b8;
-                --border: #334155;
-            }
+        body.dark-mode {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
         }
         body { 
             margin: 0; 
@@ -852,6 +850,7 @@ class SidebarUI {
     </style>
 </head>
 <body>
+    <script src="${chrome.runtime.getURL('sidebar/theme-init.js')}"></script>
     <div id="slide-container" class="layout-title">
         <h1 id="slide-title" contenteditable="true">Title Goes Here</h1>
         <p id="slide-subtitle" contenteditable="true">Click to edit subtitle...</p>
