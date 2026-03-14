@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
-    "name": "WildCard",
-    "version": "1.0.0",
+    "name": "Wildcard",
+    "version": "0.1.0",
     "description": "Build from your browser",
     "permissions": [
         "storage",

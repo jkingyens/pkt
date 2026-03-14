@@ -284,8 +284,6 @@ class SidebarUI {
         this.fetchModelsBtn = document.getElementById('fetchModelsBtn');
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
-        this.saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
-        this.savePromptBtn = document.getElementById('savePromptBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeLightCard = document.getElementById('themeLight');
@@ -941,6 +939,9 @@ class SidebarUI {
                 sql: "SELECT last_insert_rowid()"
             });
             const stackId = lastIdResp.result[0].values[0][0];
+            
+            // Persist the new stack to the packet-specific database
+            await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
 
             const stackItem = { 
                 type: 'stack', 
@@ -1127,8 +1128,8 @@ class SidebarUI {
 
         // Settings view
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
-        this.saveApiKeyBtn.addEventListener('click', () => this.saveApiKey());
-        this.savePromptBtn.addEventListener('click', () => this.savePrompt());
+        this.geminiApiKeyInput.addEventListener('input', () => this.saveApiKey(true));
+        this.geminiSystemPromptInput.addEventListener('input', () => this.savePrompt(true));
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
         this.themeLightCard.addEventListener('click', () => this.setTheme('light'));
         this.themeSystemCard.addEventListener('click', () => this.setTheme('system'));
@@ -1144,7 +1145,6 @@ class SidebarUI {
         }
         document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
         document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
-        document.getElementById('detailSaveBtn').addEventListener('click', () => this.saveCheckpoint(this.currentCollection));
         document.getElementById('detailDeleteBtn').addEventListener('click', () => this.deleteCollection(this.currentCollection));
 
         // Packet detail view
@@ -2724,10 +2724,6 @@ class SidebarUI {
             e.stopPropagation();
             this.exportCollection(name);
         });
-        clone.querySelector('.save-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.saveCheckpoint(name);
-        });
         clone.querySelector('.restore-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             this.restoreCheckpoint(name);
@@ -3762,19 +3758,19 @@ class SidebarUI {
         });
     }
 
-    async saveApiKey() {
+    async saveApiKey(silent = false) {
         const apiKey = this.geminiApiKeyInput.value.trim();
         this.geminiApiKey = apiKey;
         await chrome.storage.local.set({ geminiApiKey: apiKey });
-        this.showNotification('API Key saved', 'success');
+        if (!silent) this.showNotification('API Key saved', 'success');
         this.checkAiFeatureAvailability();
     }
 
-    async savePrompt() {
+    async savePrompt(silent = false) {
         const systemPrompt = this.geminiSystemPromptInput.value.trim();
         this.geminiSystemPrompt = systemPrompt;
         await chrome.storage.local.set({ geminiSystemPrompt: systemPrompt });
-        this.showNotification('System Prompt saved', 'success');
+        if (!silent) this.showNotification('System Prompt saved', 'success');
     }
 
     async saveAutoSettings() {

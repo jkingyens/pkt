@@ -61,8 +61,6 @@
       <div class="form-group">
         <label style="display: flex; justify-content: space-between; align-items: center;">
           Gemini API Key
-          <button id="saveApiKeyBtn" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px;">Save
-            Key</button>
         </label>
         <input type="password" id="geminiApiKeyInput" class="form-input" placeholder="Enter Gemini API Key"
           style="margin-top: 6px;">
@@ -84,8 +82,6 @@
           <div style="display: flex; gap: 4px;">
             <button id="restoreDefaultPromptBtn" class="btn btn-secondary btn-sm"
               style="font-size: 10px; padding: 2px 6px;">Restore Default</button>
-            <button id="savePromptBtn" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px;">Save
-              Prompt</button>
           </div>
         </label>
         <textarea id="geminiSystemPromptInput" class="form-input"
@@ -190,7 +186,6 @@
     <!-- Collection Actions -->
     <section class="detail-section detail-actions">
       <button id="detailExportBtn" class="btn btn-secondary btn-sm">📤 Export</button>
-      <button id="detailSaveBtn" class="btn btn-secondary btn-sm">💾 Save Checkpoint</button>
       <button id="detailDeleteBtn" class="btn btn-danger btn-sm">🗑️ Delete</button>
     </section>
   </div>
@@ -494,10 +489,6 @@
         <button class="btn-small export-btn">
           <svg viewBox="0 0 24 24" class="btn-svg"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg>
           Export
-        </button>
-        <button class="btn-small save-btn">
-          <svg viewBox="0 0 24 24" class="btn-svg"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"></path></svg>
-          Save
         </button>
         <button class="btn-small restore-btn">
           <svg viewBox="0 0 24 24" class="btn-svg"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"></path></svg>
