@@ -3540,14 +3540,14 @@ class SidebarUI {
     // ===== COLLECTION ACTIONS =====
 
     async createCollection() {
-        const name = prompt('Enter collection name:');
+        const name = prompt('Enter database name:');
         if (!name || !name.trim()) return;
 
         try {
             const response = await this.sendMessage({ action: 'createCollection', name: name.trim() });
             if (response.success) {
                 this.loadCollections();
-                this.showNotification(`Collection "${name}" created`, 'success');
+                this.showNotification(`Database "${name}" created`, 'success');
             }
         } catch (error) {
             this.showNotification('Failed to create collection', 'error');
@@ -3564,7 +3564,7 @@ class SidebarUI {
             });
 
             const file = await fileHandle.getFile();
-            const name = prompt('Enter collection name:', file.name.replace(/\.(db|sqlite|sqlite3)$/, ''));
+            const name = prompt('Enter database name:', file.name.replace(/\.(db|sqlite|sqlite3)$/, ''));
             if (!name || !name.trim()) return;
 
             const arrayBuffer = await file.arrayBuffer();
@@ -3604,7 +3604,7 @@ class SidebarUI {
                 await writable.write(blob);
                 await writable.close();
 
-                this.showNotification(`Collection "${name}" exported`, 'success');
+                this.showNotification(`Database "${name}" exported`, 'success');
             }
         } catch (error) {
             if (error.name !== 'AbortError') {
@@ -3632,7 +3632,7 @@ class SidebarUI {
             const response = await this.sendMessage({ action: 'restoreCheckpoint', name });
             if (response.success) {
                 if (response.restored) {
-                    this.showNotification(`Collection "${name}" restored`, 'success');
+                    this.showNotification(`Database "${name}" restored`, 'success');
                     if (this.currentCollection === name) {
                         this.loadCollectionDetail(name);
                     }
@@ -3651,7 +3651,7 @@ class SidebarUI {
         try {
             const response = await this.sendMessage({ action: 'deleteCollection', name });
             if (response.success) {
-                this.showNotification(`Collection "${name}" deleted`, 'success');
+                this.showNotification(`Database "${name}" deleted`, 'success');
                 if (this.currentCollection === name) {
                     this.showListView();
                 } else {
