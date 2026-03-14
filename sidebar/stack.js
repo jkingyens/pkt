@@ -59,6 +59,7 @@
             
             // Get stack name
             try {
+                console.log('[Stack] Loading stack data for ID:', stackId);
                 const stackResp = await chrome.runtime.sendMessage({
                     action: 'executeSQL',
                     name: dbName,
@@ -685,6 +686,10 @@
         } else if (type === 'media') {
             if (!mediaId) return null;
             return chrome.runtime.getURL(`sidebar/media.html?id=${mediaId}&type=${encodeURIComponent(mimeType || '')}&name=${encodeURIComponent(itemName)}&packetId=${packetId}`);
+        } else if (type === 'stack') {
+            const sid = item.stackId || meta.stackId; // Strictly use stackId or metadata-based stackId
+            if (!sid) return null;
+            return chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${packetId}&name=${encodeURIComponent(itemName)}`);
         }
         return null;
     }
@@ -1065,6 +1070,25 @@
             loadProgress = 100;
             if (loadInterval) clearInterval(loadInterval);
             updatePipStatus(); 
+        }
+    });
+
+    // Listen for manual reload signals from background if tab reuse didn't trigger a reload
+    chrome.runtime.onMessage.addListener((msg) => {
+        if (msg.action === 'RELOAD_STACK' && msg.url) {
+            // Update URL without necessarily triggering a full reload if we're already on stack.html
+            // but we want the variables to re-evaluate or the data to re-load
+            window.location.href = msg.url;
+        }
+    });
+
+    // Handle same-document navigation (e.g. if the browser reuses the instance but just changes parameters)
+    window.addEventListener('popstate', () => {
+        const newParams = new URLSearchParams(window.location.search);
+        const newStackId = newParams.get('id');
+        if (newStackId) {
+            // Force a full reload of the state
+            window.location.reload();
         }
     });
     

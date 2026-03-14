@@ -925,21 +925,23 @@ class SidebarUI {
             const dbName = `packet_${this.currentPacket.id}`;
             await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
             
+            const sql = `INSERT INTO stacks (name) VALUES ('${name.replace(/'/g, "''")}'); SELECT last_insert_rowid();`;
             const insertResp = await this.sendMessage({
                 action: 'executeSQL',
                 name: dbName,
-                sql: `INSERT INTO stacks (name) VALUES ('${name.replace(/'/g, "''")}')`
+                sql: sql
             });
 
             if (!insertResp.success) throw new Error(insertResp.error);
 
-            const lastIdResp = await this.sendMessage({
-                action: 'executeSQL',
-                name: dbName,
-                sql: "SELECT last_insert_rowid()"
-            });
-            const stackId = lastIdResp.result[0].values[0][0];
+            // sql-wasm returns results for multiple queries in an array
+            // The result of SELECT last_insert_rowid() should be in the last result object
+            const results = insertResp.result;
+            const lastIdResult = results[results.length - 1];
+            const stackId = lastIdResult.values[0][0];
             
+            console.log('[Sidebar] Created new stack with ID:', stackId);
+
             // Persist the new stack to the packet-specific database
             await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
 
@@ -1032,7 +1034,12 @@ class SidebarUI {
             if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-            else if (type === 'stack') itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'stack') {
+                const sid = item.stackId || item.id;
+                if (sid) {
+                    itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+                }
+            }
             
             if (itemUrl && activeNorm) {
                 const itemNorm = this.normalizeUrl(itemUrl);
@@ -1063,7 +1070,12 @@ class SidebarUI {
             if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-            else if (type === 'stack') itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+            else if (type === 'stack') {
+                const sid = item.stackId; // Strictly use stackId
+                if (sid) {
+                    itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+                }
+            }
 
             if (itemUrl && norm === this.normalizeUrl(itemUrl)) {
                 if (active) {
@@ -2451,7 +2463,9 @@ class SidebarUI {
         } else if (type === 'media') {
             this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'stack') {
-            this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+            const sid = item.stackId;
+            console.log('[Sidebar] Activating stack:', sid, item.name);
+            this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'wasm') {
             this.lastNavigatedIndex = index;
         }
@@ -2531,8 +2545,11 @@ class SidebarUI {
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
                 return this.urlsMatch(mediaUrl, this.activeUrl);
             } else if (type === 'stack') {
-                const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.stackId}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
-                return this.urlsMatch(stackUrl, this.activeUrl);
+                const sid = item.stackId;
+                if (sid) {
+                    const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+                    return this.urlsMatch(stackUrl, this.activeUrl);
+                }
             }
             return false;
         });

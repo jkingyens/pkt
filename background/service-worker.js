@@ -1243,6 +1243,11 @@ async function handleMessage(request, sender, sendResponse) {
                                 existing = t;
                                 break;
                             }
+                            // RELAXED MATCH: If it's a stack editor, reuse any open stack editor tab
+                            if (turl && turl.includes('sidebar/stack.html') && url.includes('sidebar/stack.html')) {
+                                existing = t;
+                                break;
+                            }
                         }
 
                         if (existing) {
@@ -1251,7 +1256,16 @@ async function handleMessage(request, sender, sendResponse) {
                                 await chrome.tabs.group({ tabIds: [existing.id], groupId: targetGroupId });
                             }
                             
-                            await chrome.tabs.update(existing.id, { active: true });
+                            // Force update for stack editor to ensure the page reloads with new params
+                            if (url.includes('sidebar/stack.html')) {
+                                await chrome.tabs.update(existing.id, { url, active: true });
+                                // Secondary signal if update doesn't trigger reload
+                                chrome.tabs.sendMessage(existing.id, { action: 'RELOAD_STACK', url }).catch(() => {});
+                            } else if (!urlsMatch(existing.url, url)) {
+                                await chrome.tabs.update(existing.id, { url, active: true });
+                            } else {
+                                await chrome.tabs.update(existing.id, { active: true });
+                            }
                             await setTabMapping(existing.id, url, packetId);
                         } else {
                             const newTab = await chrome.tabs.create({ url, active: true });
