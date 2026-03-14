@@ -14,12 +14,17 @@
   <!-- ===== LIST VIEW ===== -->
   <div id="listView" class="view active">
     <header>
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
+      <div class="header-main">
+        <div class="brand">
           <h1>✳️ Wildcard</h1>
-          <p class="subtitle">Build from your browser</p>
+          <span class="subtitle">Build from your browser</span>
         </div>
-        <button id="settingsBtn" class="btn-icon" style="font-size: 20px;" title="Settings">⚙️</button>
+        <div class="header-actions">
+          <div id="statusIndicator" class="status-indicator-header">
+            <span class="status-dot"></span>
+          </div>
+          <button id="settingsBtn" class="btn-icon header-settings-btn" title="Settings"></button>
+        </div>
       </div>
     </header>
 
@@ -573,10 +578,7 @@
     </div>
   </template>
 
-  <div id="statusIndicator" class="status-indicator">
-    <span class="status-dot"></span>
-    <span id="statusText" class="status-label">Online</span>
-  </div>
+
 
   <script type="module" src="sidebar.js"></script>
 </body>

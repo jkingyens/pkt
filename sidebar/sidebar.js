@@ -382,7 +382,6 @@ class SidebarUI {
 
         // Status indicator elements
         this.statusIndicator = document.getElementById('statusIndicator');
-        this.statusText = document.getElementById('statusText');
 
         // State
         this.currentCollection = null;
@@ -1628,7 +1627,7 @@ class SidebarUI {
     }
 
     async updateOnlineStatus() {
-        if (!this.statusIndicator || !this.statusText) return;
+        if (!this.statusIndicator) return;
 
         const isNetworkEnabled = this.networkEnabled !== false;
         
@@ -1636,7 +1635,6 @@ class SidebarUI {
         if (!isNetworkEnabled) {
             this.statusIndicator.classList.remove('offline');
             this.statusIndicator.classList.add('simulated-offline');
-            this.statusText.textContent = 'Simulated Offline';
             this.enforceOfflineState(true);
             return;
         }
@@ -1657,7 +1655,6 @@ class SidebarUI {
             this.consecutiveFailures = 0;
             if (this.lastStateWasOnline === false || wasChecking) {
                 this.statusIndicator.classList.remove('offline', 'simulated-offline');
-                this.statusText.textContent = 'Online';
                 if (this.lastStateWasOnline === false) {
                     console.log('[Status] Back Online');
                     this.enforceOfflineState(false);
@@ -1672,7 +1669,7 @@ class SidebarUI {
             } else {
                 // Stay in Online state but maybe show a hint if we're feeling fancy later
                 // For now, just don't flip to offline yet.
-                this.statusText.textContent = 'Online (checking...)';
+
             }
         }
     }
@@ -1682,7 +1679,7 @@ class SidebarUI {
             console.log(`[Status] Transitioning to Offline after ${this.consecutiveFailures} failures`);
             this.statusIndicator.classList.remove('simulated-offline');
             this.statusIndicator.classList.add('offline');
-            this.statusText.textContent = 'Offline';
+
             this.enforceOfflineState(true);
         }
     }
