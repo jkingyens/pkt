@@ -2113,7 +2113,9 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId) {
             } catch (e) { }
 
             const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
-            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            const availableColors = colors.filter(c => !groups.some(g => g.color === c));
+            const pool = availableColors.length > 0 ? availableColors : colors;
+            const randomColor = pool[Math.floor(Math.random() * pool.length)];
             await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
             activeGroups[targetGroupId] = packetId;
         }
