@@ -290,6 +290,9 @@ class SidebarUI {
         this.themeSystemCard = document.getElementById('themeSystem');
         this.themeDarkCard = document.getElementById('themeDark');
         this.networkAccessToggle = document.getElementById('networkAccessToggle');
+        this.webAuthnToggle = document.getElementById('webAuthnToggle');
+        this.lockScreen = document.getElementById('lockScreen');
+        this.unlockBtn = document.getElementById('unlockBtn');
 
         this.terminalTabs = {}; // packetId -> tabId
 
@@ -400,6 +403,9 @@ class SidebarUI {
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.activeCaptureTabId = null; // Track which tab has the capture indicator
         this.editMode = false;
+        this.webAuthnEnabled = false;
+        this.webAuthnCredentialId = null;
+        this.isVerified = false;
         this.consecutiveFailures = 0;
         this.MAX_CONSECUTIVE_FAILURES = 3;
 
@@ -434,12 +440,29 @@ class SidebarUI {
 
     async init() {
         try {
-            // 1. Core setup
+            // 1. Core setup (Settings and theme)
             await this.loadSettings();
+            
+            // 2. WebAuthn protection
+            if (this.webAuthnEnabled && !this.isVerified) {
+                this.showLockScreen();
+                // We return here. verifyWebAuthn will call continueInit()
+                return;
+            }
+
+            await this.continueInit();
+        } catch (e) {
+            console.error('[SidebarUI] Initialization failed:', e);
+        }
+    }
+
+    async continueInit() {
+        try {
+            // 2. Load collections
             await this.loadCollections();
             this.updateOnlineStatus();
 
-            // 2. Check for pending actions (highest priority)
+            // 3. Check for pending actions (highest priority)
             const { pendingAction } = await chrome.storage.local.get('pendingAction');
             if (pendingAction === 'newPacketWithTab') {
                 await chrome.storage.local.remove('pendingAction');
@@ -447,13 +470,13 @@ class SidebarUI {
                 return; // Initialization complete, pending action took precedence
             }
 
-            // 3. Fallback to active packet/tab group check
+            // 4. Fallback to active packet/tab group check
             await this.checkActivePacket();
 
-            // 4. Sync terminal state
+            // 5. Sync terminal state
             await this.syncTerminalState();
         } catch (e) {
-            console.error('[SidebarUI] Initialization failed:', e);
+            console.error('[SidebarUI] continueInit failed:', e);
         }
     }
 
@@ -1148,6 +1171,15 @@ class SidebarUI {
         this.geminiModelSelect.addEventListener('change', () => this.saveAutoSettings());
         this.networkAccessToggle.addEventListener('change', () => this.saveNetworkSettings());
         this.restoreDefaultPromptBtn.addEventListener('click', () => this.restoreDefaultPrompt());
+        if (this.webAuthnToggle) this.webAuthnToggle.addEventListener('change', () => this.handleWebAuthnToggle());
+        if (this.unlockBtn) this.unlockBtn.addEventListener('click', () => this.verifyWebAuthn());
+
+        // Listen for Auth results
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && changes.webAuthnResult) {
+                this.handleAuthResult(changes.webAuthnResult.newValue);
+            }
+        });
 
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
@@ -3817,18 +3849,21 @@ class SidebarUI {
     }
 
     async loadSettings() {
-        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt', 'theme', 'networkEnabled']);
+        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt', 'theme', 'networkEnabled', 'webAuthnEnabled', 'webAuthnCredentialId']);
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
         this.geminiSystemPrompt = data.geminiSystemPrompt || '';
         this.theme = data.theme || 'system';
         this.networkEnabled = data.networkEnabled !== false; // Default to true
+        this.webAuthnEnabled = data.webAuthnEnabled || false;
+        this.webAuthnCredentialId = data.webAuthnCredentialId || null;
 
         // Populate UI
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.updateThemeUI();
         if (this.networkAccessToggle) this.networkAccessToggle.checked = this.networkEnabled;
+        if (this.webAuthnToggle) this.webAuthnToggle.checked = this.webAuthnEnabled;
         this.renderModelSelect();
         this.geminiModelSelect.value = this.geminiModel;
 
@@ -3843,6 +3878,94 @@ class SidebarUI {
         } else {
             document.body.classList.add('offline-mode');
         }
+    }
+
+    // ===== WEBAUTHN LOGIC =====
+
+    showLockScreen() {
+        if (this.lockScreen) {
+            this.lockScreen.classList.remove('hidden');
+            // Auto-trigger verification
+            this.verifyWebAuthn();
+        }
+    }
+
+    hideLockScreen() {
+        if (this.lockScreen) {
+            this.lockScreen.classList.add('hidden');
+        }
+    }
+
+    async handleWebAuthnToggle() {
+        const enabled = this.webAuthnToggle.checked;
+        if (enabled) {
+            // Open registration tab
+            chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/auth.html?mode=register') });
+            this.showNotification('Complete registration in the new tab...', 'info');
+        } else {
+            if (confirm('Are you sure you want to disable biometric protection?')) {
+                this.webAuthnEnabled = false;
+                this.webAuthnCredentialId = null;
+                await chrome.storage.local.set({
+                    webAuthnEnabled: false,
+                    webAuthnCredentialId: null
+                });
+                this.showNotification('Biometric protection disabled', 'info');
+            } else {
+                this.webAuthnToggle.checked = true;
+            }
+        }
+    }
+
+    async verifyWebAuthn() {
+        if (!this.webAuthnCredentialId) {
+            this.showNotification('No biometric credential found. Please toggle setting.', 'error');
+            this.hideLockScreen();
+            return;
+        }
+        // Open verification tab
+        chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/auth.html?mode=verify') });
+        this.showNotification('Verify your identity in the new tab...', 'info');
+    }
+
+    async handleAuthResult(result) {
+        if (!result || !result.success) return;
+        
+        // Cooldown check: only process recent results (last 10 seconds)
+        if (Date.now() - result.timestamp > 10000) return;
+
+        if (result.mode === 'register') {
+            await this.loadSettings();
+            this.showNotification('Biometric protection enabled', 'success');
+        } else if (result.mode === 'verify') {
+            this.isVerified = true;
+            this.hideLockScreen();
+            this.showNotification('Identity verified', 'success');
+            this.continueInit();
+        }
+        
+        // Clear result so it's not re-processed
+        await chrome.storage.local.remove('webAuthnResult');
+    }
+
+    async handleAuthResult(result) {
+        if (!result || !result.success) return;
+        
+        // Cooldown check: only process recent results (last 10 seconds)
+        if (Date.now() - result.timestamp > 10000) return;
+
+        if (result.mode === 'register') {
+            await this.loadSettings();
+            this.showNotification('Biometric protection enabled', 'success');
+        } else if (result.mode === 'verify') {
+            this.isVerified = true;
+            this.hideLockScreen();
+            this.showNotification('Identity verified', 'success');
+            this.continueInit();
+        }
+        
+        // Clear result so it's not re-processed
+        await chrome.storage.local.remove('webAuthnResult');
     }
 
     applyTheme() {

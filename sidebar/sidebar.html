@@ -100,6 +100,16 @@
             <span class="slider round"></span>
           </label>
         </div>
+        <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+          <div class="settings-info">
+            <span class="settings-label">Biometric Access</span>
+            <p class="settings-hint">Require TouchID / Fingerprint to access the extension.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="webAuthnToggle">
+            <span class="slider round"></span>
+          </label>
+        </div>
       </div>
       <div class="settings-group" style="margin-top: 12px;">
         <div class="theme-selector">
@@ -576,6 +586,29 @@
   </template>
 
 
+
+  <!-- ===== LOCK SCREEN ===== -->
+  <div id="lockScreen" class="lock-screen hidden">
+    <div class="lock-content">
+      <div class="lock-icon-container">
+        <svg class="fingerprint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12"></path>
+          <path d="M5 15C5 11.134 8.13401 8 12 8C15.866 8 19 11.134 19 15"></path>
+          <path d="M8 18C8 15.7909 9.79086 14 12 14C14.2091 14 16 15.7909 16 18"></path>
+          <path d="M12 22V20"></path>
+          <path d="M12 11V10"></path>
+          <path d="M12 5V4"></path>
+          <path d="M12 17V17.01"></path>
+          <path d="M9 22C7.34315 22 6 20.6569 6 19"></path>
+          <path d="M15 22C16.6569 22 18 20.6569 18 19"></path>
+        </svg>
+        <div class="pulse-ring"></div>
+      </div>
+      <h2>Locked</h2>
+      <p>Touch ID or biometric required</p>
+      <button id="unlockBtn" class="btn btn-primary">Verify Identity</button>
+    </div>
+  </div>
 
   <script type="module" src="sidebar.js"></script>
 </body>
