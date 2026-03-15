@@ -221,7 +221,7 @@ async function ensureOffscreenDocument() {
         await chrome.offscreen.createDocument({
             url: 'offscreen/offscreen.html',
             reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
-            justification: 'Capture audio for clipping tool'
+            justification: 'Capture tab audio and video for clipping tool'
         });
         // Small delay to ensure script is loaded
         await new Promise(r => setTimeout(r, 500));
@@ -254,13 +254,13 @@ function isStackEditorOrPlayback(tabId, url) {
     return false;
 }
 
-async function initiateAudioRecording(streamId, targetTabId) {
-    console.log('[SW] initiateAudioRecording for tab:', targetTabId);
+async function initiateTabCapture(streamId, targetTabId, isVideo = false) {
+    console.log(`[SW] initiateTabCapture (${isVideo ? 'video' : 'audio'}) for tab:`, targetTabId);
 
     // 1. Ensure clipper is active on that tab (unless it's a media page where overlay fails)
     const tab = await chrome.tabs.get(targetTabId).catch(() => null);
     if (tab && !isMediaPage(tab.url)) {
-        await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
+        await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true, islandOnly: true }).catch(() => { });
     }
 
     // 2. Create offscreen document if it doesn't exist
@@ -270,12 +270,13 @@ async function initiateAudioRecording(streamId, targetTabId) {
     console.log('[SW] Sending START_RECORDING to offscreen');
     chrome.runtime.sendMessage({
         type: 'START_RECORDING',
-        streamId
+        streamId,
+        isVideo
     });
 
     // 4. Update Island UI (if it's already open, it will receive this)
     setTimeout(() => {
-        chrome.runtime.sendMessage({ type: 'AUDIO_RECORDING_REMOTE_START', streamId });
+        chrome.runtime.sendMessage({ type: 'AUDIO_RECORDING_REMOTE_START', streamId, isVideo });
     }, 200);
 }
 
@@ -776,7 +777,7 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'startRecording': {
-                await initiateAudioRecording(request.streamId, request.tabId);
+                await initiateTabCapture(request.streamId, request.tabId, !!request.video);
                 sendResponse({ success: true });
                 break;
             }
@@ -1079,10 +1080,23 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'saveMediaBlob': {
                 try {
-                    const blob = new Blob([new Uint8Array(request.data)], { type: request.type });
+                    let blob;
+                    if (typeof request.data === 'string' && request.data.startsWith('data:')) {
+                        // Handle DataURL
+                        const resp = await fetch(request.data);
+                        blob = await resp.blob();
+                    } else {
+                        // Handle binary (Uint8Array or serialized Object)
+                        const data = request.data instanceof Uint8Array ? request.data : 
+                                     (request.data?.buffer instanceof ArrayBuffer ? new Uint8Array(request.data.buffer) :
+                                     (request.data && typeof request.data === 'object' ? new Uint8Array(Object.values(request.data)) : request.data));
+                        blob = new Blob([data], { type: request.type });
+                    }
+                    
                     const id = request.id || await blobStorage.generateId(blob);
                     await blobStorage.put(id, blob);
-                    sendResponse({ success: true, id });
+                    console.log(`[SW] Saved media blob: ${id}, Size: ${blob.size}`);
+                    sendResponse({ success: true, id, size: blob.size });
                 } catch (err) {
 
                     console.error('saveMediaBlob error:', err);
@@ -1097,7 +1111,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const arrayBuffer = await blob.arrayBuffer();
                     sendResponse({
                         success: true,
-                        data: Array.from(new Uint8Array(arrayBuffer)),
+                        data: new Uint8Array(arrayBuffer),
                         type: blob.type
                     });
                 } catch (err) {
@@ -1298,200 +1312,6 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
 
-                async function executeWasm(item) {
-                    const runtime = new WasmRuntime();
-                    const executionLogs = [];
-
-                    const data = item.bytes || item.data;
-                    if (!data) throw new Error("No WASM data provided");
-
-                    let binaryString = atob(data);
-                    if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
-                        try { binaryString = atob(binaryString); } catch (e) { }
-                    }
-
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-
-                    const sqliteHost = {
-                        "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
-                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
-                            const sql = runtime.readString(sqlPtr, sqlLen);
-                            try {
-                                const db = sqliteManager.initDatabase(dbName);
-                                db.exec(sql);
-                                const changes = db.getRowsModified();
-                                sqliteManager.saveCheckpoint(dbName, chrome.storage.local).catch(console.error);
-                                const resultPtr = runtime.alloc(12, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 0, true);
-                                view.setUint32(resultPtr + 4, changes, true);
-                                return resultPtr;
-                            } catch (e) {
-                                console.error(`[Host] sqlite.execute error:`, e);
-                                const errStr = runtime.writeString(e.message);
-                                const resultPtr = runtime.alloc(12, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 1, true);
-                                view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                view.setUint32(resultPtr + 8, errStr.len, true);
-                                return resultPtr;
-                            }
-                        },
-                        "query": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
-                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
-                            const sql = runtime.readString(sqlPtr, sqlLen);
-                            try {
-                                const db = sqliteManager.initDatabase(dbName);
-                                const result = db.exec(sql);
-                                const columns = result.length > 0 ? result[0].columns : [];
-                                const rows = result.length > 0 ? result[0].values : [];
-                                const colEncoded = runtime.encodeStringList(columns);
-                                const rowPtrs = rows.map(r => {
-                                    const valuesEncoded = runtime.encodeStringList(r.map(v => String(v ?? '')));
-                                    const rPtr = runtime.alloc(8, 4);
-                                    const rView = runtime.getView();
-                                    rView.setUint32(rPtr, valuesEncoded.ptr, true);
-                                    rView.setUint32(rPtr + 4, valuesEncoded.len, true);
-                                    return rPtr;
-                                });
-                                const rowsListPtr = runtime.alloc(rowPtrs.length * 4, 4);
-                                const rowsListBytes = new Uint32Array(runtime.memory.buffer, rowsListPtr, rowPtrs.length);
-                                rowsListBytes.set(rowPtrs);
-                                const qrPtr = runtime.alloc(16, 4);
-                                const qrView = runtime.getView();
-                                qrView.setUint32(qrPtr, colEncoded.ptr, true);
-                                qrView.setUint32(qrPtr + 4, colEncoded.len, true);
-                                qrView.setUint32(qrPtr + 8, rowsListPtr, true);
-                                qrView.setUint32(qrPtr + 12, rowPtrs.length, true);
-                                const resultPtr = runtime.alloc(20, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 0, true);
-                                const resultPayload = new Uint8Array(runtime.memory.buffer, resultPtr + 4, 16);
-                                const qrData = new Uint8Array(runtime.memory.buffer, qrPtr, 16);
-                                resultPayload.set(qrData);
-                                return resultPtr;
-                            } catch (e) {
-                                const errStr = runtime.writeString(e.message);
-                                const resultPtr = runtime.alloc(20, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 1, true);
-                                view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                view.setUint32(resultPtr + 8, errStr.len, true);
-                                return resultPtr;
-                            }
-                        }
-                    };
-
-                    const importObject = {
-                        env: {
-                            log: (ptr, len) => {
-                                const msg = runtime.readString(ptr, len);
-                                executionLogs.push(msg);
-                            }
-                        },
-                        "chrome:bookmarks/bookmarks": {
-                            "get-tree": () => {
-                                try {
-                                    if (!bookmarkCache) throw new Error("Cache not ready");
-                                    const encoded = runtime.encodeBookmarkList(bookmarkCache);
-                                    const resultPtr = runtime.alloc(12, 4);
-                                    const view = runtime.getView();
-                                    view.setUint32(resultPtr, 0, true);
-                                    view.setUint32(resultPtr + 4, encoded.ptr, true);
-                                    view.setUint32(resultPtr + 8, encoded.len, true);
-                                    return resultPtr;
-                                } catch (e) {
-                                    const errStr = runtime.writeString(e.message);
-                                    const resultPtr = runtime.alloc(12, 4);
-                                    const view = runtime.getView();
-                                    view.setUint32(resultPtr, 1, true);
-                                    view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                    view.setUint32(resultPtr + 8, errStr.len, true);
-                                    return resultPtr;
-                                }
-                            },
-                            "get_tree": (...args) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](...args),
-                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                            "create": (titlePtr, titleLen, urlPtr, urlLen) => {
-                                const errStr = runtime.writeString("Async 'create' requires JSPI.");
-                                const resultPtr = runtime.alloc(12, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 1, true);
-                                view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                view.setUint32(resultPtr + 8, errStr.len, true);
-                                return resultPtr;
-                            }
-                        },
-                        "chrome:bookmarks": {
-                            "get-tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                            "get_tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
-                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
-                            "create": (...args) => importObject["chrome:bookmarks/bookmarks"]["create"](...args)
-                        },
-                        "user:sqlite/sqlite": sqliteHost,
-                        "wasi_snapshot_preview1": {
-                            fd_write: (fd, iovs_ptr, iovs_len, nwritten_ptr) => {
-                                let totalWritten = 0;
-                                const view = runtime.getView();
-                                for (let i = 0; i < iovs_len; i++) {
-                                    const ptr = view.getUint32(iovs_ptr + i * 8, true);
-                                    const len = view.getUint32(iovs_ptr + i * 8 + 4, true);
-                                    const msg = runtime.readString(ptr, len);
-                                    executionLogs.push(msg);
-                                    totalWritten += len;
-                                }
-                                view.setUint32(nwritten_ptr, totalWritten, true);
-                                return 0; // Success
-                            },
-                            environ_get: () => 0,
-                            environ_sizes_get: (countPtr, sizePtr) => {
-                                const view = runtime.getView();
-                                view.setUint32(countPtr, 0, true);
-                                view.setUint32(sizePtr, 0, true);
-                                return 0;
-                            },
-                            proc_exit: (code) => { console.log("Proc exit:", code); return 0; },
-                            fd_close: () => 0,
-                            fd_seek: () => 0,
-                            fd_fdstat_get: (fd, statPtr) => {
-                                const view = runtime.getView();
-                                view.setUint8(statPtr, 2); // character device
-                                return 0;
-                            },
-                            random_get: (buf_ptr, buf_len) => {
-                                const buffer = new Uint8Array(runtime.memory.buffer, buf_ptr, buf_len);
-                                crypto.getRandomValues(buffer);
-                                return 0;
-                            },
-                            clock_time_get: (id, precision, time_ptr) => {
-                                const view = runtime.getView();
-                                const now = BigInt(Date.now()) * 1000000n; // ns
-                                view.setBigUint64(time_ptr, now, true);
-                                return 0;
-                            }
-                        }
-                    };
-
-                    const { instance } = await WebAssembly.instantiate(bytes, importObject);
-                    runtime.setInstance(instance);
-
-                    let result;
-                    if (instance.exports.run) {
-                        result = instance.exports.run();
-                    } else if (instance.exports.main) {
-                        result = instance.exports.main();
-                    } else {
-                        throw new Error("No run or main export found");
-                    }
-
-                    return { success: true, result, logs: executionLogs };
-                }
-
             case 'runWasmPacketItem': {
                 try {
                     const result = await executeWasm(request.item || request);
@@ -1517,8 +1337,10 @@ async function handleMessage(request, sender, sendResponse) {
                 sendResponse({ success: true });
                 break;
             }
-            case 'START_AUDIO_RECORDING': {
-                console.log('[SW] START_AUDIO_RECORDING received, streamId:', request.streamId);
+            case 'START_AUDIO_RECORDING':
+            case 'START_TAB_VIDEO_RECORDING': {
+                const isVideo = action === 'START_TAB_VIDEO_RECORDING' || !!request.video;
+                console.log(`[SW] ${action} received, streamId:`, request.streamId);
                 try {
                     let streamId = request.streamId;
                     let targetTabId = sender.tab?.id;
@@ -1535,10 +1357,10 @@ async function handleMessage(request, sender, sendResponse) {
                         console.log('[SW] Fallback streamId obtained:', streamId);
                     }
 
-                    await initiateAudioRecording(streamId, targetTabId);
+                    await initiateTabCapture(streamId, targetTabId, isVideo);
                     sendResponse({ success: true });
                 } catch (e) {
-                    console.error('[SW] Failed to start audio recording:', e);
+                    console.error(`[SW] Failed to start ${isVideo ? 'video' : 'audio'} recording:`, e);
                     sendResponse({ success: false, error: e.message });
                 }
                 break;
@@ -1549,40 +1371,31 @@ async function handleMessage(request, sender, sendResponse) {
                 sendResponse({ success: true });
                 break;
             }
-            case 'OFFSCREEN_LOG':
-            case 'RECORDING_STARTED':
-            case 'RECORDING_ERROR': {
-                // Relay these to the sidebar and island
-                chrome.runtime.sendMessage(request).catch(() => { });
-                break;
-            }
-            case 'AUDIO_RECORDING_RESULT':
-            case 'VIDEO_RECORDING_RESULT': {
-                const isVideo = action === 'VIDEO_RECORDING_RESULT';
-                console.log(`[SW] ${action} received, dataUrl length:`, request.dataUrl?.length);
-                // Forward the result to the sidebar
-                chrome.runtime.sendMessage({
-                    type: isVideo ? 'VIDEO_CLIP_FINISHED' : 'AUDIO_CLIP_FINISHED',
-                    dataUrl: request.dataUrl
-                }).then(() => {
-                    console.log(`[SW] Successfully forwarded ${isVideo ? 'VIDEO' : 'AUDIO'}_CLIP_FINISHED to sidebar`);
-                }).catch((err) => {
-                    console.warn('[SW] Failed to forward to sidebar (sidebar might be closed):', err);
-                });
-
-                // Close offscreen document after a short delay
+            case 'AUDIO_CLIP_FINISHED':
+            case 'VIDEO_CLIP_FINISHED': {
+                // No need to relay FINISHED messages; offscreen.js already broadcasts them.
+                // However, we still want to close the offscreen document after completion.
                 setTimeout(async () => {
                     const existingContexts = await chrome.runtime.getContexts({
                         contextTypes: ['OFFSCREEN_DOCUMENT']
                     });
                     if (existingContexts.length > 0) {
-                        chrome.offscreen.closeDocument().catch(e => {
+                        try {
+                            await chrome.offscreen.closeDocument();
+                            console.log('[SW] Offscreen document closed after capture finished');
+                        } catch (e) {
                             console.warn('[SW] Error closing offscreen document:', e);
-                        });
+                        }
                     }
                 }, 1000);
                 break;
             }
+            case 'RECORDING_STARTED':
+            case 'RECORDING_ERROR': {
+                // These are also already broadcasted by offscreen.js.
+                break;
+            }
+
             case 'TOGGLE_NETWORK': {
                 try {
                     const enabled = request.enabled;
@@ -2282,3 +2095,196 @@ async function reassociateTabGroups() {
         console.error('[GroupRecovery] Error:', e);
     }
 }
+                async function executeWasm(item) {
+                    const runtime = new WasmRuntime();
+                    const executionLogs = [];
+
+                    const data = item.bytes || item.data;
+                    if (!data) throw new Error("No WASM data provided");
+
+                    let binaryString = atob(data);
+                    if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
+                        try { binaryString = atob(binaryString); } catch (e) { }
+                    }
+
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    const sqliteHost = {
+                        "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
+                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
+                            const sql = runtime.readString(sqlPtr, sqlLen);
+                            try {
+                                const db = sqliteManager.initDatabase(dbName);
+                                db.exec(sql);
+                                const changes = db.getRowsModified();
+                                sqliteManager.saveCheckpoint(dbName, chrome.storage.local).catch(console.error);
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 0, true);
+                                view.setUint32(resultPtr + 4, changes, true);
+                                return resultPtr;
+                            } catch (e) {
+                                console.error(`[Host] sqlite.execute error:`, e);
+                                const errStr = runtime.writeString(e.message);
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
+                        },
+                        "query": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
+                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
+                            const sql = runtime.readString(sqlPtr, sqlLen);
+                            try {
+                                const db = sqliteManager.initDatabase(dbName);
+                                const result = db.exec(sql);
+                                const columns = result.length > 0 ? result[0].columns : [];
+                                const rows = result.length > 0 ? result[0].values : [];
+                                const colEncoded = runtime.encodeStringList(columns);
+                                const rowPtrs = rows.map(r => {
+                                    const valuesEncoded = runtime.encodeStringList(r.map(v => String(v ?? '')));
+                                    const rPtr = runtime.alloc(8, 4);
+                                    const rView = runtime.getView();
+                                    rView.setUint32(rPtr, valuesEncoded.ptr, true);
+                                    rView.setUint32(rPtr + 4, valuesEncoded.len, true);
+                                    return rPtr;
+                                });
+                                const rowsListPtr = runtime.alloc(rowPtrs.length * 4, 4);
+                                const rowsListBytes = new Uint32Array(runtime.memory.buffer, rowsListPtr, rowPtrs.length);
+                                rowsListBytes.set(rowPtrs);
+                                const qrPtr = runtime.alloc(16, 4);
+                                const qrView = runtime.getView();
+                                qrView.setUint32(qrPtr, colEncoded.ptr, true);
+                                qrView.setUint32(qrPtr + 4, colEncoded.len, true);
+                                qrView.setUint32(qrPtr + 8, rowsListPtr, true);
+                                qrView.setUint32(qrPtr + 12, rowPtrs.length, true);
+                                const resultPtr = runtime.alloc(20, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 0, true);
+                                const resultPayload = new Uint8Array(runtime.memory.buffer, resultPtr + 4, 16);
+                                const qrData = new Uint8Array(runtime.memory.buffer, qrPtr, 16);
+                                resultPayload.set(qrData);
+                                return resultPtr;
+                            } catch (e) {
+                                const errStr = runtime.writeString(e.message);
+                                const resultPtr = runtime.alloc(20, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
+                        }
+                    };
+
+                    const importObject = {
+                        env: {
+                            log: (ptr, len) => {
+                                const msg = runtime.readString(ptr, len);
+                                executionLogs.push(msg);
+                            }
+                        },
+                        "chrome:bookmarks/bookmarks": {
+                            "get-tree": () => {
+                                try {
+                                    if (!bookmarkCache) throw new Error("Cache not ready");
+                                    const encoded = runtime.encodeBookmarkList(bookmarkCache);
+                                    const resultPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(resultPtr, 0, true);
+                                    view.setUint32(resultPtr + 4, encoded.ptr, true);
+                                    view.setUint32(resultPtr + 8, encoded.len, true);
+                                    return resultPtr;
+                                } catch (e) {
+                                    const errStr = runtime.writeString(e.message);
+                                    const resultPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(resultPtr, 1, true);
+                                    view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                    view.setUint32(resultPtr + 8, errStr.len, true);
+                                    return resultPtr;
+                                }
+                            },
+                            "get_tree": (...args) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](...args),
+                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "create": (titlePtr, titleLen, urlPtr, urlLen) => {
+                                const errStr = runtime.writeString("Async 'create' requires JSPI.");
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
+                        },
+                        "chrome:bookmarks": {
+                            "get-tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get_tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
+                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
+                            "create": (...args) => importObject["chrome:bookmarks/bookmarks"]["create"](...args)
+                        },
+                        "user:sqlite/sqlite": sqliteHost,
+                        "wasi_snapshot_preview1": {
+                            fd_write: (fd, iovs_ptr, iovs_len, nwritten_ptr) => {
+                                let totalWritten = 0;
+                                const view = runtime.getView();
+                                for (let i = 0; i < iovs_len; i++) {
+                                    const ptr = view.getUint32(iovs_ptr + i * 8, true);
+                                    const len = view.getUint32(iovs_ptr + i * 8 + 4, true);
+                                    const msg = runtime.readString(ptr, len);
+                                    executionLogs.push(msg);
+                                    totalWritten += len;
+                                }
+                                view.setUint32(nwritten_ptr, totalWritten, true);
+                                return 0; // Success
+                            },
+                            environ_get: () => 0,
+                            environ_sizes_get: (countPtr, sizePtr) => {
+                                const view = runtime.getView();
+                                view.setUint32(countPtr, 0, true);
+                                view.setUint32(sizePtr, 0, true);
+                                return 0;
+                            },
+                            proc_exit: (code) => { console.log("Proc exit:", code); return 0; },
+                            fd_close: () => 0,
+                            fd_seek: () => 0,
+                            fd_fdstat_get: (fd, statPtr) => {
+                                const view = runtime.getView();
+                                view.setUint8(statPtr, 2); // character device
+                                return 0;
+                            },
+                            random_get: (buf_ptr, buf_len) => {
+                                const buffer = new Uint8Array(runtime.memory.buffer, buf_ptr, buf_len);
+                                crypto.getRandomValues(buffer);
+                                return 0;
+                            },
+                            clock_time_get: (id, precision, time_ptr) => {
+                                const view = runtime.getView();
+                                const now = BigInt(Date.now()) * 1000000n; // ns
+                                view.setBigUint64(time_ptr, now, true);
+                                return 0;
+                            }
+                        }
+                    };
+
+                    const { instance } = await WebAssembly.instantiate(bytes, importObject);
+                    runtime.setInstance(instance);
+
+                    let result;
+                    if (instance.exports.run) {
+                        result = instance.exports.run();
+                    } else if (instance.exports.main) {
+                        result = instance.exports.main();
+                    } else {
+                        throw new Error("No run or main export found");
+                    }
+
+                    return { success: true, result, logs: executionLogs };
+                }

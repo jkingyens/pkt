@@ -10,33 +10,36 @@ let timerInterval = null;
 const timerEl = document.getElementById('timer');
 const indicator = document.getElementById('indicator');
 const recordBtn = document.getElementById('record-btn');
+const recordVideoBtn = document.getElementById('record-video-btn');
 const stopBtn = document.getElementById('stop-btn');
 
-recordBtn.onclick = toggleRecording;
-stopBtn.onclick = toggleRecording;
+recordBtn.onclick = () => toggleRecording(false);
+recordVideoBtn.onclick = () => toggleRecording(true);
+stopBtn.onclick = () => toggleRecording();
 
-async function toggleRecording() {
+async function toggleRecording(isVideo = false) {
     if (!isRecording) {
         // Immediate visual feedback
         timerEl.textContent = 'Starting...';
         recordBtn.style.display = 'none';
+        recordVideoBtn.style.display = 'none';
 
         try {
-            console.log('[Island] Requesting streamId (active tab)...');
-            // Obtain streamId directly in the extension page context responding to user gesture
-            // This MUST be the first async call to preserve the gesture.
-            const streamId = await chrome.tabCapture.getMediaStreamId({});
-            console.log('[Island] Obtained streamId:', streamId);
-
+            console.log('[Island] Querying active tab...');
             const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
             if (!tab) throw new Error('Could not identify active tab');
+
+            console.log('[Island] Requesting streamId for tab:', tab.id);
+            // Obtain streamId directly in the extension page context responding to user gesture
+            const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+            console.log('[Island] Obtained streamId:', streamId);
 
             if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
                 throw new Error('Chrome internal pages cannot be recorded');
             }
 
             console.log('[Island] Sending START_AUDIO_RECORDING to background');
-            safeSendMessage({ action: 'START_AUDIO_RECORDING', streamId }, (resp) => {
+            safeSendMessage({ action: isVideo ? 'START_TAB_VIDEO_RECORDING' : 'START_AUDIO_RECORDING', streamId }, (resp) => {
                 if (resp && resp.success) {
                     console.log('[Island] Background confirmed recording started');
                     isRecording = true;
@@ -56,6 +59,7 @@ async function toggleRecording() {
             }
             timerEl.style.color = '#ff453a';
             recordBtn.style.display = 'block'; // Restore button on error
+            recordVideoBtn.style.display = 'block';
             window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true }, '*');
             setTimeout(() => {
                 if (!isRecording) {
@@ -149,6 +153,7 @@ function updateUI() {
     if (isRecording) {
         indicator.style.display = 'block';
         recordBtn.style.display = 'none';
+        recordVideoBtn.style.display = 'none';
         stopBtn.style.display = 'block';
 
         // Initial text for recording
@@ -165,6 +170,7 @@ function updateUI() {
     } else {
         indicator.style.display = 'none';
         recordBtn.style.display = 'block';
+        recordVideoBtn.style.display = 'block';
         stopBtn.style.display = 'none';
         timerEl.textContent = 'Wildcard';
         clearInterval(timerInterval);

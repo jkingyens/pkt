@@ -332,7 +332,9 @@ class SidebarUI {
         this.mediaDropZone = document.getElementById('mediaDropZone');
         this.mediaAddOptions = document.getElementById('mediaAddOptions');
         this.mediaAudioRecordBtn = document.getElementById('mediaAudioRecordBtn');
+        this.mediaTabAudioRecordBtn = document.getElementById('mediaTabAudioRecordBtn');
         this.mediaVideoRecordBtn = document.getElementById('mediaVideoRecordBtn');
+        this.mediaTabVideoRecordBtn = document.getElementById('mediaTabVideoRecordBtn');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
         this.addStackDetailBtn = document.getElementById('addStackDetailBtn');
@@ -396,9 +398,12 @@ class SidebarUI {
         this.theme = 'system';
         this.networkEnabled = true;
         this.activeUrl = null;
+        this.processedMediaIds = new Set();
         this.isClipperManuallyCancelled = false;
         this.isAudioRecording = false;
+        this.isTabAudioRecording = false;
         this.isVideoRecording = false;
+        this.isTabVideoRecording = false;
         this.isClipperInvoked = false; // Manual activation state for activeTab
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.activeCaptureTabId = null; // Track which tab has the capture indicator
@@ -583,21 +588,33 @@ class SidebarUI {
             } else if (message.type === 'AUDIO_CLIP_FINISHED' || message.type === 'VIDEO_CLIP_FINISHED') {
                 this.isRecording = false;
                 this.isAudioRecording = false;
+                this.isTabAudioRecording = false;
                 this.isVideoRecording = false;
+                this.isTabVideoRecording = false;
                 this.updateRecordingUI();
-                this.handleMediaClipFinished(message.dataUrl, message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm');
+                this.handleMediaClipFinished(message.mediaId, message.size, message.mimeType || (message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm'));
             } else if (message.type === 'RECORDING_STARTED') {
                 this.isRecording = true;
                 if (message.isVideo) {
-                    this.isVideoRecording = true;
+                    if (message.streamId) {
+                        this.isTabVideoRecording = true;
+                    } else {
+                        this.isVideoRecording = true;
+                    }
                 } else {
-                    this.isAudioRecording = true;
+                    if (message.streamId) {
+                        this.isTabAudioRecording = true;
+                    } else {
+                        this.isAudioRecording = true;
+                    }
                 }
                 this.updateRecordingUI();
             } else if (message.type === 'RECORDING_ERROR') {
                 this.isRecording = false;
                 this.isAudioRecording = false;
+                this.isTabAudioRecording = false;
                 this.isVideoRecording = false;
+                this.isTabVideoRecording = false;
                 this.updateRecordingUI();
                 if (message.error && (message.error.includes('NotAllowedError') || message.error.includes('Permission dismissed'))) {
                     this.handlePermissionError();
@@ -1221,6 +1238,24 @@ class SidebarUI {
             });
         }
 
+        if (this.mediaTabAudioRecordBtn) {
+            this.mediaTabAudioRecordBtn.addEventListener('click', async () => {
+                if (this.isRecording) {
+                    await this.sendMessage({ action: 'stopRecording' });
+                } else {
+                    try {
+                        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                        if (!tab) throw new Error('No active tab found');
+                        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+                        const resp = await this.sendMessage({ action: 'START_AUDIO_RECORDING', streamId });
+                        if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
+                    } catch (err) {
+                        this.handleRecordingError(err);
+                    }
+                }
+            });
+        }
+
         if (this.mediaVideoRecordBtn) {
             this.mediaVideoRecordBtn.addEventListener('click', async () => {
                 if (this.isRecording) {
@@ -1228,6 +1263,24 @@ class SidebarUI {
                 } else {
                     try {
                         const resp = await this.sendMessage({ action: 'startMicRecording', video: true });
+                        if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
+                    } catch (err) {
+                        this.handleRecordingError(err);
+                    }
+                }
+            });
+        }
+
+        if (this.mediaTabVideoRecordBtn) {
+            this.mediaTabVideoRecordBtn.addEventListener('click', async () => {
+                if (this.isRecording) {
+                    await this.sendMessage({ action: 'stopRecording' });
+                } else {
+                    try {
+                        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                        if (!tab) throw new Error('No active tab found');
+                        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+                        const resp = await this.sendMessage({ action: 'START_TAB_VIDEO_RECORDING', streamId });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
                         this.handleRecordingError(err);
@@ -1448,12 +1501,14 @@ class SidebarUI {
     }
 
     updateRecordingUI() {
-        const buttons = [
-            { btn: this.mediaAudioRecordBtn, icon: '🎤', text: 'Audio Only', active: this.isAudioRecording },
-            { btn: this.mediaVideoRecordBtn, icon: '📹', text: 'Video + Audio', active: this.isVideoRecording }
+        const states = [
+            { btn: this.mediaAudioRecordBtn, icon: '🎤', text: 'Mic', active: this.isAudioRecording },
+            { btn: this.mediaTabAudioRecordBtn, icon: '🔊', text: 'Tab', active: this.isTabAudioRecording },
+            { btn: this.mediaVideoRecordBtn, icon: '📹', text: 'Cam', active: this.isVideoRecording },
+            { btn: this.mediaTabVideoRecordBtn, icon: '🖥️', text: 'Tab', active: this.isTabVideoRecording }
         ];
 
-        buttons.forEach(({ btn, icon, text, active }) => {
+        states.forEach(({ btn, icon, text, active }) => {
             if (!btn) return;
             if (active) {
                 btn.classList.add('recording');
@@ -1467,42 +1522,40 @@ class SidebarUI {
         });
     }
 
-    async handleMediaClipFinished(dataUrl, mimeType) {
+    async handleMediaClipFinished(mediaId, size, mimeType) {
+        if (this.processedMediaIds.has(mediaId)) {
+            console.log('[Sidebar] Skipping duplicate media:', mediaId);
+            return;
+        }
+        this.processedMediaIds.add(mediaId);
+
         try {
-            const resp = await fetch(dataUrl);
-            const blob = await resp.blob();
-            const arrayBuffer = await blob.arrayBuffer();
+            // Already saved by offscreen document to minimize hops
+            console.log('[Sidebar] Media capture finished:', mediaId, 'Type:', mimeType, 'Size:', size);
 
-            const saveResp = await this.sendMessage({
-                action: 'saveMediaBlob',
-                data: Array.from(new Uint8Array(arrayBuffer)),
-                type: mimeType
-            });
+            const displayType = mimeType || 'video/webm;codecs=vp8,opus';
+            const name = displayType.startsWith('video') ? `Video ${new Date().toLocaleString()}.webm` : `Audio ${new Date().toLocaleString()}.webm`;
+            
+            const newItem = {
+                type: 'media',
+                name: name,
+                mediaId: mediaId,
+                mimeType: displayType,
+                size: size || 0
+            };
 
-            if (saveResp.success) {
-                const name = mimeType.startsWith('video') ? `Video ${new Date().toLocaleString()}.webm` : `Audio ${new Date().toLocaleString()}.webm`;
-                const newItem = {
-                    type: 'media',
-                    name: name,
-                    mediaId: saveResp.id,
-                    mimeType: mimeType
-                };
-
-                if (this.currentPacket) {
-                    this.currentPacket.urls.push(newItem);
-                    await this.sendMessage({
-                        action: 'savePacket',
-                        id: this.currentPacket.id,
-                        name: this.currentPacket.name,
-                        urls: this.currentPacket.urls
-                    });
-                    this.showPacketDetailView(this.currentPacket);
-                } else if (this.constructorView.classList.contains('active')) {
-                    this.constructorItems.push(newItem);
-                    this.renderConstructorItems();
-                }
-            } else {
-                throw new Error(saveResp.error || 'Failed to save media');
+            if (this.currentPacket) {
+                this.currentPacket.urls.push(newItem);
+                await this.sendMessage({
+                    action: 'savePacket',
+                    id: this.currentPacket.id,
+                    name: this.currentPacket.name,
+                    urls: this.currentPacket.urls
+                });
+                this.showPacketDetailView(this.currentPacket);
+            } else if (this.constructorView.classList.contains('active')) {
+                this.constructorItems.push(newItem);
+                this.renderConstructorItems();
             }
         } catch (err) {
             console.error('handleMediaClipFinished failed:', err);
@@ -2203,13 +2256,14 @@ class SidebarUI {
                 const isOffline = !navigator.onLine || this.networkEnabled === false;
                 card.className = `packet-media-card ${isOffline ? 'disabled' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
-                const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
+                const isVideo = item.mimeType?.startsWith('video/');
+                const icon = isImage ? '🖼️' : (isVideo ? '🎬' : '🎵');
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">${icon}</div>
                     <div class="packet-media-info">
                         <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
-                        <div class="packet-media-meta">${item.mimeType} • ${(item.size / 1024 / 1024).toFixed(2)} MB</div>
+                        <div class="packet-media-meta">${item.mimeType} • ${this.formatSize(item.size)}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove media">🗑️</button>
                 `;
@@ -2217,7 +2271,7 @@ class SidebarUI {
                     e.stopPropagation();
                     this.removePacketItem(index);
                 });
-                if (isImage) {
+                if (isImage || isVideo) {
                     this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
                 }
                 card.addEventListener('click', () => {
@@ -3004,7 +3058,11 @@ class SidebarUI {
                 const url = URL.createObjectURL(blob);
                 const container = document.getElementById(elementId);
                 if (container) {
-                    container.innerHTML = `<img src="${url}" alt="Thumbnail">`;
+                    if (resp.type.startsWith('video/')) {
+                        container.innerHTML = `<video src="${url}" muted autoplay loop style="width:100%; height:100%; object-fit:cover; border-radius:inherit;"></video>`;
+                    } else {
+                        container.innerHTML = `<img src="${url}" alt="Thumbnail">`;
+                    }
                 }
             }
         } catch (e) {
@@ -3317,7 +3375,7 @@ class SidebarUI {
                             <span class="type-badge media">MEDIA</span>
                             ${this.escapeHtml(item.name)}
                         </div>
-                        <div class="constructor-card-url" style="color:var(--text-muted);">${icon} ${item.mimeType} (${(item.size / 1024 / 1024).toFixed(2)} MB)</div>
+                        <div class="constructor-card-url" style="color:var(--text-muted);">${icon} ${item.mimeType} (${this.formatSize(item.size)})</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
             } else {
@@ -4575,6 +4633,14 @@ class SidebarUI {
         } catch (e) {
             return false;
         }
+    }
+
+    formatSize(size) {
+        const bytes = Math.max(0, Number(size) || 0);
+        if (bytes < 1024 * 1024) { // < 1 MB
+            return (bytes / 1024).toFixed(1) + ' KB';
+        }
+        return (bytes / 1024 / 1024).toFixed(2) + ' MB';
     }
 }
 

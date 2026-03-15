@@ -68,7 +68,7 @@
             transform: scale(0.9);
         }
 
-        #record-btn svg {
+        #record-btn svg, #record-video-btn svg {
             fill: var(--record-fill);
             width: 24px;
             height: 24px;
@@ -94,9 +94,14 @@
             <span id="timer">Wildcard</span>
         </div>
         <div class="controls">
-            <button id="record-btn" title="Start Recording">
+            <button id="record-btn" title="Start Audio Recording">
                 <svg viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="9" />
+                </svg>
+            </button>
+            <button id="record-video-btn" title="Start Video Recording">
+                <svg viewBox="0 0 24 24">
+                    <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
                 </svg>
             </button>
             <button id="stop-btn" title="Stop Recording">

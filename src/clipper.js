@@ -214,16 +214,25 @@
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.type === 'SET_CLIPPER_ACTIVE') {
             isActive = message.active;
+            const isIslandOnly = !!message.islandOnly;
+
             if (isActive) {
                 createOverlay();
                 createDynamicIsland();
-                overlay.style.display = 'block';
-                overlay.style.pointerEvents = 'auto';
+                
+                if (isIslandOnly) {
+                    overlay.style.display = 'none';
+                    overlay.style.pointerEvents = 'none';
+                } else {
+                    overlay.style.display = 'block';
+                    overlay.style.pointerEvents = 'auto';
+                    // Attach listeners to the overlay specifically to capture events before the page
+                    overlay.addEventListener('mousedown', onMouseDown, true);
+                    overlay.addEventListener('mousemove', onMouseMove, true);
+                    overlay.addEventListener('mouseup', onMouseUp, true);
+                }
+                
                 island.style.display = 'block';
-                // Attach listeners to the overlay specifically to capture events before the page
-                overlay.addEventListener('mousedown', onMouseDown, true);
-                overlay.addEventListener('mousemove', onMouseMove, true);
-                overlay.addEventListener('mouseup', onMouseUp, true);
                 window.addEventListener('keydown', onKeyDown, true);
             } else {
                 if (overlay) {

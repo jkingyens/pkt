@@ -18,7 +18,13 @@
             throw new Error(resp?.error || 'Failed to load media');
         }
 
-        const blob = new Blob([new Uint8Array(resp.data)], { type: resp.type || mimeType });
+        const rawData = resp.data;
+        const uint8Array = rawData instanceof Uint8Array ? rawData : 
+                           (rawData && typeof rawData === 'object' ? new Uint8Array(Object.values(rawData)) : 
+                           new Uint8Array(rawData));
+
+        console.log('[Media] Received data, type:', resp.type, 'size:', uint8Array.byteLength);
+        const blob = new Blob([uint8Array], { type: resp.type || mimeType });
         const url = URL.createObjectURL(blob);
         loading.remove();
 
@@ -38,6 +44,19 @@
             video.src = url;
             video.controls = true;
             video.autoplay = true;
+            
+            video.onerror = () => {
+                const err = video.error;
+                console.error('[Media] Video error:', err.code, err.message);
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'error';
+                errorMsg.textContent = `Video Playback Error: ${err.message || 'Unknown error'}`;
+                container.appendChild(errorMsg);
+            };
+
+            video.onloadeddata = () => console.log('[Media] Video data loaded');
+            video.onplay = () => console.log('[Media] Video started playing');
+            
             container.appendChild(video);
         } else if (blob.type.startsWith('audio/')) {
             const audio = document.createElement('audio');

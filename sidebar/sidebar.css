@@ -2427,3 +2427,13 @@ body:not(.dark-mode) .lock-screen {
   font-size: 14px;
   width: 100%;
 }
+.media-record-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.media-record-btn.compact {
+  flex: 1;
+  min-width: 0;
+}
