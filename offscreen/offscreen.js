@@ -226,13 +226,34 @@ async function startRecording(streamId, isVideo = false, region = null) {
             // Use the video element's actual dimensions to calculate the scale
             // tabCapture might be at a different resolution than the CSS pixels
             const v = document.getElementById('offscreen-preview');
-            const scaleX = v.videoWidth / (region.viewportWidth || 1280);
-            const scaleY = v.videoHeight / (region.viewportHeight || 720);
             
-            log(`[Offscreen] Video resolution: ${v.videoWidth}x${v.videoHeight}, Viewport: ${region.viewportWidth}x${region.viewportHeight}, Scale: ${scaleX}, ${scaleY}`);
+            // Calculate capture aspect ratios to handle letterboxing/pillaring
+            // The browser often adds black bars to force a 16:9 (720p) aspect ratio 
+            // if the tab itself is a different shape.
+            const viewportAR = region.viewportWidth / region.viewportHeight;
+            const videoAR = v.videoWidth / v.videoHeight;
+            
+            let scale, offsetX = 0, offsetY = 0;
+            
+            if (viewportAR > videoAR) {
+                // Viewport is wider than the capture box (e.g. 21:9 tab in 16:9 box)
+                // It fits the width and adds bars to the top/bottom (letterboxing)
+                scale = v.videoWidth / region.viewportWidth;
+                offsetY = (v.videoHeight - (region.viewportHeight * scale)) / 2;
+                log(`[Offscreen] Fit: Width. Scale: ${scale.toFixed(3)}, OffsetY: ${offsetY.toFixed(1)}`);
+            } else {
+                // Viewport is taller than the capture box (e.g. 4:3 or 1:1 tab in 16:9 box)
+                // It fits the height and adds bars to the sides (pillaring)
+                scale = v.videoHeight / region.viewportHeight;
+                offsetX = (v.videoWidth - (region.viewportWidth * scale)) / 2;
+                log(`[Offscreen] Fit: Height. Scale: ${scale.toFixed(3)}, OffsetX: ${offsetX.toFixed(1)}`);
+            }
+            
+            log(`[Offscreen] Aspect Ratio Detection: Viewport=${viewportAR.toFixed(2)}, Video=${videoAR.toFixed(2)}`);
+            log(`[Offscreen] Mapping: scale=${scale.toFixed(2)}, offsetX=${offsetX.toFixed(2)}, offsetY=${offsetY.toFixed(2)}`);
 
-            canvas.width = region.width * scaleX;
-            canvas.height = region.height * scaleY;
+            canvas.width = region.width * scale;
+            canvas.height = region.height * scale;
             const ctx = canvas.getContext('2d');
             
             const cropStream = canvas.captureStream(30);
@@ -245,10 +266,10 @@ async function startRecording(streamId, isVideo = false, region = null) {
                 try {
                     ctx.drawImage(
                         v,
-                        region.x * scaleX,
-                        region.y * scaleY,
-                        region.width * scaleX,
-                        region.height * scaleY,
+                        (region.x * scale) + offsetX,
+                        (region.y * scale) + offsetY,
+                        region.width * scale,
+                        region.height * scale,
                         0,
                         0,
                         canvas.width,

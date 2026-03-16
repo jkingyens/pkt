@@ -4,6 +4,13 @@
  */
 import { compileZigCode } from './zig-compiler.js';
 
+const MEDIA_ICONS = {
+    audio: `<svg class="media-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>`,
+    video: `<svg class="media-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`,
+    image: `<svg class="media-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
+    generic: `<svg class="media-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`
+};
+
 // Real-world SQLite schemas from popular open source apps
 const SCHEMA_PRESETS = {
     buku: `-- buku: command-line bookmark manager
@@ -2264,10 +2271,18 @@ class SidebarUI {
                 card.className = `packet-media-card ${isOffline ? 'disabled' : ''}`;
                 const isImage = item.mimeType?.startsWith('image/');
                 const isVideo = item.mimeType?.startsWith('video/');
-                const icon = isImage ? '🖼️' : (isVideo ? '🎬' : '🎵');
+                const isAudio = item.mimeType?.startsWith('audio/');
+                
+                let iconHtml = MEDIA_ICONS.generic;
+                if (isImage) iconHtml = MEDIA_ICONS.image;
+                else if (isVideo) iconHtml = MEDIA_ICONS.video;
+                else if (isAudio) iconHtml = MEDIA_ICONS.audio;
+
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
-                    <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">${icon}</div>
+                    <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">
+                        ${iconHtml}
+                    </div>
                     <div class="packet-media-info">
                         <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
                         <div class="packet-media-meta">${item.mimeType} • ${this.formatSize(item.size)}</div>
@@ -2278,8 +2293,11 @@ class SidebarUI {
                     e.stopPropagation();
                     this.removePacketItem(index);
                 });
-                if (isImage || isVideo) {
-                    this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
+                if (isAudio || isImage || isVideo) {
+                    // We only load thumbnails for video now, as requested by user to let image icons shine.
+                    if (isVideo) {
+                        this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
+                    }
                 }
                 card.addEventListener('click', () => {
                     if (this.editMode) return;
@@ -3066,10 +3084,14 @@ class SidebarUI {
                 const container = document.getElementById(elementId);
                 if (container) {
                     if (resp.type.startsWith('video/')) {
-                        container.innerHTML = `<video src="${url}" muted autoplay loop style="width:100%; height:100%; object-fit:cover; border-radius:inherit;"></video>`;
-                    } else {
-                        container.innerHTML = `<img src="${url}" alt="Thumbnail">`;
-                    }
+                        const video = document.createElement('video');
+                        video.src = url;
+                        video.muted = true;
+                        video.autoplay = true;
+                        video.loop = true;
+                        container.appendChild(video);
+                    } 
+                    // image thumbnail loading removed to show icon only
                 }
             }
         } catch (e) {
