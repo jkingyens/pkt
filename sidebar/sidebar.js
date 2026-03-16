@@ -400,6 +400,7 @@ class SidebarUI {
         this.currentSchema = [];
         this.constructorItems = []; // Array of { type: 'page'|'wasm', ... }
         this.activePacketGroupId = null;
+        this.pendingWebAuthnDisable = false;
         this.dragSrcIndex = null;
         this.geminiApiKey = '';
         this.geminiModel = '';
@@ -4145,16 +4146,12 @@ class SidebarUI {
             chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/auth.html?mode=register') });
             this.showNotification('Complete registration in the new tab...', 'info');
         } else {
-            if (confirm('Are you sure you want to disable biometric protection?')) {
-                this.webAuthnEnabled = false;
-                this.webAuthnCredentialId = null;
-                await chrome.storage.local.set({
-                    webAuthnEnabled: false,
-                    webAuthnCredentialId: null
-                });
-                this.showNotification('Biometric protection disabled', 'info');
-            } else {
-                this.webAuthnToggle.checked = true;
+            // Revert toggle immediately, it will be updated only after successful verification
+            this.webAuthnToggle.checked = true;
+            
+            if (confirm('Verify identity to disable biometric protection?')) {
+                this.pendingWebAuthnDisable = true;
+                this.verifyWebAuthn();
             }
         }
     }
@@ -4180,30 +4177,26 @@ class SidebarUI {
             await this.loadSettings();
             this.showNotification('Biometric protection enabled', 'success');
         } else if (result.mode === 'verify') {
-            this.isVerified = true;
-            this.hideLockScreen();
-            this.showNotification('Identity verified', 'success');
-            this.continueInit();
-        }
-        
-        // Clear result so it's not re-processed
-        await chrome.storage.local.remove('webAuthnResult');
-    }
-
-    async handleAuthResult(result) {
-        if (!result || !result.success) return;
-        
-        // Cooldown check: only process recent results (last 10 seconds)
-        if (Date.now() - result.timestamp > 10000) return;
-
-        if (result.mode === 'register') {
-            await this.loadSettings();
-            this.showNotification('Biometric protection enabled', 'success');
-        } else if (result.mode === 'verify') {
-            this.isVerified = true;
-            this.hideLockScreen();
-            this.showNotification('Identity verified', 'success');
-            this.continueInit();
+            if (this.pendingWebAuthnDisable) {
+                this.pendingWebAuthnDisable = false;
+                this.webAuthnEnabled = false;
+                this.webAuthnCredentialId = null;
+                await chrome.storage.local.set({
+                    webAuthnEnabled: false,
+                    webAuthnCredentialId: null
+                });
+                if (this.webAuthnToggle) this.webAuthnToggle.checked = false;
+                this.showNotification('Biometric protection disabled', 'success');
+            } else {
+                this.isVerified = true;
+                this.hideLockScreen();
+                this.showNotification('Identity verified', 'success');
+                
+                // NEW: Signal background to unlock tab groups
+                await this.sendMessage({ action: 'UNLOCK_TAB_GROUPS' });
+                
+                this.continueInit();
+            }
         }
         
         // Clear result so it's not re-processed

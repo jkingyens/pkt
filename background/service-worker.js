@@ -31,6 +31,9 @@ let pendingRecordingState = {
     permissionTabId: null
 };
 
+// Biometric session state
+let isSessionVerified = false;
+
 const NETWORK_BLOCK_RULE_ID = 1;
 
 async function syncBookmarkCache() {
@@ -770,6 +773,9 @@ async function initializeSQLite() {
             setTimeout(recover, 2000); // 2s delay
             setTimeout(recover, 5000); // 5s delay
 
+            // LOCK on startup if biometrics are enabled
+            performStartupLock().catch(e => console.error('[StartupLock] Failed:', e));
+
             return sqliteManager;
         } catch (error) {
             console.error('Initialization failed:', error);
@@ -1183,6 +1189,49 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'UNLOCK_TAB_GROUPS':
+                (async () => {
+                    isSessionVerified = true;
+                    try {
+                        const { lockedGroupsRestoration = [] } = await chrome.storage.local.get('lockedGroupsRestoration');
+                        if (lockedGroupsRestoration.length === 0) {
+                            sendResponse({ success: true, message: 'No groups to restore' });
+                            return;
+                        }
+
+                        console.log(`[Unlock] Restoring ${lockedGroupsRestoration.length} groups...`);
+                        for (const groupData of lockedGroupsRestoration) {
+                            const { packetId, urls } = groupData;
+                            if (!urls || urls.length === 0) continue;
+
+                            // Open the first tab to start the group
+                            const firstTab = await chrome.tabs.create({ url: urls[0], active: false });
+                            const groupId = await chrome.tabs.group({ tabIds: [firstTab.id] });
+                            
+                            // Add remaining tabs
+                            for (let i = 1; i < urls.length; i++) {
+                                await chrome.tabs.create({ url: urls[i], active: false }).then(tab => {
+                                    return chrome.tabs.group({ tabIds: [tab.id], groupId });
+                                });
+                            }
+                            
+                            // Re-associate in activeGroups
+                            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                            activeGroups[groupId] = packetId;
+                            await chrome.storage.local.set({ activeGroups });
+                            
+                            // Refresh title/color from DB
+                            await getOrCreateGroupForPacket(packetId, null, groupId);
+                        }
+
+                        await chrome.storage.local.remove('lockedGroupsRestoration');
+                        sendResponse({ success: true });
+                    } catch (e) {
+                        console.error('[Unlock] Restoration failed:', e);
+                        sendResponse({ success: false, error: e.message });
+                    }
+                })();
+                return true;
             case 'saveMediaBlob': {
                 try {
                     let blob;
@@ -2198,6 +2247,60 @@ async function reassociateTabGroups() {
         }
     } catch (e) {
         console.error('[GroupRecovery] Error:', e);
+    }
+}
+
+/**
+ * Checks if biometrics are enabled and locks tab groups if not yet verified for this session.
+ */
+async function performStartupLock() {
+    try {
+        const { webAuthnEnabled = false, activeGroups = {} } = await chrome.storage.local.get(['webAuthnEnabled', 'activeGroups']);
+        
+        if (!webAuthnEnabled || isSessionVerified) {
+            console.log('[StartupLock] Skipping: webAuthnEnabled=', webAuthnEnabled, 'isSessionVerified=', isSessionVerified);
+            return;
+        }
+
+        const gids = Object.keys(activeGroups);
+        if (gids.length === 0) {
+            console.log('[StartupLock] No active groups to lock.');
+            return;
+        }
+
+        console.log(`[StartupLock] Locking ${gids.length} groups...`);
+        const restorationData = [];
+
+        for (const gid of gids) {
+            const groupId = parseInt(gid);
+            const packetId = activeGroups[gid];
+            
+            try {
+                const tabs = await chrome.tabs.query({ groupId });
+                if (tabs.length > 0) {
+                    restorationData.push({
+                        packetId,
+                        urls: tabs.map(t => t.url || t.pendingUrl).filter(Boolean)
+                    });
+                    
+                    // Close all tabs in the group
+                    const tabIds = tabs.map(t => t.id);
+                    await chrome.tabs.remove(tabIds);
+                }
+            } catch (e) {
+                console.warn(`[StartupLock] Failed to lock group ${gid}:`, e);
+            }
+        }
+
+        // Save restoration data and clear activeGroups
+        await chrome.storage.local.set({ 
+            lockedGroupsRestoration: restorationData,
+            activeGroups: {} // Wipe active groups so they don't show up in sidebar until restored
+        });
+
+        console.log(`[StartupLock] Successfully locked and saved ${restorationData.length} groups.`);
+    } catch (e) {
+        console.error('[StartupLock] Error during locking:', e);
     }
 }
                 async function executeWasm(item) {
