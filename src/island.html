@@ -2,6 +2,7 @@
 <html>
 
 <head>
+    <meta charset="UTF-8">
     <style>
         :root {
             --island-bg: #000000;
@@ -55,6 +56,38 @@
             gap: 12px;
         }
 
+        #clip-options {
+            display: none;
+            position: absolute;
+            top: 45px;
+            right: 16px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            flex-direction: column;
+            padding: 4px;
+            gap: 4px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 100;
+        }
+
+        #clip-options button {
+            color: white;
+            font-size: 12px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+        }
+
+        #clip-options button:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
         button {
             border: none;
             background: none;
@@ -68,10 +101,14 @@
             transform: scale(0.9);
         }
 
-        #record-btn svg, #record-video-btn svg {
+        #record-btn svg, #record-video-btn svg, #clip-btn svg {
             fill: var(--record-fill);
             width: 24px;
             height: 24px;
+        }
+
+        #clip-btn svg {
+            fill: #007aff;
         }
 
         #stop-btn {
@@ -94,6 +131,25 @@
             <span id="timer">Wildcard</span>
         </div>
         <div class="controls">
+            <button id="clip-btn" title="Clip Screen">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/>
+                </svg>
+            </button>
+            <div id="clip-options">
+                <button id="clip-image-btn">
+                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white;">
+                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                    Image
+                </button>
+                <button id="clip-video-btn">
+                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white;">
+                        <path d="M18 4H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
+                    </svg>
+                    Video
+                </button>
+            </div>
             <button id="record-btn" title="Start Audio Recording">
                 <svg viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="9" />

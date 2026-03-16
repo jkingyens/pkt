@@ -11,11 +11,32 @@ const timerEl = document.getElementById('timer');
 const indicator = document.getElementById('indicator');
 const recordBtn = document.getElementById('record-btn');
 const recordVideoBtn = document.getElementById('record-video-btn');
+const clipBtn = document.getElementById('clip-btn');
 const stopBtn = document.getElementById('stop-btn');
+const clipOptions = document.getElementById('clip-options');
+const clipImageBtn = document.getElementById('clip-image-btn');
+const clipVideoBtn = document.getElementById('clip-video-btn');
 
 recordBtn.onclick = () => toggleRecording(false);
 recordVideoBtn.onclick = () => toggleRecording(true);
+clipBtn.onclick = () => {
+    clipOptions.style.display = clipOptions.style.display === 'flex' ? 'none' : 'flex';
+    const isExpanded = clipOptions.style.display === 'flex';
+    window.parent.postMessage({ 
+        type: 'ISLAND_EXPAND', 
+        expand: isExpanded,
+        height: isExpanded ? 130 : 40 
+    }, '*');
+};
+clipImageBtn.onclick = () => activateClipper(false);
+clipVideoBtn.onclick = () => activateClipper(true);
 stopBtn.onclick = () => toggleRecording();
+
+function activateClipper(isVideo) {
+    clipOptions.style.display = 'none';
+    window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false }, '*');
+    safeSendMessage({ type: 'ACTIVATE_CLIPPER_OVERLAY', isVideo });
+}
 
 async function toggleRecording(isVideo = false) {
     if (!isRecording) {
@@ -45,7 +66,7 @@ async function toggleRecording(isVideo = false) {
                     isRecording = true;
                     startTime = Date.now();
                     updateUI();
-                    window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true }, '*');
+                    window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true, height: 40 }, '*');
                 } else if (resp) {
                     throw new Error(resp.error || 'Failed to start in background');
                 }
@@ -60,12 +81,12 @@ async function toggleRecording(isVideo = false) {
             timerEl.style.color = '#ff453a';
             recordBtn.style.display = 'block'; // Restore button on error
             recordVideoBtn.style.display = 'block';
-            window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true }, '*');
+            window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true, height: 40 }, '*');
             setTimeout(() => {
                 if (!isRecording) {
                     timerEl.textContent = 'Wildcard';
                     timerEl.style.color = 'white';
-                    window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false }, '*');
+                    window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false, height: 40 }, '*');
                 }
             }, 5000);
         }
@@ -78,7 +99,7 @@ async function toggleRecording(isVideo = false) {
                 isRecording = false;
                 clearInterval(timerInterval);
                 updateUI();
-                window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false }, '*');
+                window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false, height: 40 }, '*');
             }
         });
     }
@@ -134,7 +155,7 @@ chrome.runtime.onMessage.addListener((message) => {
             isRecording = true;
             startTime = Date.now();
             updateUI();
-            window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true }, '*');
+            window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true, height: 40 }, '*');
             // SW already has the streamId and started the pipeline, but we just need to update UI
             // and potentially confirm starting if SW didn't do it yet.
             // In our new flow, SW handles the START_RECORDING message to offscreen.

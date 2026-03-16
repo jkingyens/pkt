@@ -254,8 +254,8 @@ function isStackEditorOrPlayback(tabId, url) {
     return false;
 }
 
-async function initiateTabCapture(streamId, targetTabId, isVideo = false) {
-    console.log(`[SW] initiateTabCapture (${isVideo ? 'video' : 'audio'}) for tab:`, targetTabId);
+async function initiateTabCapture(streamId, targetTabId, isVideo = false, region = null) {
+    console.log(`[SW] initiateTabCapture (${isVideo ? 'video' : 'audio'}) for tab:`, targetTabId, 'Region:', region);
 
     // 1. Ensure clipper is active on that tab (unless it's a media page where overlay fails)
     const tab = await chrome.tabs.get(targetTabId).catch(() => null);
@@ -271,7 +271,8 @@ async function initiateTabCapture(streamId, targetTabId, isVideo = false) {
     chrome.runtime.sendMessage({
         type: 'START_RECORDING',
         streamId,
-        isVideo
+        isVideo,
+        region
     });
 
     // 4. Update Island UI (if it's already open, it will receive this)
@@ -1357,7 +1358,7 @@ async function handleMessage(request, sender, sendResponse) {
                         console.log('[SW] Fallback streamId obtained:', streamId);
                     }
 
-                    await initiateTabCapture(streamId, targetTabId, isVideo);
+                    await initiateTabCapture(streamId, targetTabId, isVideo, request.region);
                     sendResponse({ success: true });
                 } catch (e) {
                     console.error(`[SW] Failed to start ${isVideo ? 'video' : 'audio'} recording:`, e);

@@ -128,7 +128,9 @@
                     y: rect.top,
                     width: rect.width,
                     height: rect.height,
-                    devicePixelRatio: window.devicePixelRatio
+                    devicePixelRatio: window.devicePixelRatio,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight
                 }
             });
         }
@@ -187,7 +189,7 @@
             top: '20px',
             left: '50%',
             transform: 'translateX(-50%)',
-            width: '150px',
+            width: '200px',
             height: '40px',
             border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '20px',
@@ -204,7 +206,12 @@
         // Listen for messages from the island
         window.addEventListener('message', (event) => {
             if (event.data.type === 'ISLAND_EXPAND') {
-                island.style.width = event.data.expand ? '200px' : '150px';
+                island.style.width = event.data.expand ? '220px' : '200px';
+                if (event.data.height) {
+                    island.style.height = event.data.height + 'px';
+                } else {
+                    island.style.height = '40px';
+                }
             } else if (event.data.type === 'ESCAPE_PRESSED') {
                 safeSendMessage({ type: 'CLIPPER_CANCELLED' });
             }

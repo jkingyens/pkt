@@ -413,6 +413,8 @@ class SidebarUI {
         this.isVerified = false;
         this.consecutiveFailures = 0;
         this.MAX_CONSECUTIVE_FAILURES = 3;
+        this.pendingVideoClip = false;
+        this.pendingVideoRegion = null;
 
         this.setupEventListeners();
         this.setupMessageHandlers();
@@ -627,8 +629,13 @@ class SidebarUI {
                 this.updateHoverHighlight(message.url, true);
             } else if (message.type === 'HOVER_ITEM_END') {
                 this.updateHoverHighlight(message.url, false);
-            } else if (message.type === 'TOGGLE_SIDEBAR') {
-                window.close();
+            } else if (message.type === 'ACTIVATE_CLIPPER_OVERLAY') {
+                this.pendingVideoClip = !!message.isVideo;
+                chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+                    if (tab) {
+                        chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active: true, islandOnly: false }).catch(() => { });
+                    }
+                });
             }
         });
     }
@@ -4400,23 +4407,24 @@ class SidebarUI {
 
             const isCorrectGroup = currentGroupId !== undefined && currentGroupId === this.activePacketGroupId;
 
-            // If manually invoked, we show it even if URL isn't in packet yet (so user can clip it)
-            this.setClipperActive(this.isClipperInvoked || (isInPacket && isCorrectGroup));
+            // REDESIGN: If manually invoked, show in islandOnly mode first
+            const active = this.isClipperInvoked || (isInPacket && isCorrectGroup);
+            this.setClipperActive(active, this.isClipperInvoked);
         } catch (err) {
             this.setClipperActive(false);
         }
     }
 
-    async setClipperActive(active) {
+    async setClipperActive(active, islandOnly = false) {
         // If we are deactivating, make sure we clear the last known capture tab's badge
         if (!active && this.activeCaptureTabId) {
             this.sendMessage({ type: 'UPDATE_BADGE', isReadyToClip: false, tabId: this.activeCaptureTabId }).catch(() => { });
             this.activeCaptureTabId = null;
         }
-
+        
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab) {
-            chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active }).catch(() => { });
+            chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active, islandOnly }).catch(() => { });
 
             if (active) {
                 this.activeCaptureTabId = tab.id;
@@ -4469,6 +4477,28 @@ class SidebarUI {
 
     async handleClipperRegionSelected(region) {
         try {
+            if (this.pendingVideoClip) {
+                // Video Clip path
+                this.pendingVideoRegion = region;
+                await this.setClipperActive(false);
+                
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (!tab) throw new Error('No active tab');
+
+                const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+                
+                await this.sendMessage({ 
+                    action: 'START_TAB_VIDEO_RECORDING', 
+                    streamId,
+                    region: region
+                });
+                
+                this.pendingVideoClip = false;
+                this.pendingVideoRegion = null;
+                return;
+            }
+
+            // Image Clip path (screenshot)
             // 1. Deactivate clipper UI immediately so it's hidden from the screenshot
             await this.setClipperActive(false);
 

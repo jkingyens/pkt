@@ -12,7 +12,7 @@ let data = [];
 
 chrome.runtime.onMessage.addListener(async (message) => {
     if (message.type === 'START_RECORDING') {
-        startRecording(message.streamId, message.isVideo);
+        startRecording(message.streamId, message.isVideo, message.region);
     } else if (message.type === 'START_MIC_RECORDING') {
         startMicRecording(message.video);
     } else if (message.type === 'STOP_RECORDING') {
@@ -126,7 +126,7 @@ function setupRecorder(stream, isVideo) {
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED', isVideo });
 }
 
-async function startRecording(streamId, isVideo = false) {
+async function startRecording(streamId, isVideo = false, region = null) {
     if (recorder && recorder.state !== 'inactive') return;
 
     log('[Offscreen] Starting recording with streamId:', streamId, 'isVideo:', isVideo);
@@ -215,6 +215,64 @@ async function startRecording(streamId, isVideo = false) {
         // Small stabilization delay
         await new Promise(r => setTimeout(r, 500));
         
+        let finalStream = stream;
+
+        // Apply cropping if region is provided
+        if (isVideo && region) {
+            log('[Offscreen] Applying cropping to video stream:', JSON.stringify(region));
+            const canvas = document.createElement('canvas');
+            const dpr = region.devicePixelRatio || 1;
+            
+            // Use the video element's actual dimensions to calculate the scale
+            // tabCapture might be at a different resolution than the CSS pixels
+            const v = document.getElementById('offscreen-preview');
+            const scaleX = v.videoWidth / (region.viewportWidth || 1280);
+            const scaleY = v.videoHeight / (region.viewportHeight || 720);
+            
+            log(`[Offscreen] Video resolution: ${v.videoWidth}x${v.videoHeight}, Viewport: ${region.viewportWidth}x${region.viewportHeight}, Scale: ${scaleX}, ${scaleY}`);
+
+            canvas.width = region.width * scaleX;
+            canvas.height = region.height * scaleY;
+            const ctx = canvas.getContext('2d');
+            
+            const cropStream = canvas.captureStream(30);
+            
+            let drawInterval = setInterval(() => {
+                if (!finalStream.active) {
+                    clearInterval(drawInterval);
+                    return;
+                }
+                try {
+                    ctx.drawImage(
+                        v,
+                        region.x * scaleX,
+                        region.y * scaleY,
+                        region.width * scaleX,
+                        region.height * scaleY,
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    );
+                } catch (e) {
+                    log('[Offscreen] drawImage error:', e.message);
+                }
+            }, 1000 / 30);
+            
+            // Reconstruct stream with cropped video and original audio
+            const tracks = [];
+            const canvasTracks = cropStream.getVideoTracks();
+            const audioTracks = stream.getAudioTracks();
+            
+            log(`[Offscreen] Tracks found - Canvas Video: ${canvasTracks.length}, Original Audio: ${audioTracks.length}`);
+            
+            if (canvasTracks.length > 0) tracks.push(canvasTracks[0]);
+            if (audioTracks.length > 0) tracks.push(audioTracks[0]);
+            
+            finalStream = new MediaStream(tracks);
+            log('[Offscreen] Cropping loop and final stream initialized');
+        }
+
         // Continue playing audio in the tab while recording
         const audioTracks = stream.getAudioTracks();
         if (audioTracks.length > 0) {
@@ -224,7 +282,7 @@ async function startRecording(streamId, isVideo = false) {
             log('[Offscreen] Audio playback connected');
         }
 
-        setupRecorder(stream, isVideo);
+        setupRecorder(finalStream, isVideo);
     } catch (e) {
         log('[Offscreen] recording failed: ' + e.message);
         chrome.runtime.sendMessage({ type: 'RECORDING_ERROR', error: e.message });
