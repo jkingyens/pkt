@@ -24,6 +24,13 @@ let sidebarPort = null;
 // Track open terminal tabs: packetId -> tabId
 let terminalTabs = {};
 
+// Track pending recording intent for session-based permissions
+let pendingRecordingState = {
+    type: null, // 'audio', 'video', or null
+    timestamp: 0,
+    permissionTabId: null
+};
+
 const NETWORK_BLOCK_RULE_ID = 1;
 
 async function syncBookmarkCache() {
@@ -163,17 +170,66 @@ async function syncNetworkStatus() {
         if (isDisabled) {
             console.log('[SW-Startup] Network kill switch is ENABLED (blocking requests)');
             await updateBadge({});
+            
+            // 1. Clear existing rules first
+            const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+            const ruleIds = existingRules.map(r => r.id);
+            
+            // 2. Add specific block rules and high-priority internal allow rules
             await chrome.declarativeNetRequest.updateDynamicRules({
-                addRules: [{
-                    id: NETWORK_BLOCK_RULE_ID,
-                    priority: 100,
-                    action: { type: 'block' },
-                    condition: {
-                        urlFilter: '*',
-                        resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+                removeRuleIds: ruleIds,
+                addRules: [
+                    // Rule 100+: High-priority ALLOW rules for internal resources
+                    {
+                        id: 100,
+                        priority: 200,
+                        action: { type: 'allow' },
+                        condition: { urlFilter: 'chrome-extension://*', resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other'] }
+                    },
+                    {
+                        id: 101,
+                        priority: 200,
+                        action: { type: 'allow' },
+                        condition: { urlFilter: 'blob:*', resourceTypes: ['image', 'media', 'other', 'xmlhttprequest'] }
+                    },
+                    // Rule 1+: Standard priority BLOCK rules for external protocols
+                    {
+                        id: NETWORK_BLOCK_RULE_ID,
+                        priority: 100,
+                        action: { type: 'block' },
+                        condition: {
+                            urlFilter: 'http://*',
+                            resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+                        }
+                    },
+                    {
+                        id: NETWORK_BLOCK_RULE_ID + 1,
+                        priority: 100,
+                        action: { type: 'block' },
+                        condition: {
+                            urlFilter: 'https://*',
+                            resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+                        }
+                    },
+                    {
+                        id: NETWORK_BLOCK_RULE_ID + 2,
+                        priority: 100,
+                        action: { type: 'block' },
+                        condition: {
+                            urlFilter: 'ws://*',
+                            resourceTypes: ['websocket']
+                        }
+                    },
+                    {
+                        id: NETWORK_BLOCK_RULE_ID + 3,
+                        priority: 100,
+                        action: { type: 'block' },
+                        condition: {
+                            urlFilter: 'wss://*',
+                            resourceTypes: ['websocket']
+                        }
                     }
-                }],
-                removeRuleIds: [NETWORK_BLOCK_RULE_ID]
+                ]
             });
             if (!wasDisabled) {
                 await logEvent('Network Offline (Simulated)', 'Network access was disabled via extension settings.', 1);
@@ -181,7 +237,11 @@ async function syncNetworkStatus() {
         } else {
             console.log('[SW-Startup] Network kill switch is DISABLED (allowing requests)');
             await chrome.declarativeNetRequest.updateDynamicRules({
-                removeRuleIds: [NETWORK_BLOCK_RULE_ID]
+                removeRuleIds: [
+                    NETWORK_BLOCK_RULE_ID, NETWORK_BLOCK_RULE_ID + 1, 
+                    NETWORK_BLOCK_RULE_ID + 2, NETWORK_BLOCK_RULE_ID + 3,
+                    100, 101 // Internal allow rules
+                ]
             });
             if (wasDisabled) {
                 await logEvent('Network Online (Simulated)', 'Network access was enabled via extension settings.', 1);
@@ -779,6 +839,50 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'startRecording': {
                 await initiateTabCapture(request.streamId, request.tabId, !!request.video);
+                sendResponse({ success: true });
+                break;
+            }
+            case 'SET_PENDING_RECORDING': {
+                pendingRecordingState = {
+                    type: request.recordingType, // 'audio' or 'video'
+                    timestamp: Date.now()
+                };
+                console.log('[SW] Pending recording state set:', pendingRecordingState);
+                sendResponse({ success: true });
+                break;
+            }
+            case 'PERMISSION_GRANTED': {
+                console.log('[SW] PERMISSION_GRANTED received. Checking for pending recording...');
+                // Store the tabId that granted the permission
+                if (sender.tab) {
+                    pendingRecordingState.permissionTabId = sender.tab.id;
+                    console.log('[SW] Permission tab ID tracked:', pendingRecordingState.permissionTabId);
+                }
+
+                // Only honor if it happened within the last 5 minutes
+                if (pendingRecordingState.type && (Date.now() - pendingRecordingState.timestamp < 300000)) {
+                    const isVideo = pendingRecordingState.type === 'video';
+                    console.log(`[SW] Resuming pending ${isVideo ? 'video' : 'audio'} recording...`);
+                    
+                    // Small delay to ensure the offscreen document is ready and the permission tab is still active
+                    setTimeout(async () => {
+                        try {
+                            await ensureOffscreenDocument();
+                            chrome.runtime.sendMessage({ type: 'START_MIC_RECORDING', video: isVideo });
+                        } catch (err) {
+                            console.error('[SW] Failed to resume recording:', err);
+                        }
+                    }, 500);
+                }
+                sendResponse({ success: true });
+                break;
+            }
+            case 'RECORDING_STOPPED': {
+                if (pendingRecordingState.permissionTabId) {
+                    console.log('[SW] Recording stopped. Closing permission tab:', pendingRecordingState.permissionTabId);
+                    chrome.tabs.remove(pendingRecordingState.permissionTabId).catch(() => {});
+                    pendingRecordingState.permissionTabId = null;
+                }
                 sendResponse({ success: true });
                 break;
             }
@@ -1393,7 +1497,7 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'RECORDING_STARTED':
             case 'RECORDING_ERROR': {
-                // These are also already broadcasted by offscreen.js.
+                // These are broadcasted by offscreen.js.
                 break;
             }
 

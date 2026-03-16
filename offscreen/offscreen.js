@@ -37,7 +37,8 @@ async function startMicRecording(isVideo = false) {
         log(`[Offscreen] Mic recording failed. Name: ${e.name}, Message: ${e.message}`);
         chrome.runtime.sendMessage({
             type: 'RECORDING_ERROR',
-            error: `${e.name}: ${e.message}`
+            error: `${e.name}: ${e.message}`,
+            isVideo: isVideo
         });
     }
 }
@@ -111,7 +112,11 @@ function setupRecorder(stream, isVideo) {
             }
         } catch (e) {
             log(`[Offscreen] Failed to save media: ${e.message}`);
-            chrome.runtime.sendMessage({ type: 'RECORDING_ERROR', error: 'Failed to save media: ' + e.message });
+            chrome.runtime.sendMessage({ 
+                type: 'RECORDING_ERROR', 
+                error: 'Failed to save media: ' + e.message,
+                isVideo: isVideo
+            });
         }
 
         stream.getTracks().forEach(t => t.stop());
@@ -306,7 +311,11 @@ async function startRecording(streamId, isVideo = false, region = null) {
         setupRecorder(finalStream, isVideo);
     } catch (e) {
         log('[Offscreen] recording failed: ' + e.message);
-        chrome.runtime.sendMessage({ type: 'RECORDING_ERROR', error: e.message });
+        chrome.runtime.sendMessage({ 
+            type: 'RECORDING_ERROR', 
+            error: e.message,
+            isVideo: isVideo
+        });
     }
 }
 

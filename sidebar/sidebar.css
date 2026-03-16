@@ -129,20 +129,25 @@ h1 {
   height: 12px;
 }
 
-.status-indicator-header .wifi-icon {
+.status-indicator-header .wifi-icon,
+.status-indicator-header .camera-icon {
   width: 16px;
   height: 16px;
   color: var(--success);
   transition: all 0.3s ease;
 }
 
-.status-indicator-header.offline .wifi-icon {
+.status-indicator-header.offline .wifi-icon,
+.status-indicator-header.disabled .camera-icon {
   color: var(--secondary);
+  opacity: 0.5;
 }
 
-.status-indicator-header.simulated-offline .wifi-icon {
+.status-indicator-header.simulated-offline .wifi-icon,
+.status-indicator-header.denied .camera-icon {
   color: var(--danger);
   filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4));
+  opacity: 1;
 }
 
 .header-settings-btn.btn-icon {
@@ -1175,7 +1180,8 @@ h1 {
 }
 
 .packet-media-preview video,
-.packet-media-preview img {
+.packet-media-preview img,
+.packet-media-preview .audio-waveform-thumb {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1183,6 +1189,11 @@ h1 {
   top: 0;
   left: 0;
   z-index: 1;
+}
+
+.packet-media-preview .audio-waveform-thumb {
+  padding: 4px;
+  box-sizing: border-box;
 }
 
 .packet-media-preview img {

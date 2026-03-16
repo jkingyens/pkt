@@ -300,6 +300,7 @@ class SidebarUI {
         this.webAuthnToggle = document.getElementById('webAuthnToggle');
         this.lockScreen = document.getElementById('lockScreen');
         this.unlockBtn = document.getElementById('unlockBtn');
+        this.permissionIndicator = document.getElementById('permissionIndicator');
 
         this.terminalTabs = {}; // packetId -> tabId
         this.activeRecordingTabId = null;
@@ -416,6 +417,8 @@ class SidebarUI {
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.activeCaptureTabId = null; // Track which tab has the capture indicator
         this.editMode = false;
+        this.micPermissionState = 'prompt'; // 'granted', 'denied', 'prompt'
+        this.camPermissionState = 'prompt';
         this.webAuthnEnabled = false;
         this.webAuthnCredentialId = null;
         this.isVerified = false;
@@ -451,6 +454,9 @@ class SidebarUI {
         // Establish a persistent connection to the background script
         // This allows the service worker to detect when the sidebar is open
         this.connectToBackground();
+
+        // Start periodic permission monitoring
+        this.monitorPermissions();
     }
 
     async init() {
@@ -606,6 +612,8 @@ class SidebarUI {
                     chrome.tabs.sendMessage(this.activeRecordingTabId, { type: 'SET_RECORDING_OVERLAY', active: false }).catch(() => {});
                     this.activeRecordingTabId = null;
                 }
+                // Notify background to close permission tab
+                chrome.runtime.sendMessage({ action: 'RECORDING_STOPPED' });
                 this.handleMediaClipFinished(message.mediaId, message.size, message.mimeType || (message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm'));
             } else if (message.type === 'RECORDING_STARTED') {
                 this.isRecording = true;
@@ -630,13 +638,15 @@ class SidebarUI {
                 this.isVideoRecording = false;
                 this.isTabVideoRecording = false;
                 this.updateRecordingUI();
+                // Notify background to close permission tab on error
+                chrome.runtime.sendMessage({ action: 'RECORDING_STOPPED' });
                 if (message.error && (message.error.includes('NotAllowedError') || message.error.includes('Permission dismissed'))) {
-                    this.handlePermissionError();
+                    this.handlePermissionError(!!message.isVideo);
                 } else {
                     this.showNotification('Recording error: ' + message.error, 'error');
                 }
-            } else if (message.type === 'OFFSCREEN_LOG') {
-                console.log('[Offscreen-Relay]', message.message);
+            } else if (message.type === 'PERMISSION_GRANTED') {
+                this.updatePermissionStatus();
             } else if (message.type === 'HOVER_ITEM_START') {
                 this.updateHoverHighlight(message.url, true);
             } else if (message.type === 'HOVER_ITEM_END') {
@@ -1251,7 +1261,7 @@ class SidebarUI {
                         const resp = await this.sendMessage({ action: 'startMicRecording', video: false });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
-                        this.handleRecordingError(err);
+                        this.handleRecordingError(err, false);
                     }
                 }
             });
@@ -1269,7 +1279,7 @@ class SidebarUI {
                         const resp = await this.sendMessage({ action: 'START_AUDIO_RECORDING', streamId });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
-                        this.handleRecordingError(err);
+                        this.handleRecordingError(err, false);
                     }
                 }
             });
@@ -1284,7 +1294,7 @@ class SidebarUI {
                         const resp = await this.sendMessage({ action: 'startMicRecording', video: true });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
-                        this.handleRecordingError(err);
+                        this.handleRecordingError(err, true);
                     }
                 }
             });
@@ -1302,7 +1312,7 @@ class SidebarUI {
                         const resp = await this.sendMessage({ action: 'START_TAB_VIDEO_RECORDING', streamId });
                         if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
                     } catch (err) {
-                        this.handleRecordingError(err);
+                        this.handleRecordingError(err, true);
                     }
                 }
             });
@@ -1502,16 +1512,21 @@ class SidebarUI {
         }
     }
 
-    handlePermissionError() {
+    handlePermissionError(isVideo = false) {
         const openPermission = confirm('Wildcard needs microphone permission to record. Open a new tab to grant it?');
         if (openPermission) {
+            // Store the intent in the background script so it can resume after grant
+            chrome.runtime.sendMessage({ 
+                action: 'SET_PENDING_RECORDING', 
+                recordingType: isVideo ? 'video' : 'audio' 
+            });
             chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/permission.html') });
         }
     }
 
-    handleRecordingError(err) {
+    handleRecordingError(err, isVideo = false) {
         if (err.name === 'NotAllowedError' || err.message.includes('Permission dismissed')) {
-            this.handlePermissionError();
+            this.handlePermissionError(isVideo);
         } else {
             this.showNotification('Failed to start recording: ' + err.message, 'error');
         }
@@ -1732,10 +1747,6 @@ class SidebarUI {
         const view = document.getElementById(viewId);
         if (view) {
             view.classList.add('active');
-            // Disable edit mode when switching views
-            if (viewId !== 'packetDetailView') {
-                this.resetEditMode();
-            }
         } else {
             console.error(`[SidebarUI] View not found: ${viewId}`);
         }
@@ -1755,7 +1766,6 @@ class SidebarUI {
         }
 
         // Short-circuit 2: Check navigator.onLine as a fast pre-check
-        // If the OS says we're offline, we definitely are.
         if (!navigator.onLine) {
             this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
             this.handleOfflineTransition();
@@ -1781,12 +1791,85 @@ class SidebarUI {
             
             if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
                 this.handleOfflineTransition();
-            } else {
-                // Stay in Online state but maybe show a hint if we're feeling fancy later
-                // For now, just don't flip to offline yet.
-
             }
         }
+    }
+
+    monitorPermissions() {
+        // Initial check
+        this.updatePermissionStatus();
+        
+        // Watch for changes if API supported
+        try {
+            if (navigator.permissions && navigator.permissions.query) {
+                navigator.permissions.query({ name: 'microphone' }).then(res => {
+                    res.onchange = () => this.updatePermissionStatus();
+                }).catch(() => {});
+                
+                navigator.permissions.query({ name: 'camera' }).then(res => {
+                    res.onchange = () => this.updatePermissionStatus();
+                }).catch(() => {});
+            }
+        } catch (e) {
+            console.warn('[Sidebar] Permissions API change tracking not fully supported');
+        }
+
+        // Periodic fallback for extra robustness
+        setInterval(() => this.updatePermissionStatus(), 10000);
+    }
+
+    async updatePermissionStatus() {
+        if (!this.permissionIndicator) return;
+
+        try {
+            let micGranted = false;
+            let camGranted = false;
+
+            // 1. Try direct permissions API first
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const micPerm = await navigator.permissions.query({ name: 'microphone' });
+                    const camPerm = await navigator.permissions.query({ name: 'camera' });
+                    this.micPermissionState = micPerm.state;
+                    this.camPermissionState = camPerm.state;
+                    micGranted = micPerm.state === 'granted';
+                    camGranted = camPerm.state === 'granted';
+                } else {
+                    throw new Error('Permissions API not available');
+                }
+            } catch (e) {
+                // Fallback: check device labels (they are empty if no permission)
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                micGranted = devices.some(d => d.kind === 'audioinput' && d.label !== '');
+                camGranted = devices.some(d => d.kind === 'videoinput' && d.label !== '');
+                this.micPermissionState = micGranted ? 'granted' : 'prompt';
+                this.camPermissionState = camGranted ? 'granted' : 'prompt';
+            }
+
+            // Update header indicator
+            const isFullyGranted = micGranted && camGranted;
+            const isAnyDenied = this.micPermissionState === 'denied' || this.camPermissionState === 'denied';
+
+            this.permissionIndicator.classList.toggle('disabled', !isFullyGranted && !isAnyDenied);
+            this.permissionIndicator.classList.toggle('denied', isAnyDenied);
+            
+            if (isFullyGranted) {
+                this.permissionIndicator.title = 'Camera & Microphone Access Granted';
+            } else if (isAnyDenied) {
+                this.permissionIndicator.title = 'Permissions Denied: Check Browser Settings';
+            } else {
+                this.permissionIndicator.title = 'Permissions Required for Recording';
+            }
+
+            // Update recording buttons if they exist in the DOM
+            this.updateRecordingButtonStates(micGranted, camGranted);
+        } catch (err) {
+            console.error('[Sidebar] Error updating permission status:', err);
+        }
+    }
+
+    updateRecordingButtonStates(micGranted, camGranted) {
+        // We can add visual hints to buttons here if needed
     }
 
     handleOfflineTransition() {
@@ -2299,10 +2382,7 @@ class SidebarUI {
                     this.removePacketItem(index);
                 });
                 if (isAudio || isImage || isVideo) {
-                    // We only load thumbnails for video now, as requested by user to let image icons shine.
-                    if (isVideo) {
-                        this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
-                    }
+                    this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
                 }
                 card.addEventListener('click', () => {
                     if (this.editMode) return;
@@ -3084,10 +3164,17 @@ class SidebarUI {
         try {
             const resp = await this.sendMessage({ action: 'getMediaBlob', id: mediaId });
             if (resp && resp.success) {
-                const blob = new Blob([new Uint8Array(resp.data)], { type: resp.type });
+                const rawData = resp.data;
+                const uint8Array = rawData instanceof Uint8Array ? rawData : 
+                                   (rawData && typeof rawData === 'object' ? new Uint8Array(Object.values(rawData)) : 
+                                   new Uint8Array(rawData));
+                const blob = new Blob([uint8Array], { type: resp.type });
                 const url = URL.createObjectURL(blob);
                 const container = document.getElementById(elementId);
                 if (container) {
+                    // Clear placeholder icon
+                    container.innerHTML = '';
+                    
                     if (resp.type.startsWith('video/')) {
                         const video = document.createElement('video');
                         video.src = url;
@@ -3095,12 +3182,75 @@ class SidebarUI {
                         video.autoplay = true;
                         video.loop = true;
                         container.appendChild(video);
-                    } 
-                    // image thumbnail loading removed to show icon only
+                    } else if (resp.type.startsWith('image/')) {
+                        const img = document.createElement('img');
+                        img.src = url;
+                        container.appendChild(img);
+                    } else if (resp.type.startsWith('audio/')) {
+                        const canvas = document.createElement('canvas');
+                        canvas.className = 'audio-waveform-thumb';
+                        // Add canvas immediately so it's ready for drawing
+                        container.appendChild(canvas);
+                        this.drawAudioWaveform(blob, canvas);
+                    }
                 }
             }
         } catch (e) {
             console.error('Thumbnail load failed:', e);
+        }
+    }
+
+    async drawAudioWaveform(blob, canvas) {
+        try {
+            const arrayBuffer = await blob.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // decodeAudioData can fail on some webm formats, but usually works for our recordings
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer).catch(err => {
+                console.warn('[Sidebar] decodeAudioData failed, trying fallback:', err);
+                return null;
+            });
+
+            if (!audioBuffer) {
+                audioCtx.close();
+                return;
+            }
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width = 96; // 2x for retina-like sharpness
+            const height = canvas.height = 96;
+            const data = audioBuffer.getChannelData(0);
+            const step = Math.ceil(data.length / width);
+            const amp = height / 2;
+            
+            // Background
+            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-alt').trim() || '#f1f5f9';
+            ctx.fillRect(0, 0, width, height);
+
+            // Waveform color
+            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--primary').trim() || '#4f46e5';
+
+            for(let i=0; i < width; i++) {
+                let min = 1.0;
+                let max = -1.0;
+                for (let j=0; j < step; j++) {
+                    const datum = data[(i * step) + j];
+                    if (datum < min) min = datum;
+                    if (datum > max) max = datum;
+                }
+                
+                // Scale vertically (3x boost but clamp to -1, 1) to make it look less like a line
+                const scale = 3.0;
+                const scaledMin = Math.max(-1.0, min * scale);
+                const scaledMax = Math.min(1.0, max * scale);
+                
+                // Center the waveform vertically
+                ctx.fillRect(i, (1 + scaledMin) * amp, 1, Math.max(2, (scaledMax - scaledMin) * amp));
+            }
+            audioCtx.close();
+            console.log('[Sidebar] Waveform drawn successfully');
+        } catch (e) {
+            console.error('[Sidebar] Failed to draw waveform:', e);
         }
     }
 

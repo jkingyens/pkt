@@ -2,6 +2,7 @@
 <html>
 
 <head>
+    <meta charset="UTF-8">
     <title>Microphone Permission Required</title>
     <style>
         :root {
@@ -11,6 +12,7 @@
             --text-secondary: #666;
             --primary: #007bff;
             --primary-hover: #0056b3;
+            --icon-color: #64748b;
         }
 
         body.dark-mode {
@@ -18,6 +20,7 @@
             --container-bg: #1e293b;
             --text: #f1f5f9;
             --text-secondary: #94a3b8;
+            --icon-color: #94a3b8;
         }
 
         body {
@@ -35,41 +38,62 @@
 
         .container {
             max-width: 400px;
-            padding: 30px;
+            padding: 40px;
             background: var(--container-bg);
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
         }
 
         h1 {
             font-size: 24px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            font-weight: 700;
         }
 
         p {
             color: var(--text-secondary);
-            margin-bottom: 20px;
-            line-height: 1.5;
+            margin-bottom: 24px;
+            line-height: 1.6;
+            font-size: 15px;
         }
 
         button {
-            padding: 12px 24px;
+            padding: 12px 32px;
             font-size: 16px;
+            font-weight: 600;
             background: var(--primary);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s ease;
         }
 
         button:hover {
             background: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
         }
 
-        .icon {
-            font-size: 48px;
-            margin-bottom: 20px;
+        button:active {
+            transform: translateY(0);
+        }
+
+        .icon-container {
+            width: 80px;
+            height: 80px;
+            background: rgba(100, 116, 139, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .icon-svg {
+            width: 40px;
+            height: 40px;
+            color: var(--icon-color);
         }
     </style>
 </head>
@@ -77,7 +101,12 @@
 <body>
     <script src="theme-init.js"></script>
     <div class="container">
-        <div class="icon">📸</div>
+        <div class="icon-container">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+        </div>
         <h1>Media Permissions</h1>
         <p>To record audio and video clips, Wildcard needs permission to access your microphone and camera. Please click the button below and
             select <strong>Allow</strong> in the browser prompt.</p>
