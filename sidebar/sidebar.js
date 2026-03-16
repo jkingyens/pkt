@@ -615,7 +615,8 @@ class SidebarUI {
                 }
                 // Notify background to close permission tab
                 chrome.runtime.sendMessage({ action: 'RECORDING_STOPPED' });
-                this.handleMediaClipFinished(message.mediaId, message.size, message.mimeType || (message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm'));
+                this.handleMediaClipFinished(message.mediaId, message.size, message.mimeType || (message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm'), message.duration);
+
             } else if (message.type === 'RECORDING_STARTED') {
                 this.isRecording = true;
                 if (message.isVideo) {
@@ -1557,7 +1558,7 @@ class SidebarUI {
         });
     }
 
-    async handleMediaClipFinished(mediaId, size, mimeType) {
+    async handleMediaClipFinished(mediaId, size, mimeType, duration) {
         if (this.processedMediaIds.has(mediaId)) {
             console.log('[Sidebar] Skipping duplicate media:', mediaId);
             return;
@@ -1566,7 +1567,7 @@ class SidebarUI {
 
         try {
             // Already saved by offscreen document to minimize hops
-            console.log('[Sidebar] Media capture finished:', mediaId, 'Type:', mimeType, 'Size:', size);
+            console.log('[Sidebar] Media capture finished:', mediaId, 'Type:', mimeType, 'Size:', size, 'Duration:', duration);
 
             const displayType = mimeType || 'video/webm;codecs=vp8,opus';
             const name = displayType.startsWith('video') ? `Video ${new Date().toLocaleString()}.webm` : `Audio ${new Date().toLocaleString()}.webm`;
@@ -1576,8 +1577,10 @@ class SidebarUI {
                 name: name,
                 mediaId: mediaId,
                 mimeType: displayType,
-                size: size || 0
+                size: size || 0,
+                duration: duration || 0
             };
+
 
             if (this.currentPacket) {
                 this.currentPacket.urls.push(newItem);
@@ -3581,8 +3584,18 @@ class SidebarUI {
             card.addEventListener('dragstart', (e) => {
                 this.dragSrcIndex = index;
                 card.classList.add('dragging');
-                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.effectAllowed = 'copyMove';
+                
+                const dragData = {
+                    type: item.type || 'page',
+                    item: item,
+                    index: index,
+                    isConstructorItem: true
+                };
+                e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+                e.dataTransfer.setData('text/plain', dragData.type);
             });
+
             card.addEventListener('dragend', () => card.classList.remove('dragging'));
             card.addEventListener('dragover', (e) => {
                 e.preventDefault();

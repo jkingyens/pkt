@@ -1596,6 +1596,9 @@ async function ensurePacketDatabase(packetId) {
         CREATE TABLE IF NOT EXISTS stacks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
+            mode TEXT DEFAULT 'manual',
+            media_id TEXT,
+            markers TEXT DEFAULT '[]',
             created TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS stack_items (
@@ -1609,7 +1612,28 @@ async function ensurePacketDatabase(packetId) {
             FOREIGN KEY(stack_id) REFERENCES stacks(id) ON DELETE CASCADE
         );
     `);
+
+    // Migration: ensure columns exist in existing stacks table
+    try {
+        const columns = db.exec("PRAGMA table_info(stacks)");
+        if (columns.length && columns[0].values) {
+            const columnNames = columns[0].values.map(v => v[1]);
+            if (!columnNames.includes('mode')) {
+                db.exec("ALTER TABLE stacks ADD COLUMN mode TEXT DEFAULT 'manual'");
+            }
+            if (!columnNames.includes('media_id')) {
+                db.exec("ALTER TABLE stacks ADD COLUMN media_id TEXT");
+            }
+            if (!columnNames.includes('markers')) {
+                db.exec("ALTER TABLE stacks ADD COLUMN markers TEXT DEFAULT '[]'");
+            }
+        }
+    } catch (e) {
+        console.error('[SW] Migration failed for stacks table:', e);
+    }
+
     await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
+
     return db;
 }
 

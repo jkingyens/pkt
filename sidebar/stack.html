@@ -388,9 +388,297 @@
             animation: spin 1s linear infinite;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        /* ===== DRIVER SETTINGS ===== */
+        .driver-settings {
+            margin-top: 60px;
+            padding: 30px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .settings-title {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .driver-mode-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .driver-mode-badge.manual {
+            background: var(--bg-alt);
+            color: var(--text-secondary);
+        }
+
+        .driver-mode-badge.media {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .media-config {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .binding-zone {
+            padding: 24px;
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            text-align: center;
+            background: var(--bg-alt);
+            transition: all 0.2s;
+            cursor: default;
+        }
+
+        .binding-zone.drag-active {
+            border-color: var(--primary);
+            background: rgba(79, 70, 229, 0.05);
+            transform: scale(1.02);
+        }
+
+        .binding-zone.bound {
+            border-style: solid;
+            border-color: var(--primary);
+            background: var(--surface);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+        }
+
+        .bound-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: left;
+        }
+
+        .bound-icon {
+            font-size: 24px;
+        }
+
+        .bound-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .clear-binding {
+            padding: 6px 12px;
+            border-radius: 8px;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .clear-binding:hover {
+            background: var(--danger);
+            color: white;
+            border-color: var(--danger);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        .notification {
+            transition: all 0.3s ease;
+        }
+
+        .notification.warning { background: #f59e0b !important; }
+        .notification.error { background: #ef4444 !important; }
+        .notification.success { background: #10b981 !important; }
+
+
+        .select-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .select-group label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-alt);
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* ===== TIMELINE ===== */
+        .timeline-container {
+            position: relative;
+            margin-top: 10px;
+        }
+
+        .timeline-track {
+            height: 40px;
+            background: var(--bg-alt);
+            border-radius: 8px;
+            position: relative;
+            cursor: crosshair;
+            overflow: visible;
+            border: 1px solid var(--border);
+        }
+
+
+        .timeline-progress {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: rgba(79, 70, 229, 0.1);
+            width: 0%;
+            pointer-events: none;
+        }
+
+        .marker {
+            position: absolute;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+            cursor: move;
+            z-index: 20;
+            transform: translateX(-50%);
+            box-shadow: 0 0 10px var(--primary-light);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .marker.highlight {
+            background: var(--danger);
+            width: 6px;
+            box-shadow: 0 0 15px var(--danger);
+            z-index: 30;
+        }
+
+        .marker-bubble {
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+
+        .marker.highlight .marker-bubble {
+            background: var(--danger);
+            transform: translateX(-50%) scale(1.2);
+        }
+
+        .marker-timestamp {
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            font-family: monospace;
+            font-weight: 700;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            background: var(--surface);
+            padding: 1px 4px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            opacity: 0.8;
+        }
+
+        .marker.highlight .marker-timestamp {
+            color: var(--text);
+            opacity: 1;
+            border-color: var(--danger);
+        }
+
+        .marker:hover {
+            background: var(--danger);
+        }
+
+        .stack-item.highlight {
+            border-color: var(--danger) !important;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1), 0 20px 25px -5px rgba(0, 0, 0, 0.1) !important;
+            transform: translateY(-4px) scale(1.02);
+            background: rgba(239, 68, 68, 0.02) !important;
+        }
+
+        .marker-trigger-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--danger);
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .timeline-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 11px;
+            font-family: monospace;
+            color: var(--text-secondary);
+        }
+
+        #timeline-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 12px;
+            font-style: italic;
         }
     </style>
 </head>
@@ -433,6 +721,47 @@
                 <div>Drop content here to extend the sequence</div>
             </div>
         </div>
+
+        <div class="driver-settings">
+            <div class="settings-header">
+                <div class="settings-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4V8z"/></svg>
+                    Stack Driver
+                </div>
+                <div id="driver-mode-badge" class="driver-mode-badge manual">Manual Mode</div>
+            </div>
+
+            <div class="media-config">
+                <div id="binding-zone" class="binding-zone">
+                    <div id="binding-prompt">
+                        <div style="font-size: 24px; margin-bottom: 4px;">🎯</div>
+                        <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Drop an audio/video item here to bind driver</div>
+                    </div>
+                </div>
+
+                <div id="timeline-area" style="display: none;">
+                    <div class="select-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label style="margin-bottom: 0;">Advancement Markers</label>
+                            <button id="clear-markers-btn" class="clear-binding" style="font-size: 10px; padding: 4px 8px;">Clear All</button>
+                        </div>
+
+                        <div class="timeline-container">
+                            <div id="timeline-track" class="timeline-track">
+                                <div id="timeline-progress" class="timeline-progress"></div>
+                                <!-- Markers injected here -->
+                            </div>
+                            <div class="timeline-labels">
+                                <span>0:00</span>
+                                <span id="duration-label">0:00</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="timeline-hint">Click on the timeline to set slide advancement markers. Click a marker to remove it.</div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="stack.js"></script>

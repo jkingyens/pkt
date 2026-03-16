@@ -13,6 +13,64 @@
     const dropZone = document.getElementById('drop-zone');
     const playBtn = document.getElementById('play-btn');
 
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 12px;
+            background: ${type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#3b82f6')};
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            z-index: 9999;
+            animation: slideIn 0.3s ease-out;
+        `;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-in forwards';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+
+
+    // Driver Settings Elements
+    const driverModeBadge = document.getElementById('driver-mode-badge');
+    const bindingZone = document.getElementById('binding-zone');
+    const bindingPrompt = document.getElementById('binding-prompt');
+    const timelineArea = document.getElementById('timeline-area');
+    const timelineTrack = document.getElementById('timeline-track');
+    const timelineProgress = document.getElementById('timeline-progress');
+    const durationLabel = document.getElementById('duration-label');
+    const clearMarkersBtn = document.getElementById('clear-markers-btn');
+
+    if (clearMarkersBtn) {
+        clearMarkersBtn.onclick = () => {
+            if (stackMarkers.length === 0) return;
+            if (confirm('Clear all advancement markers?')) {
+                stackMarkers = [];
+                renderMarkers();
+                saveStackDriverMetadata();
+            }
+        };
+    }
+
+
+    let stackMode = 'manual';
+    let stackMediaId = null;
+    let stackMarkers = [];
+    let mediaDuration = 0;
+    let mediaMetadata = null;
+    let boundMediaItem = null;
+
+
+
     if (!stackId || !packetId) {
         loading.innerHTML = '<div class="error">Missing stack ID or packet ID.</div>';
         return;
@@ -96,16 +154,21 @@
             statusBadge.textContent = 'Syncing...';
             await chrome.runtime.sendMessage({ action: 'ensurePacketDatabase', packetId });
             
-            // Get stack name
+            // Get stack data
             try {
-                console.log('[Stack] Loading stack data for ID:', stackId);
                 const stackResp = await chrome.runtime.sendMessage({
                     action: 'executeSQL',
                     name: dbName,
-                    sql: `SELECT name FROM stacks WHERE id = ${stackId}`
+                    sql: `SELECT name, mode, media_id, markers FROM stacks WHERE id = ${stackId}`
                 });
                 if (stackResp.success && stackResp.result[0]?.values?.length) {
-                    stackTitle.textContent = stackResp.result[0].values[0][0];
+                    const row = stackResp.result[0].values[0];
+                    stackTitle.textContent = row[0];
+                    stackMode = row[1] || 'manual';
+                    stackMediaId = row[2];
+                    try {
+                        stackMarkers = JSON.parse(row[3] || '[]');
+                    } catch (e) { stackMarkers = []; }
                 } else {
                     stackTitle.textContent = name;
                 }
@@ -137,8 +200,14 @@
                 } else {
                     items = [];
                 }
+
+                // Identify bound media from the packet's resources (not stack items, but packet media)
+                await loadBoundMediaInfo();
+                updateModeUI();
+                
                 renderStructure();
                 statusBadge.textContent = 'Synced';
+
                 
                 // Request current tab status to set initial highlight
                 const tabResp = await chrome.runtime.sendMessage({ action: 'getCurrentTab' });
@@ -295,9 +364,25 @@
         }
 
         try {
+            let width = 340;
+            let height = 180;
+
+            if (stackMode === 'media' && boundMediaItem) {
+                if ((boundMediaItem.mimeType || '').startsWith('video')) {
+                    width = 480;
+                    height = 450;
+                } else {
+                    width = 340;
+                    height = 280;
+                }
+            } else {
+                width = 320;
+                height = 160;
+            }
+
             pipWindow = await window.documentPictureInPicture.requestWindow({
-                width: 340,
-                height: 180,
+                width,
+                height,
             });
 
             // Copy style sheets
@@ -421,19 +506,85 @@
                     margin-bottom: 12px;
                 }
                 .progress-container {
-                    width: 100%;
+                    width: calc(100% - 24px);
                     height: 8px;
                     background: var(--border);
                     border-radius: 4px;
                     overflow: hidden;
                     margin-top: 16px;
                     position: relative;
+                    margin-left: 12px;
                 }
                 .progress-bar {
-                    height: 100%;
-                    width: 0%;
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    height: 4px;
                     background: var(--success);
                     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
+                    z-index: 1000;
+                }
+                #pip-progress-bar.media-mode {
+                    background: var(--success); /* Always green for slides */
+                }
+                #pip-media-progress-container {
+                    padding: 8px 12px 0 12px;
+                    width: calc(100% - 24px);
+                    display: none;
+                }
+                #pip-media-progress-container.visible {
+                    display: block;
+                }
+                .media-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    width: 100%;
+                    align-items: center;
+                }
+                #pip-spectrum-canvas {
+                    width: 100%;
+                    height: 20px;
+                    opacity: 0.8;
+                }
+                #pip-media-wrapper {
+                    width: 100%;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    background: black;
+                    display: none;
+                    aspect-ratio: 16/9;
+                    margin-bottom: 8px;
+                }
+                #pip-media-wrapper video {
+                    width: 100%;
+                    height: 100%;
+                    display: block;
+                }
+                .media-progress-background {
+                    height: 3px;
+                    background: rgba(255,255,255,0.1);
+                    border-radius: 1.5px;
+                    overflow: hidden;
+                    width: 100%;
+                }
+                #pip-media-progress-bar {
+                    height: 100%;
+                    width: 0%;
+                    background: var(--danger);
+                    box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+                    transition: width 0.2s linear;
+                }
+
+
+                @keyframes pulse-green {
+                    0% { transform: scale(1); color: var(--text-secondary); }
+                    50% { transform: scale(1.1); color: var(--success); }
+                    100% { transform: scale(1); color: var(--text-secondary); }
+                }
+
+                .pulse {
+                    animation: pulse-green 0.8s ease-out;
                 }
                 .progress-bar.loading {
                     background: var(--primary);
@@ -450,7 +601,13 @@
 
             renderPipContent();
 
+            // Set up driver logic if in media mode
+            if (stackMode === 'media' && stackMediaId) {
+                setupMediaDriver();
+            }
+
             pipWindow.document.body.addEventListener('click', async (e) => {
+
                 // Ignore if clicking a button
                 if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
                 
@@ -543,6 +700,39 @@
         counter.className = 'pip-counter';
         container.appendChild(counter);
 
+        // Media Progress & Spectrum Group
+        const mediaProgressContainer = pipWindow.document.createElement('div');
+        mediaProgressContainer.id = 'pip-media-progress-container';
+        mediaProgressContainer.className = 'pip-media-progress-container';
+        
+        const mediaGroup = pipWindow.document.createElement('div');
+        mediaGroup.className = 'media-group';
+
+        const spectrumCanvas = pipWindow.document.createElement('canvas');
+        spectrumCanvas.id = 'pip-spectrum-canvas';
+        spectrumCanvas.width = 300; // Internal resolution
+        spectrumCanvas.height = 40;
+        mediaGroup.appendChild(spectrumCanvas);
+        
+        const mediaProgressBg = pipWindow.document.createElement('div');
+        mediaProgressBg.className = 'media-progress-background';
+        
+        const mediaProgressBar = pipWindow.document.createElement('div');
+        mediaProgressBar.id = 'pip-media-progress-bar';
+        mediaProgressBg.appendChild(mediaProgressBar);
+        mediaGroup.appendChild(mediaProgressBg);
+        
+        mediaProgressContainer.appendChild(mediaGroup);
+        container.appendChild(mediaProgressContainer);
+
+
+        if (stackMode === 'media' && stackMediaId) {
+            const mediaWrapper = pipWindow.document.createElement('div');
+            mediaWrapper.id = 'pip-media-wrapper';
+            container.appendChild(mediaWrapper);
+        }
+
+
         const progressContainer = pipWindow.document.createElement('div');
         progressContainer.className = 'progress-container';
         const progressBar = pipWindow.document.createElement('div');
@@ -622,25 +812,56 @@
             }
         }
         
+        // Hide/Show media progress
+        const mediaContainer = pipWindow.document.getElementById('pip-media-progress-container');
+        if (mediaContainer) {
+            mediaContainer.classList.toggle('visible', stackMode === 'media' && !!stackMediaId);
+        }
+
+        // Call resizePip based on state
+        if (stackMode === 'manual') {
+            resizePip('manual');
+        } else if (boundMediaItem) {
+            const isVideo = (boundMediaItem.mimeType || '').startsWith('video');
+            resizePip(isVideo ? 'video' : 'audio');
+        }
+
         updateProgressBar();
     }
 
     function updateProgressBar() {
         if (!pipWindow) return;
-        const bar = pipWindow.document.getElementById('pip-progress-bar');
-        if (!bar) return;
+        const slideBar = pipWindow.document.getElementById('pip-progress-bar');
+        const mediaBar = pipWindow.document.getElementById('pip-media-progress-bar');
+        const mediaContainer = pipWindow.document.getElementById('pip-media-progress-container');
+        
+        if (!slideBar) return;
 
+        // 1. Slide Progress (Bottom Green Bar)
         if (isPageLoading) {
-            bar.classList.add('loading');
-            bar.style.transition = 'width 0.5s ease-out';
-            bar.style.width = `${Math.max(5, loadProgress)}%`;
+            slideBar.classList.add('loading');
+            slideBar.style.transition = 'width 0.5s ease-out';
+            slideBar.style.width = `${Math.max(5, loadProgress)}%`;
         } else {
-            bar.classList.remove('loading');
-            bar.style.transition = 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
+            slideBar.classList.remove('loading');
+            slideBar.style.transition = 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
             const progress = ((currentSlideIndex + 1) / items.length) * 100;
-            bar.style.width = `${progress}%`;
+            slideBar.style.width = `${progress}%`;
+        }
+
+        // 2. Media Progress (Top Red Bar)
+        if (stackMode === 'media' && pipWindow) {
+            if (mediaContainer) mediaContainer.classList.add('visible');
+            const mediaEl = pipWindow.document.getElementById('pip-media-driver');
+            if (mediaEl && mediaEl.duration > 0 && mediaBar) {
+                const progress = (mediaEl.currentTime / mediaEl.duration) * 100;
+                mediaBar.style.width = `${progress}%`;
+            }
+        } else if (mediaContainer) {
+            mediaContainer.classList.remove('visible');
         }
     }
+
 
     function startLoadSimulation() {
         if (loadInterval) clearInterval(loadInterval);
@@ -657,6 +878,27 @@
             }
         }, 100);
     }
+
+    function resizePip(type = 'manual') {
+        if (!pipWindow) return;
+        let width = 320;
+        let height = 160;
+
+        if (type === 'audio') {
+            width = 340;
+            height = 280;
+        } else if (type === 'video') {
+            width = 480;
+            height = 450;
+        }
+
+        try {
+            pipWindow.resizeTo(width, height);
+        } catch (e) {
+            console.warn('[Stack] Failed to resize PIP:', e);
+        }
+    }
+
 
     async function toggleMaximized() {
         if (!contentTabId) return;
@@ -711,14 +953,37 @@
 
     async function advanceSlide() {
         if (currentSlideIndex < items.length - 1) {
-            currentSlideIndex++;
-            await startPlayback(currentSlideIndex);
+            const nextIndex = currentSlideIndex + 1;
+            
+            // Sync Media if driving
+            if (stackMode === 'media' && pipWindow) {
+                const mediaEl = pipWindow.document.getElementById('pip-media-driver');
+                if (mediaEl && stackMarkers[nextIndex] !== undefined) {
+                    const nextMarkerTime = stackMarkers[nextIndex];
+                    mediaEl.currentTime = nextMarkerTime;
+                    // Reset lastMarkerIndex to prevent double-advance
+                    lastMarkerIndex = nextIndex;
+                }
+            }
+            
+            await startPlayback(nextIndex);
         }
     }
 
+
     function restartPlayback() {
+        lastMarkerIndex = -1; // Reset marker tracking index
+        mediaLastTime = 0;    // Reset the "rewind guard" so it doesn't block restart
+        if (pipWindow && stackMode === 'media') {
+            const mediaEl = pipWindow.document.getElementById('pip-media-driver');
+            if (mediaEl) {
+                mediaEl.currentTime = 0;
+                mediaEl.play().catch(() => {}); // Try to auto-play on restart
+            }
+        }
         startPlayback(0);
     }
+
 
     function getItemUrl(item) {
         if (!item) return null;
@@ -790,8 +1055,14 @@
             const card = document.createElement('div');
             const isDisabled = isNetworkOffline && isOnlineRequired(item);
             card.className = `stack-item ${isDisabled ? 'disabled' : ''}`;
+            card.id = `slide-card-${index}`;
             card.draggable = !isDisabled;
             card.dataset.index = index;
+            
+            // Find if there is a marker for this slide
+            // 1:1 Mapping: Slide 1 (Index 0) -> Marker 1 (Index 0)
+            const triggerMarkerTime = stackMarkers[index];
+
             card.innerHTML = `
                 <div class="item-index">${index + 1}</div>
                 ${isDisabled ? '<div class="offline-badge">Offline</div>' : ''}
@@ -799,6 +1070,11 @@
                 <div class="item-content">
                     <div class="item-name">${escapeHtml(item.name || 'Untitled')}</div>
                     <div class="item-type-badge">${item.type}</div>
+                    ${triggerMarkerTime !== undefined && triggerMarkerTime !== null ? `
+                        <div class="marker-trigger-label" title="Triggered by marker at ${formatTime(triggerMarkerTime)}">
+                            <span style="font-size: 10px;">⏱️</span> ${formatTime(triggerMarkerTime)}
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="item-footer">
                     <button class="remove-btn" title="Remove">✕</button>
@@ -828,6 +1104,9 @@
                         packetId: packetId
                     });
                 }
+                // Synchronized Highlight: Slide -> Marker
+                const markerEl = timelineTrack.querySelectorAll('.marker')[index];
+                if (markerEl) markerEl.classList.add('highlight');
             });
 
             card.addEventListener('mouseleave', () => {
@@ -839,7 +1118,12 @@
                         packetId: packetId
                     });
                 }
+                // Synchronized Highlight: Slide -> Marker
+                const markerEl = timelineTrack.querySelectorAll('.marker')[index];
+                if (markerEl) markerEl.classList.remove('highlight');
             });
+
+
 
             card.querySelector('.remove-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1145,6 +1429,633 @@
         }
     });
     
+    async function loadBoundMediaInfo() {
+        if (!stackMediaId) {
+            boundMediaItem = null;
+            return;
+        }
+
+        try {
+            // Get packet items to find the media resource
+            const resp = await chrome.runtime.sendMessage({ action: 'getPacket', id: packetId });
+            if (resp.success && resp.packet) {
+                const mediaItem = resp.packet.urls.find(u => u.type === 'media' && String(u.mediaId) === String(stackMediaId));
+                if (mediaItem) {
+                    boundMediaItem = mediaItem;
+                    mediaDuration = mediaItem.duration || 0;
+                    
+                    // If duration is missing, try to detect it by loading the blob
+                    if (!mediaDuration) {
+                        try {
+                            console.log('[Stack] Missing duration, fetching blob for detection...', stackMediaId);
+                            const blobResp = await chrome.runtime.sendMessage({
+                                action: 'getMediaBlob',
+                                id: stackMediaId
+                            });
+                            
+                            if (blobResp.success && blobResp.data) {
+                                await new Promise((resolve) => {
+                                    const data = blobResp.data instanceof Uint8Array ? blobResp.data : 
+                                                 (blobResp.data && typeof blobResp.data === 'object' ? new Uint8Array(Object.values(blobResp.data)) : blobResp.data);
+                                    const uint8Array = new Uint8Array(data);
+                                    const blob = new Blob([uint8Array], { type: mediaItem.mimeType });
+
+                                    
+                                    const detectWithUrl = (sourceUrl, name = 'Blob') => {
+                                        return new Promise((res) => {
+                                            const isVideo = mediaItem.mimeType.startsWith('video/');
+                                            const tempMedia = document.createElement(isVideo ? 'video' : 'audio');
+                                            tempMedia.muted = true;
+                                            tempMedia.preload = 'metadata';
+                                            tempMedia.setAttribute('playsinline', '');
+
+                                            const timeout = setTimeout(() => {
+                                                console.warn(`[Stack] Duration detection (${name}) timed out after 10s`);
+                                                cleanup();
+                                            }, 10000);
+
+                                            const cleanup = () => {
+                                                clearTimeout(timeout);
+                                                tempMedia.onloadedmetadata = null;
+                                                tempMedia.onerror = null;
+                                                tempMedia.remove();
+                                                res();
+                                            };
+
+                                            tempMedia.onloadedmetadata = () => {
+                                                if (tempMedia.duration && tempMedia.duration !== Infinity) {
+                                                    mediaDuration = tempMedia.duration;
+                                                    console.log(`[Stack] Detected duration via ${name}:`, mediaDuration);
+                                                    if (durationLabel) durationLabel.textContent = formatTime(mediaDuration);
+                                                }
+                                                cleanup();
+                                            };
+
+                                            tempMedia.onerror = (e) => {
+                                                console.error(`[Stack] Media error during duration detection (${name})`);
+                                                cleanup();
+                                            };
+
+                                            tempMedia.src = sourceUrl;
+                                        });
+                                    };
+
+                                    (async () => {
+                                        // 1. Try Blob URL (Standard)
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        await detectWithUrl(blobUrl, 'Blob URL');
+                                        URL.revokeObjectURL(blobUrl);
+
+                                        // 2. Fallback to Data URL if blob failed and size is reasonable (< 30MB)
+                                        if (mediaDuration <= 0 && blob.size < 30 * 1024 * 1024) {
+                                            console.log('[Stack] Blob detection failed, attempting Data URL fallback...');
+                                            await new Promise((res) => {
+                                                const reader = new FileReader();
+                                                reader.onload = async () => {
+                                                    await detectWithUrl(reader.result, 'Data URL');
+                                                    res();
+                                                };
+                                                reader.onerror = () => res();
+                                                reader.readAsDataURL(blob);
+                                            });
+                                        }
+                                        
+                                        if (mediaDuration <= 0) {
+                                            console.warn('[Stack] Failed to detect duration from both Blob and Data URL. Media might be missing headers.');
+                                        }
+                                        
+                                        resolve();
+                                    })();
+                                });
+
+
+                            } else {
+                                console.warn('[Stack] Failed to fetch media blob for duration detection:', blobResp.error);
+                            }
+                        } catch (err) {
+                            console.warn('[Stack] Duration detection failed:', err);
+                        }
+                    }
+
+
+                } else {
+                    // Resource no longer exists?
+                    stackMediaId = null;
+                    stackMode = 'manual';
+                    boundMediaItem = null;
+                    await saveStackDriverMetadata();
+                }
+            }
+        } catch (e) {
+            console.error('[Stack] Failed to load bound media info:', e);
+        }
+    }
+
+    function updateModeUI() {
+        if (stackMode === 'manual' || !stackMediaId) {
+            driverModeBadge.className = 'driver-mode-badge manual';
+            driverModeBadge.textContent = 'Manual Mode';
+            timelineArea.style.display = 'none';
+            renderBindingPrompt();
+
+            // Clear all trigger labels from cards
+            const labels = document.querySelectorAll('.marker-trigger-label');
+            labels.forEach(l => l.remove());
+        } else {
+
+            driverModeBadge.className = 'driver-mode-badge media';
+            driverModeBadge.textContent = 'Media Driven';
+            timelineArea.style.display = 'block';
+            renderBoundInfo();
+            
+            if (mediaDuration > 0) {
+                durationLabel.textContent = formatTime(mediaDuration);
+                renderMarkers();
+            } else {
+                durationLabel.textContent = 'Detecting...';
+                // Try one last time if we are in this state
+                if (boundMediaItem && !mediaDuration) {
+                    loadBoundMediaInfo().then(() => renderMarkers());
+                }
+            }
+        }
+
+        updateProgressBar();
+    }
+
+
+    function renderBindingPrompt() {
+        bindingZone.className = 'binding-zone';
+        bindingZone.innerHTML = '';
+        const prompt = document.createElement('div');
+        prompt.id = 'binding-prompt';
+        prompt.innerHTML = `
+            <div style="font-size: 24px; margin-bottom: 4px;">🎯</div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Drop an audio/video item here to bind driver</div>
+        `;
+        bindingZone.appendChild(prompt);
+    }
+
+    function renderBoundInfo() {
+        if (!boundMediaItem) return;
+        bindingZone.className = 'binding-zone bound';
+        bindingZone.innerHTML = '';
+        
+        const info = document.createElement('div');
+        info.className = 'bound-info';
+        
+        const icon = document.createElement('div');
+        icon.className = 'bound-icon';
+        icon.textContent = (boundMediaItem.mimeType || '').startsWith('video') ? '🎥' : '🎵';
+        
+        const name = document.createElement('div');
+        name.className = 'bound-name';
+        name.textContent = boundMediaItem.name || 'Unnamed Media';
+        
+        info.appendChild(icon);
+        info.appendChild(name);
+        
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'clear-binding';
+        clearBtn.textContent = 'Clear';
+        clearBtn.onclick = async (e) => {
+            e.stopPropagation();
+            stackMediaId = null;
+            stackMode = 'manual';
+            boundMediaItem = null;
+            stackMarkers = [];
+            updateModeUI();
+            await saveStackDriverMetadata();
+        };
+
+        
+        bindingZone.appendChild(info);
+        bindingZone.appendChild(clearBtn);
+    }
+
+    // Drag and Drop for Binding
+    bindingZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        bindingZone.classList.add('drag-active');
+    });
+
+    bindingZone.addEventListener('dragleave', () => {
+        bindingZone.classList.remove('drag-active');
+    });
+
+    bindingZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        bindingZone.classList.remove('drag-active');
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            // Sidebar wraps the object in { type, item, ... }
+            const item = data.item || data;
+            const type = item.type || data.type;
+
+            if (type === 'media' && item.mediaId) {
+                // Check if it's audio or video
+                const mimeType = item.mimeType || '';
+                if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) {
+                    stackMediaId = item.mediaId;
+                    stackMode = 'media';
+                    await loadBoundMediaInfo();
+                    updateModeUI();
+                    await saveStackDriverMetadata();
+                    showNotification('Media bound to stack driver', 'success');
+                } else {
+                    showNotification('Only audio or video files can drive the stack', 'error');
+                }
+            }
+        } catch (err) {
+            console.error('[Stack] Drop failed:', err);
+        }
+
+    });
+
+
+    function formatTime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function renderMarkers() {
+        const oldMarkers = timelineTrack.querySelectorAll('.marker');
+        oldMarkers.forEach(m => m.remove());
+
+        if (mediaDuration <= 0) return;
+
+        stackMarkers.sort((a, b) => a - b).forEach((time, i) => {
+            const marker = document.createElement('div');
+            marker.className = 'marker';
+            const pct = (time / mediaDuration) * 100;
+            marker.style.left = `${pct}%`;
+            marker.title = `Advance to Slide ${i + 1} at ${formatTime(time)}`;
+            
+            // Numbered Bubble
+            const bubble = document.createElement('div');
+            bubble.className = 'marker-bubble';
+            bubble.textContent = i + 1;
+            marker.appendChild(bubble);
+
+
+            // Timestamp Label
+            const ts = document.createElement('div');
+            ts.className = 'marker-timestamp';
+            ts.textContent = formatTime(time);
+            marker.appendChild(ts);
+
+            marker.onclick = (e) => {
+                e.stopPropagation();
+                removeMarker(time);
+            };
+
+            // Synchronized Highlight: Marker -> Slide
+            marker.addEventListener('mouseenter', () => {
+                const card = document.getElementById(`slide-card-${i}`);
+                if (card) card.classList.add('highlight');
+            });
+
+            marker.addEventListener('mouseleave', () => {
+                const card = document.getElementById(`slide-card-${i}`);
+                if (card) card.classList.remove('highlight');
+            });
+
+
+            timelineTrack.appendChild(marker);
+        });
+
+        // Update timestamps on slide cards without full re-render if possible
+        items.forEach((item, index) => {
+            const card = document.getElementById(`slide-card-${index}`);
+            if (card) {
+                const markerTime = stackMarkers[index];
+                let label = card.querySelector('.marker-trigger-label');
+                if (markerTime !== undefined) {
+                    if (!label) {
+                        const content = card.querySelector('.item-content');
+                        label = document.createElement('div');
+                        label.className = 'marker-trigger-label';
+                        content.appendChild(label);
+                    }
+                    label.innerHTML = `<span style="font-size: 10px;">⏱️</span> ${formatTime(markerTime)}`;
+                    label.title = `Triggered by marker at ${formatTime(markerTime)}`;
+                } else if (label) {
+                    label.remove();
+                }
+            }
+        });
+    }
+
+
+
+    async function addMarker(time) {
+        if (!stackMediaId) return;
+        
+        if (mediaDuration <= 0) {
+            showNotification('Wait for media duration to be detected...', 'warning');
+            return;
+        }
+
+        // Enforce limit: number of markers <= number of slides
+        // Re-check items if it's somehow empty (though it shouldn't be)
+        if (!items || items.length === 0) {
+            const itemsResp = await chrome.runtime.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: `SELECT * FROM stack_items WHERE stack_id = ${stackId} ORDER BY position ASC`
+            });
+            if (itemsResp.success && itemsResp.result[0]?.values) {
+                const result = itemsResp.result[0];
+                const cols = result.columns;
+                items = result.values.map(v => {
+                    const item = {};
+                    cols.forEach((c, i) => item[c] = v[i]);
+                    return item;
+                });
+            }
+        }
+        
+        if (stackMarkers.length >= items.length) {
+            showNotification(`You can only have as many markers as there are slides (${items.length})`, 'warning');
+            return;
+        }
+
+
+
+        if (time < 0.2) {
+            showNotification('Markers cannot be at the very start', 'warning');
+            return;
+        }
+
+        const exists = stackMarkers.find(m => Math.abs(m - time) < 0.1);
+        if (!exists) {
+            stackMarkers.push(time);
+            stackMarkers.sort((a, b) => a - b);
+            renderMarkers();
+            saveStackDriverMetadata();
+        }
+    }
+
+
+    function removeMarker(time) {
+        const index = stackMarkers.findIndex(m => Math.abs(m - time) < 0.05);
+        if (index !== -1) {
+            stackMarkers.splice(index, 1);
+            renderMarkers();
+            saveStackDriverMetadata();
+        }
+    }
+
+    async function saveStackDriverMetadata() {
+        try {
+            await chrome.runtime.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: `UPDATE stacks SET mode = ?, media_id = ?, markers = ? WHERE id = ?`,
+                params: [stackMode, stackMediaId, JSON.stringify(stackMarkers), stackId]
+            });
+            // Persist the change to storage
+            await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
+        } catch (e) {
+            console.error('[Stack] Failed to save driver metadata:', e);
+        }
+
+    }
+
+
+    timelineTrack.onclick = (e) => {
+        if (mediaDuration <= 0) return;
+        const rect = timelineTrack.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const pct = Math.max(0, Math.min(1, x / rect.width));
+        const time = Number((pct * mediaDuration).toFixed(2));
+        addMarker(time);
+    };
+
+
+
+    async function setupMediaDriver() {
+        if (!pipWindow || !stackMediaId) return;
+        const wrapper = pipWindow.document.getElementById('pip-media-wrapper');
+        if (!wrapper) return;
+
+        try {
+            const resp = await chrome.runtime.sendMessage({ action: 'getMediaBlob', id: stackMediaId });
+            if (!resp || !resp.success) throw new Error('Failed to load driver media');
+
+            const uint8Array = resp.data instanceof Uint8Array ? resp.data : new Uint8Array(Object.values(resp.data));
+            const blob = new Blob([uint8Array], { type: resp.type });
+            const url = URL.createObjectURL(blob);
+
+            const isVideo = resp.type.startsWith('video/');
+            const mediaEl = pipWindow.document.createElement(isVideo ? 'video' : 'audio');
+            mediaEl.id = 'pip-media-driver';
+            mediaEl.src = url;
+            mediaEl.autoplay = true;
+
+            if (isVideo) {
+                wrapper.style.display = 'block';
+                mediaEl.controls = false; // We use our own controls
+            } else {
+                wrapper.style.display = 'none';
+            }
+            
+            mediaEl.onloadedmetadata = () => {
+                const checkDuration = () => {
+                    if (mediaEl.duration && mediaEl.duration !== Infinity) {
+                        if (mediaDuration !== mediaEl.duration) {
+                            mediaDuration = mediaEl.duration;
+                            if (durationLabel) durationLabel.textContent = formatTime(mediaDuration);
+                            renderMarkers();
+                        }
+                    } else if (mediaEl.duration === Infinity) {
+                        mediaEl.currentTime = 1000000;
+                        mediaEl.onseeking = () => {
+                            if (mediaEl.duration && mediaEl.duration !== Infinity) {
+                                mediaDuration = mediaEl.duration;
+                                if (durationLabel) durationLabel.textContent = formatTime(mediaDuration);
+                                renderMarkers();
+                                mediaEl.currentTime = 0;
+                                mediaEl.onseeking = null;
+                            }
+                        };
+                    }
+                };
+                checkDuration();
+            };
+
+
+
+            // Prevent rewinding (unless explicitly reset by restart)
+            mediaEl.ontimeupdate = () => {
+                if (mediaEl.currentTime < mediaLastTime) {
+                    mediaEl.currentTime = mediaLastTime;
+                } else {
+                    mediaLastTime = mediaEl.currentTime;
+                }
+                handleMediaTimeUpdate(mediaEl.currentTime);
+            };
+
+            wrapper.appendChild(mediaEl);
+
+            // --- Web Audio Visualizer ---
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const audioCtx = new AudioContext();
+                const source = audioCtx.createMediaElementSource(mediaEl);
+                const analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 64; // Small fft for a clean, broad spectrum
+                
+                source.connect(analyser);
+                analyser.connect(audioCtx.destination);
+                
+                const canvas = pipWindow.document.getElementById('pip-spectrum-canvas');
+                if (canvas) {
+                    // Hide spectrum for video
+                    canvas.style.display = isVideo ? 'none' : 'block';
+                    
+                    if (!isVideo) {
+                        const ctx = canvas.getContext('2d');
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Uint8Array(bufferLength);
+                        
+                        const draw = () => {
+                            if (!pipWindow) return; // Stop if PIP closed
+                            requestAnimationFrame(draw);
+                            
+                            analyser.getByteFrequencyData(dataArray);
+                            
+                            // Clear canvas
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            
+                            const barWidth = (canvas.width / bufferLength) * 2.5;
+                            let barHeight;
+                            let x = 0;
+                            
+                            for (let i = 0; i < bufferLength; i++) {
+                                barHeight = (dataArray[i] / 255) * canvas.height;
+                                
+                                // Beautiful gradient/theme color
+                                ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + (barHeight/canvas.height) * 0.7})`; 
+                                ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+                                
+                                x += barWidth;
+                            }
+                        };
+                        
+                        // Start visualizer on play
+                        mediaEl.onplay = () => {
+                            if (audioCtx.state === 'suspended') {
+                                audioCtx.resume();
+                            }
+                            draw();
+                        };
+                    }
+                }
+            } catch (err) {
+                console.warn('[Stack] Visualizer setup failed (likely cross-origin or gesture related):', err);
+            }
+
+        } catch (e) {
+            console.error('[Stack] Media driver setup failed:', e);
+        }
+    }
+
+    let lastMarkerIndex = -1;
+    let mediaLastTime = 0;
+
+    function handleMediaTimeUpdate(currentTime) {
+        if (stackMode !== 'media') return;
+
+        // Reset tracking if seeking backwards or restarting
+        if (currentTime < 0.2) {
+            lastMarkerIndex = -1;
+        }
+        
+        const sortedMarkers = [...stackMarkers].sort((a, b) => a - b);
+
+        
+        let currentMarkerIndex = -1;
+        for (let i = 0; i < sortedMarkers.length; i++) {
+            if (currentTime >= sortedMarkers[i]) {
+                currentMarkerIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        if (currentMarkerIndex > lastMarkerIndex) {
+            // Crossed one or more markers!
+            // Map Marker Index directly to Slide Index
+            const targetSlide = currentMarkerIndex;
+            
+            if (targetSlide >= 0 && targetSlide < items.length) {
+                if (targetSlide !== currentSlideIndex) {
+                    console.log('[Stack] Marker crossed, advancing to slide', targetSlide + 1);
+                    startPlayback(targetSlide);
+                    
+                    // Pulse indicator in PIP
+                    if (pipWindow) {
+                        const counter = pipWindow.document.getElementById('pip-counter');
+                        if (counter) {
+                            counter.classList.remove('pulse');
+                            void counter.offsetWidth; // Trigger reflow
+                            counter.classList.add('pulse');
+                        }
+                    }
+                }
+            }
+
+            lastMarkerIndex = currentMarkerIndex;
+        }
+
+
+
+        if (mediaDuration > 0) {
+            const pct = (currentTime / mediaDuration) * 100;
+            timelineProgress.style.width = `${pct}%`;
+        }
+
+        // Always update the PIP progress UI
+        updateProgressBar();
+    }
+
+    async function advanceToNextMarker() {
+        if (stackMode !== 'media' || !pipWindow) return;
+        const mediaEl = pipWindow.document.getElementById('pip-media-driver');
+        if (!mediaEl) return;
+
+        const currentTime = mediaEl.currentTime;
+        const sortedMarkers = [...stackMarkers].sort((a, b) => a - b);
+        
+        const nextMarker = sortedMarkers.find(m => m > currentTime);
+        if (nextMarker !== undefined) {
+            mediaEl.currentTime = nextMarker;
+            // The timeupdate listener will handle the slide advancement
+        } else {
+            // No more markers, just advance to end or next slide if possible
+            if (currentSlideIndex < items.length - 1) {
+                advanceSlide();
+            }
+        }
+    }
+
+    // Update Next button behavior in PIP
+    const originalAdvanceSlide = advanceSlide;
+    advanceSlide = async function() {
+        if (stackMode === 'media' && pipWindow) {
+            await advanceToNextMarker();
+        } else {
+            await originalAdvanceSlide();
+        }
+    };
+
     // Initial load
     loadStack();
+
+
 })();

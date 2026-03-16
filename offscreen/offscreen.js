@@ -105,8 +105,10 @@ function setupRecorder(stream, isVideo) {
                     type: isVideo ? 'VIDEO_CLIP_FINISHED' : 'AUDIO_CLIP_FINISHED',
                     mediaId: resp.id,
                     size: resp.size,
-                    mimeType: blob.type
+                    mimeType: blob.type,
+                    duration: duration / 1000
                 });
+
             } else {
                 throw new Error(resp?.error || 'Save failed');
             }
