@@ -2376,21 +2376,21 @@ body.offline-mode {
 .lock-screen {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(25px) saturate(180%);
+  -webkit-backdrop-filter: blur(25px) saturate(180%);
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   text-align: center;
-  animation: fadeIn 0.4s ease-out;
+  animation: fadeInLock 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body:not(.dark-mode) .lock-screen {
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text);
+  background: rgba(0, 0, 0, 0.75); /* Keep it dark for premium look even in light mode */
+  color: #ffffff;
 }
 
 .lock-screen.hidden {
@@ -2401,61 +2401,96 @@ body:not(.dark-mode) .lock-screen {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-  animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  max-width: 260px;
+  gap: 24px;
+  animation: slideUpLock 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 280px;
+  width: 100%;
 }
 
 .lock-icon-container {
   position: relative;
-  width: 80px;
-  height: 80px;
-  background: var(--primary);
+  width: 90px;
+  height: 90px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 10px;
-  box-shadow: 0 0 30px rgba(79, 70, 229, 0.4);
+  margin-bottom: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .fingerprint-icon {
-  width: 40px;
-  height: 40px;
-  color: white;
+  width: 44px;
+  height: 44px;
+  color: #ffffff;
   z-index: 2;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.3));
 }
 
 .pulse-ring {
   position: absolute;
-  inset: 0;
+  inset: -2px;
   border-radius: 50%;
-  border: 2px solid var(--primary);
-  animation: pulse 2s infinite;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  animation: iosPulse 3s infinite cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0;
 }
 
-@keyframes pulse {
-  0% { transform: scale(1); opacity: 0.6; }
-  100% { transform: scale(1.8); opacity: 0; }
+@keyframes iosPulse {
+  0% { transform: scale(0.95); opacity: 0; }
+  50% { opacity: 0.5; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@keyframes fadeInLock {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUpLock {
+  from { opacity: 0; transform: translateY(30px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .lock-content h2 {
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin: 0;
 }
 
 .lock-content p {
-  font-size: 14px;
-  opacity: 0.7;
-  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+  margin: -8px 0 8px;
+  line-height: 1.4;
 }
 
-.lock-content .btn {
-  padding: 12px 24px;
-  font-size: 14px;
+.lock-content #unlockBtn {
+  background: #ffffff;
+  color: #000000;
+  border-radius: 14px;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 600;
   width: 100%;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lock-content #unlockBtn:hover {
+  background: rgba(255, 255, 255, 0.9);
+  transform: scale(1.02);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.lock-content #unlockBtn:active {
+  transform: scale(0.98);
 }
 .media-record-row {
   display: flex;
