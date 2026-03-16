@@ -426,8 +426,12 @@ async function setTabMapping(tabId, url, packetId) {
         tabToUrlMapCached[tabId] = { url, packetId };
         await chrome.storage.local.set({ tabToUrlMap: tabToUrlMapCached });
 
-        // Track local pages for recovery after reload
-        if (url && url.includes('viewer.html')) {
+        // Track local pages and stack editors for recovery after reload
+        // We EXCLUDE playback tabs from being recovery targets
+        const playbackTabIds = tabToUrlMapCached.playbackTabIds || [];
+        const isPlaybackTab = playbackTabIds.includes(tabId);
+
+        if (url && (url.includes('viewer.html') || url.includes('sidebar/stack.html')) && !isPlaybackTab) {
             const { openLocalPages = {} } = await chrome.storage.local.get('openLocalPages');
             openLocalPages[tabId] = { url, packetId };
             await chrome.storage.local.set({ openLocalPages });
@@ -764,14 +768,23 @@ async function initializeSQLite() {
             await syncBookmarkCache();
             initialized = true;
 
-            // Recover local pages after reload
-            recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
+            // Recover local pages and tab groups
+            const { webAuthnEnabled = false } = await chrome.storage.local.get('webAuthnEnabled');
+            
+            if (webAuthnEnabled && !isSessionVerified) {
+                console.log('[SW] Biometrics enabled and session NOT verified. Gating restoration...');
+            } else {
+                // Perform normal restoration
+                recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
 
-            // NEW: Recover orphaned tab groups with retries for startup resilience
-            const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
-            recover(); // Immediate
-            setTimeout(recover, 2000); // 2s delay
-            setTimeout(recover, 5000); // 5s delay
+                const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
+                recover();
+                setTimeout(recover, 2000);
+                setTimeout(recover, 5000);
+            }
+
+            // Always cleanup playback tabs across restarts
+            cleanupPlaybackTabs().catch(e => console.error('[Cleanup] Failed:', e));
 
             // LOCK on startup if biometrics are enabled
             performStartupLock().catch(e => console.error('[StartupLock] Failed:', e));
@@ -1225,6 +1238,15 @@ async function handleMessage(request, sender, sendResponse) {
                         }
 
                         await chrome.storage.local.remove('lockedGroupsRestoration');
+
+                        // Perform deferred restoration of local pages and re-association of existing/restored groups
+                        console.log('[Unlock] Performing deferred restoration...');
+                        recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
+                        
+                        const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
+                        recover();
+                        setTimeout(recover, 2000);
+
                         sendResponse({ success: true });
                     } catch (e) {
                         console.error('[Unlock] Restoration failed:', e);
@@ -1635,6 +1657,31 @@ async function ensurePacketDatabase(packetId) {
     await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
 
     return db;
+}
+
+async function cleanupPlaybackTabs() {
+    try {
+        const { playbackTabIds = [] } = await chrome.storage.local.get('playbackTabIds');
+        if (playbackTabIds.length === 0) return;
+
+        console.log(`[Cleanup] Closing ${playbackTabIds.length} orphaned playback tabs...`);
+        for (const tabId of playbackTabIds) {
+            try {
+                await chrome.tabs.remove(tabId);
+                console.log(`[Cleanup] Closed playback tab: ${tabId}`);
+            } catch (e) {
+                // Tab likely already gone
+            }
+        }
+
+        // Fresh start for playback tracking
+        await chrome.storage.local.remove('playbackTabIds');
+        if (tabToUrlMapCached) {
+            tabToUrlMapCached.playbackTabIds = [];
+        }
+    } catch (e) {
+        console.error('[Cleanup] Playback tab cleanup failed:', e);
+    }
 }
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
