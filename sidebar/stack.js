@@ -8,7 +8,6 @@
     const itemsContainer = document.getElementById('stack-items-container');
     const stackTitle = document.getElementById('stack-title');
     const loading = document.getElementById('loading');
-    const statusBadge = document.getElementById('status-badge');
     const flowSvg = document.getElementById('flow-svg');
     const dropZone = document.getElementById('drop-zone');
     const playBtn = document.getElementById('play-btn');
@@ -46,7 +45,7 @@
     const bindingPrompt = document.getElementById('binding-prompt');
     const timelineArea = document.getElementById('timeline-area');
     const timelineTrack = document.getElementById('timeline-track');
-    const timelineProgress = document.getElementById('timeline-progress');
+
     const durationLabel = document.getElementById('duration-label');
     const clearMarkersBtn = document.getElementById('clear-markers-btn');
 
@@ -106,7 +105,7 @@
                 if (theme === 'system') {
                     shouldBeDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 }
-                
+
                 if (pipWindow) {
                     if (shouldBeDark) {
                         pipWindow.document.body.classList.add('dark-mode');
@@ -151,9 +150,8 @@
 
     async function loadStack() {
         try {
-            statusBadge.textContent = 'Syncing...';
             await chrome.runtime.sendMessage({ action: 'ensurePacketDatabase', packetId });
-            
+
             // Get stack data
             try {
                 const stackResp = await chrome.runtime.sendMessage({
@@ -194,7 +192,7 @@
                             if (item.metadata && typeof item.metadata === 'string') {
                                 item.metadata = JSON.parse(item.metadata);
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                         return item;
                     });
                 } else {
@@ -204,11 +202,8 @@
                 // Identify bound media from the packet's resources (not stack items, but packet media)
                 await loadBoundMediaInfo();
                 updateModeUI();
-                
                 renderStructure();
-                statusBadge.textContent = 'Synced';
 
-                
                 // Request current tab status to set initial highlight
                 const tabResp = await chrome.runtime.sendMessage({ action: 'getCurrentTab' });
                 if (tabResp.success && tabResp.tab) {
@@ -217,14 +212,13 @@
             }
         } catch (err) {
             console.error('Failed to load stack:', err);
-            statusBadge.textContent = 'Error';
         } finally {
             loading.classList.add('hidden');
         }
     }
 
     function getIcon(type) {
-        switch(type) {
+        switch (type) {
             case 'page': return '📄';
             case 'media': return '🖼️';
             case 'wasm': return '🧩';
@@ -239,7 +233,7 @@
         if (!url) return '';
         try {
             const parsed = new URL(url);
-            
+
             // Handle chrome-extension:// URLs specially
             if (url.startsWith('chrome-extension://')) {
                 let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
@@ -255,7 +249,7 @@
             // Standard web URLs
             // Remove hash and trailing slash, then lowercase
             let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
-            
+
             // Strip packetId from standard URLs if present
             if (parsed.searchParams.has('packetId')) {
                 const cleanSearch = new URLSearchParams(parsed.search);
@@ -268,7 +262,7 @@
 
             // Remove protocol and www.
             return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
-        } catch (e) { 
+        } catch (e) {
             // Fallback for malformed URLs
             return url.split('#')[0].replace(/\/$/, '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
         }
@@ -289,7 +283,7 @@
 
         // Block navigation to online items if offline
         const isBlocked = isNetworkOffline && isOnlineRequired(item);
-        
+
         if (isBlocked) {
             console.warn('Navigation blocked: Offline and item requires online access');
             if (pipWindow) {
@@ -321,10 +315,10 @@
                 }
 
                 if (!contentTabId) {
-                    const win = await chrome.windows.create({ 
-                        url, 
-                        type: 'normal', 
-                        state: 'maximized' 
+                    const win = await chrome.windows.create({
+                        url,
+                        type: 'normal',
+                        state: 'maximized'
                     });
                     contentTabId = win.tabs[0].id;
 
@@ -610,7 +604,7 @@
 
                 // Ignore if clicking a button
                 if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
-                
+
                 if (contentTabId) {
                     try {
                         const tab = await chrome.tabs.get(contentTabId);
@@ -625,7 +619,7 @@
                 if (contentTabId) {
                     try {
                         chrome.tabs.remove(contentTabId);
-                    } catch (e) {}
+                    } catch (e) { }
                     contentTabId = null;
                 }
                 pipWindow = null;
@@ -638,7 +632,7 @@
     function renderPipContent() {
         if (!pipWindow) return;
         pipWindow.document.body.innerHTML = '';
-        
+
         const container = pipWindow.document.createElement('div');
         container.style.cssText = 'text-align: center; width: 100%; padding: 0 24px; box-sizing: border-box; position: relative;';
 
@@ -679,7 +673,7 @@
 
         const controls = pipWindow.document.createElement('div');
         controls.className = 'pip-controls';
-        
+
         const restartBtnPip = pipWindow.document.createElement('button');
         restartBtnPip.innerHTML = `${ICONS.restart} Restart`;
         restartBtnPip.className = 'restart-btn';
@@ -704,7 +698,7 @@
         const mediaProgressContainer = pipWindow.document.createElement('div');
         mediaProgressContainer.id = 'pip-media-progress-container';
         mediaProgressContainer.className = 'pip-media-progress-container';
-        
+
         const mediaGroup = pipWindow.document.createElement('div');
         mediaGroup.className = 'media-group';
 
@@ -713,15 +707,15 @@
         spectrumCanvas.width = 300; // Internal resolution
         spectrumCanvas.height = 40;
         mediaGroup.appendChild(spectrumCanvas);
-        
+
         const mediaProgressBg = pipWindow.document.createElement('div');
         mediaProgressBg.className = 'media-progress-background';
-        
+
         const mediaProgressBar = pipWindow.document.createElement('div');
         mediaProgressBar.id = 'pip-media-progress-bar';
         mediaProgressBg.appendChild(mediaProgressBar);
         mediaGroup.appendChild(mediaProgressBg);
-        
+
         mediaProgressContainer.appendChild(mediaGroup);
         container.appendChild(mediaProgressContainer);
 
@@ -753,7 +747,7 @@
         const fsBtn = pipWindow.document.getElementById('pip-fs-btn');
         const trueFsBtn = pipWindow.document.getElementById('pip-true-fs-btn');
         const netInd = pipWindow.document.getElementById('pip-network-indicator');
-        
+
         if (title) title.textContent = stackTitle.textContent;
 
         if (netInd) {
@@ -765,7 +759,7 @@
                 netInd.title = 'Online';
             }
         }
-        
+
         if (counter) {
             if (isPageLoading) {
                 counter.textContent = 'Loading Page...';
@@ -777,7 +771,7 @@
                 counter.style.opacity = '0.6';
             }
         }
-        
+
         if (fsBtn) {
             fsBtn.disabled = isPageLoading;
         }
@@ -790,18 +784,18 @@
             const isLastSlide = currentSlideIndex === items.length - 1;
             const nextItem = items[currentSlideIndex + 1];
             const nextRequiresOnline = isOnlineRequired(nextItem);
-            
+
             const isBlocked = isNetworkOffline && nextRequiresOnline && !isLastSlide;
-            
+
             nextBtn.disabled = isPageLoading || isBlocked;
-            
+
             if (isLastSlide) {
                 nextBtn.innerHTML = `Finish ${ICONS.finish}`;
                 nextBtn.onclick = async () => {
                     if (contentTabId) {
                         try {
                             await chrome.tabs.remove(contentTabId);
-                        } catch (e) {}
+                        } catch (e) { }
                         contentTabId = null;
                     }
                     pipWindow.close();
@@ -811,7 +805,7 @@
                 nextBtn.onclick = advanceSlide;
             }
         }
-        
+
         // Hide/Show media progress
         const mediaContainer = pipWindow.document.getElementById('pip-media-progress-container');
         if (mediaContainer) {
@@ -834,7 +828,7 @@
         const slideBar = pipWindow.document.getElementById('pip-progress-bar');
         const mediaBar = pipWindow.document.getElementById('pip-media-progress-bar');
         const mediaContainer = pipWindow.document.getElementById('pip-media-progress-container');
-        
+
         if (!slideBar) return;
 
         // 1. Slide Progress (Bottom Green Bar)
@@ -931,7 +925,7 @@
 
                 window.__wildcardKeyboardListener = (e) => {
                     // Only handle if not in an input/textarea
-                    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) || 
+                    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) ||
                         document.activeElement.isContentEditable) {
                         return;
                     }
@@ -954,7 +948,7 @@
     async function advanceSlide() {
         if (currentSlideIndex < items.length - 1) {
             const nextIndex = currentSlideIndex + 1;
-            
+
             // Sync Media if driving
             if (stackMode === 'media' && pipWindow) {
                 const mediaEl = pipWindow.document.getElementById('pip-media-driver');
@@ -965,7 +959,7 @@
                     lastMarkerIndex = nextIndex;
                 }
             }
-            
+
             await startPlayback(nextIndex);
         }
     }
@@ -978,7 +972,7 @@
             const mediaEl = pipWindow.document.getElementById('pip-media-driver');
             if (mediaEl) {
                 mediaEl.currentTime = 0;
-                mediaEl.play().catch(() => {}); // Try to auto-play on restart
+                mediaEl.play().catch(() => { }); // Try to auto-play on restart
             }
         }
         startPlayback(0);
@@ -988,7 +982,7 @@
     function getItemUrl(item) {
         if (!item) return null;
         const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-        
+
         // For items loaded from stack_items table, essential IDs are inside metadata
         const meta = (typeof item.metadata === 'object') ? item.metadata : {};
         const resourceId = item.resourceId || meta.resourceId;
@@ -1036,7 +1030,7 @@
         currentActiveUrl = activeUrl;
         const normalizedActive = normalizeUrl(activeUrl);
         const cards = itemsContainer.querySelectorAll('.stack-item');
-        
+
         cards.forEach((card, idx) => {
             const item = items[idx];
             const itemUrl = getItemUrl(item);
@@ -1050,7 +1044,7 @@
 
     function renderStructure() {
         itemsContainer.innerHTML = '';
-        
+
         items.forEach((item, index) => {
             const card = document.createElement('div');
             const isDisabled = isNetworkOffline && isOnlineRequired(item);
@@ -1058,7 +1052,7 @@
             card.id = `slide-card-${index}`;
             card.draggable = !isDisabled;
             card.dataset.index = index;
-            
+
             // Find if there is a marker for this slide
             // 1:1 Mapping: Slide 1 (Index 0) -> Marker 1 (Index 0)
             const triggerMarkerTime = stackMarkers[index];
@@ -1129,12 +1123,12 @@
                 e.stopPropagation();
                 removeItem(index);
             });
-            
+
             // Drag events for reordering
             card.addEventListener('dragstart', (e) => {
                 e.dataTransfer.setData('internal/index', index);
                 card.classList.add('dragging');
-                clearConnectors(); 
+                clearConnectors();
             });
 
             card.addEventListener('dragend', () => {
@@ -1147,10 +1141,10 @@
                 e.preventDefault();
                 const rect = card.getBoundingClientRect();
                 const x = e.clientX - rect.left;
-                
+
                 // Remove existing indicators
                 card.classList.remove('insert-before', 'insert-after');
-                
+
                 if (x < rect.width / 2) {
                     card.classList.add('insert-before');
                 } else {
@@ -1166,7 +1160,7 @@
                 e.preventDefault();
                 const isBefore = card.classList.contains('insert-before');
                 card.classList.remove('insert-before', 'insert-after');
-                
+
                 const fromIndexStr = e.dataTransfer.getData('internal/index');
                 const jsonData = e.dataTransfer.getData('application/json');
 
@@ -1215,8 +1209,8 @@
 
         for (let i = 0; i < cards.length; i++) {
             const current = cards[i];
-            const next = cards[i + 1] || dropZone; 
-            
+            const next = cards[i + 1] || dropZone;
+
             const r1 = current.getBoundingClientRect();
             const r2 = next.getBoundingClientRect();
 
@@ -1231,9 +1225,9 @@
 
             const dx = Math.abs(p2.x - p1.x);
             const dy = Math.abs(p2.y - p1.y);
-            
+
             let pathData;
-            if (dy < 20) { 
+            if (dy < 20) {
                 const cp1x = p1.x + dx / 2;
                 const cp1y = p1.y;
                 pathData = `M ${p1.x} ${p1.y} C ${cp1x} ${cp1y}, ${cp1x} ${p2.y}, ${p2.x} ${p2.y}`;
@@ -1243,7 +1237,7 @@
                 const cp1y = p1.y;
                 const cp2x = p2.x - offset;
                 const cp2y = p2.y;
-                pathData = `M ${p1.x} ${p1.y} C ${cp1x} ${cp1y}, ${cp1x} ${p1.y + dy/2}, ${(p1.x+p2.x)/2} ${(p1.y+p2.y)/2} S ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+                pathData = `M ${p1.x} ${p1.y} C ${cp1x} ${cp1y}, ${cp1x} ${p1.y + dy / 2}, ${(p1.x + p2.x) / 2} ${(p1.y + p2.y) / 2} S ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
             }
 
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -1262,8 +1256,6 @@
         const metadata = (typeof item === 'object') ? JSON.stringify(item) : '{}';
 
         try {
-            statusBadge.textContent = 'Saving...';
-            
             // If atIndex is provided, we need to shift others
             if (atIndex !== -1 && atIndex < items.length) {
                 for (let i = items.length - 1; i >= atIndex; i--) {
@@ -1280,24 +1272,22 @@
             const sql = `INSERT INTO stack_items (stack_id, type, name, url, metadata, position) 
                         VALUES (${stackId}, '${type}', '${itemName.replace(/'/g, "''")}', 
                         '${itemUrl.replace(/'/g, "''")}', '${metadata.replace(/'/g, "''")}', ${atIndex})`;
-            
+
             await chrome.runtime.sendMessage({ action: 'executeSQL', name: dbName, sql });
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
-            
+
             // Sync tab group order to reflect new item
-            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => {});
-            
+            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
+
             await loadStack();
         } catch (err) {
             console.error('Failed to add item:', err);
-            statusBadge.textContent = 'Error';
         }
     }
 
     async function removeItem(index) {
         const item = items[index];
         try {
-            statusBadge.textContent = 'Removing...';
             await chrome.runtime.sendMessage({
                 action: 'executeSQL',
                 name: dbName,
@@ -1314,23 +1304,21 @@
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
 
             // Sync tab group order after removal
-            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => {});
+            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
 
             await loadStack();
         } catch (err) {
             console.error('Failed to remove item:', err);
-            statusBadge.textContent = 'Error';
         }
     }
 
     async function reorderItems(fromIndex, toIndex) {
         if (fromIndex === toIndex) return;
-        
+
         const movedItem = items.splice(fromIndex, 1)[0];
         items.splice(toIndex, 0, movedItem);
-        
+
         try {
-            statusBadge.textContent = 'Reordering...';
             // Update all positions
             for (let i = 0; i < items.length; i++) {
                 await chrome.runtime.sendMessage({
@@ -1340,15 +1328,13 @@
                 });
             }
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
-            
+
             // Sync tab group order after internal reorder
-            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => {});
+            chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
 
             renderStructure();
-            statusBadge.textContent = 'Synced';
         } catch (err) {
             console.error('Reorder failed:', err);
-            statusBadge.textContent = 'Error';
         }
     }
 
@@ -1398,7 +1384,7 @@
     }
 
     window.addEventListener('resize', drawConnectors);
-    
+
     playBtn.addEventListener('click', () => startPlayback(0));
 
     chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -1406,7 +1392,7 @@
             isPageLoading = false;
             loadProgress = 100;
             if (loadInterval) clearInterval(loadInterval);
-            updatePipStatus(); 
+            updatePipStatus();
         }
     });
 
@@ -1428,7 +1414,7 @@
             window.location.reload();
         }
     });
-    
+
     async function loadBoundMediaInfo() {
         if (!stackMediaId) {
             boundMediaItem = null;
@@ -1443,7 +1429,7 @@
                 if (mediaItem) {
                     boundMediaItem = mediaItem;
                     mediaDuration = mediaItem.duration || 0;
-                    
+
                     // If duration is missing, try to detect it by loading the blob
                     if (!mediaDuration) {
                         try {
@@ -1452,15 +1438,15 @@
                                 action: 'getMediaBlob',
                                 id: stackMediaId
                             });
-                            
+
                             if (blobResp.success && blobResp.data) {
                                 await new Promise((resolve) => {
-                                    const data = blobResp.data instanceof Uint8Array ? blobResp.data : 
-                                                 (blobResp.data && typeof blobResp.data === 'object' ? new Uint8Array(Object.values(blobResp.data)) : blobResp.data);
+                                    const data = blobResp.data instanceof Uint8Array ? blobResp.data :
+                                        (blobResp.data && typeof blobResp.data === 'object' ? new Uint8Array(Object.values(blobResp.data)) : blobResp.data);
                                     const uint8Array = new Uint8Array(data);
                                     const blob = new Blob([uint8Array], { type: mediaItem.mimeType });
 
-                                    
+
                                     const detectWithUrl = (sourceUrl, name = 'Blob') => {
                                         return new Promise((res) => {
                                             const isVideo = mediaItem.mimeType.startsWith('video/');
@@ -1519,11 +1505,11 @@
                                                 reader.readAsDataURL(blob);
                                             });
                                         }
-                                        
+
                                         if (mediaDuration <= 0) {
                                             console.warn('[Stack] Failed to detect duration from both Blob and Data URL. Media might be missing headers.');
                                         }
-                                        
+
                                         resolve();
                                     })();
                                 });
@@ -1554,7 +1540,7 @@
     function updateModeUI() {
         if (stackMode === 'manual' || !stackMediaId) {
             driverModeBadge.className = 'driver-mode-badge manual';
-            driverModeBadge.textContent = 'Manual Mode';
+            driverModeBadge.textContent = 'Manual';
             timelineArea.style.display = 'none';
             renderBindingPrompt();
 
@@ -1567,7 +1553,7 @@
             driverModeBadge.textContent = 'Media Driven';
             timelineArea.style.display = 'block';
             renderBoundInfo();
-            
+
             if (mediaDuration > 0) {
                 durationLabel.textContent = formatTime(mediaDuration);
                 renderMarkers();
@@ -1591,8 +1577,8 @@
         const prompt = document.createElement('div');
         prompt.id = 'binding-prompt';
         prompt.innerHTML = `
-            <div style="font-size: 24px; margin-bottom: 4px;">🎯</div>
-            <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Drop an audio/video item here to bind driver</div>
+            <span style="font-size: 14px; margin-right: 4px;">🎯</span>
+            <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Drop media to drive presentation by audio or video.</span>
         `;
         bindingZone.appendChild(prompt);
     }
@@ -1601,24 +1587,29 @@
         if (!boundMediaItem) return;
         bindingZone.className = 'binding-zone bound';
         bindingZone.innerHTML = '';
-        
+
         const info = document.createElement('div');
         info.className = 'bound-info';
-        
+        info.style.gap = '8px';
+
         const icon = document.createElement('div');
         icon.className = 'bound-icon';
+        icon.style.fontSize = '16px';
         icon.textContent = (boundMediaItem.mimeType || '').startsWith('video') ? '🎥' : '🎵';
-        
+
         const name = document.createElement('div');
         name.className = 'bound-name';
+        name.style.fontSize = '11px';
         name.textContent = boundMediaItem.name || 'Unnamed Media';
-        
+
         info.appendChild(icon);
         info.appendChild(name);
-        
+
         const clearBtn = document.createElement('button');
         clearBtn.className = 'clear-binding';
         clearBtn.textContent = 'Clear';
+        clearBtn.style.fontSize = '9px';
+        clearBtn.style.padding = '2px 8px';
         clearBtn.onclick = async (e) => {
             e.stopPropagation();
             stackMediaId = null;
@@ -1629,7 +1620,6 @@
             await saveStackDriverMetadata();
         };
 
-        
         bindingZone.appendChild(info);
         bindingZone.appendChild(clearBtn);
     }
@@ -1647,7 +1637,7 @@
     bindingZone.addEventListener('drop', async (e) => {
         e.preventDefault();
         bindingZone.classList.remove('drag-active');
-        
+
         try {
             const data = JSON.parse(e.dataTransfer.getData('application/json'));
             // Sidebar wraps the object in { type, item, ... }
@@ -1661,7 +1651,20 @@
                     stackMediaId = item.mediaId;
                     stackMode = 'media';
                     await loadBoundMediaInfo();
+
+                    // Auto-generate markers if empty
+                    if (items.length > 0 && stackMarkers.length === 0) {
+                        if (mediaDuration > 0) {
+                            for (let i = 0; i < items.length; i++) {
+                                stackMarkers.push((mediaDuration / items.length) * i);
+                            }
+                        }
+                    }
+
                     updateModeUI();
+                    if (pipWindow) {
+                        setupMediaDriver();
+                    }
                     await saveStackDriverMetadata();
                     showNotification('Media bound to stack driver', 'success');
                 } else {
@@ -1695,13 +1698,12 @@
             const pct = (time / mediaDuration) * 100;
             marker.style.left = `${pct}%`;
             marker.title = `Advance to Slide ${i + 1} at ${formatTime(time)}`;
-            
+
             // Numbered Bubble
             const bubble = document.createElement('div');
             bubble.className = 'marker-bubble';
             bubble.textContent = i + 1;
             marker.appendChild(bubble);
-
 
             // Timestamp Label
             const ts = document.createElement('div');
@@ -1709,10 +1711,56 @@
             ts.textContent = formatTime(time);
             marker.appendChild(ts);
 
-            marker.onclick = (e) => {
+            marker.addEventListener('click', (e) => {
                 e.stopPropagation();
+                if (marker.dataset.wasDragging === 'true') {
+                    delete marker.dataset.wasDragging;
+                    return;
+                }
                 removeMarker(time);
-            };
+            });
+
+            // Draggable Logic
+            marker.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                const rect = timelineTrack.getBoundingClientRect();
+                
+                const onMouseMove = (moveEvent) => {
+                    marker.dataset.wasDragging = 'true';
+                    const x = Math.max(0, Math.min(moveEvent.clientX - rect.left, rect.width));
+                    const newTime = (x / rect.width) * mediaDuration;
+                    
+                    // Constrain between neighbors to preserve order
+                    const minTime = i > 0 ? stackMarkers[i - 1] + 0.1 : 0;
+                    const maxTime = i < stackMarkers.length - 1 ? stackMarkers[i + 1] - 0.1 : mediaDuration;
+                    
+                    const constrainedTime = Math.max(minTime, Math.min(newTime, maxTime));
+                    stackMarkers[i] = constrainedTime;
+                    
+                    // Visual update
+                    marker.style.left = `${(constrainedTime / mediaDuration) * 100}%`;
+                    ts.textContent = formatTime(constrainedTime);
+                    marker.title = `Advance to Slide ${i + 1} at ${formatTime(constrainedTime)}`;
+                    
+                    // Update slide card label if exists
+                    const card = document.getElementById(`slide-card-${i}`);
+                    if (card) {
+                        const label = card.querySelector('.marker-trigger-label');
+                        if (label) label.querySelector('span:last-child').textContent = formatTime(constrainedTime);
+                    }
+                };
+                
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    saveStackDriverMetadata();
+                };
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
 
             // Synchronized Highlight: Marker -> Slide
             marker.addEventListener('mouseenter', () => {
@@ -1724,7 +1772,6 @@
                 const card = document.getElementById(`slide-card-${i}`);
                 if (card) card.classList.remove('highlight');
             });
-
 
             timelineTrack.appendChild(marker);
         });
@@ -1755,7 +1802,7 @@
 
     async function addMarker(time) {
         if (!stackMediaId) return;
-        
+
         if (mediaDuration <= 0) {
             showNotification('Wait for media duration to be detected...', 'warning');
             return;
@@ -1779,7 +1826,7 @@
                 });
             }
         }
-        
+
         if (stackMarkers.length >= items.length) {
             showNotification(`You can only have as many markers as there are slides (${items.length})`, 'warning');
             return;
@@ -1852,11 +1899,19 @@
             const blob = new Blob([uint8Array], { type: resp.type });
             const url = URL.createObjectURL(blob);
 
+            // Clean up existing media driver
+            const oldMedia = pipWindow.document.getElementById('pip-media-driver');
+            if (oldMedia) oldMedia.remove();
+
+            mediaLastTime = 0;
+            lastMarkerIndex = -1;
+
             const isVideo = resp.type.startsWith('video/');
             const mediaEl = pipWindow.document.createElement(isVideo ? 'video' : 'audio');
             mediaEl.id = 'pip-media-driver';
             mediaEl.src = url;
             mediaEl.autoplay = true;
+            mediaEl.currentTime = 0;
 
             if (isVideo) {
                 wrapper.style.display = 'block';
@@ -1864,7 +1919,7 @@
             } else {
                 wrapper.style.display = 'none';
             }
-            
+
             mediaEl.onloadedmetadata = () => {
                 const checkDuration = () => {
                     if (mediaEl.duration && mediaEl.duration !== Infinity) {
@@ -1910,44 +1965,44 @@
                 const source = audioCtx.createMediaElementSource(mediaEl);
                 const analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 64; // Small fft for a clean, broad spectrum
-                
+
                 source.connect(analyser);
                 analyser.connect(audioCtx.destination);
-                
+
                 const canvas = pipWindow.document.getElementById('pip-spectrum-canvas');
                 if (canvas) {
                     // Hide spectrum for video
                     canvas.style.display = isVideo ? 'none' : 'block';
-                    
+
                     if (!isVideo) {
                         const ctx = canvas.getContext('2d');
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
-                        
+
                         const draw = () => {
                             if (!pipWindow) return; // Stop if PIP closed
                             requestAnimationFrame(draw);
-                            
+
                             analyser.getByteFrequencyData(dataArray);
-                            
+
                             // Clear canvas
                             ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            
+
                             const barWidth = (canvas.width / bufferLength) * 2.5;
                             let barHeight;
                             let x = 0;
-                            
+
                             for (let i = 0; i < bufferLength; i++) {
                                 barHeight = (dataArray[i] / 255) * canvas.height;
-                                
+
                                 // Beautiful gradient/theme color
-                                ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + (barHeight/canvas.height) * 0.7})`; 
+                                ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + (barHeight / canvas.height) * 0.7})`;
                                 ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
-                                
+
                                 x += barWidth;
                             }
                         };
-                        
+
                         // Start visualizer on play
                         mediaEl.onplay = () => {
                             if (audioCtx.state === 'suspended') {
@@ -1976,10 +2031,10 @@
         if (currentTime < 0.2) {
             lastMarkerIndex = -1;
         }
-        
+
         const sortedMarkers = [...stackMarkers].sort((a, b) => a - b);
 
-        
+
         let currentMarkerIndex = -1;
         for (let i = 0; i < sortedMarkers.length; i++) {
             if (currentTime >= sortedMarkers[i]) {
@@ -1993,12 +2048,12 @@
             // Crossed one or more markers!
             // Map Marker Index directly to Slide Index
             const targetSlide = currentMarkerIndex;
-            
+
             if (targetSlide >= 0 && targetSlide < items.length) {
                 if (targetSlide !== currentSlideIndex) {
                     console.log('[Stack] Marker crossed, advancing to slide', targetSlide + 1);
                     startPlayback(targetSlide);
-                    
+
                     // Pulse indicator in PIP
                     if (pipWindow) {
                         const counter = pipWindow.document.getElementById('pip-counter');
@@ -2016,10 +2071,7 @@
 
 
 
-        if (mediaDuration > 0) {
-            const pct = (currentTime / mediaDuration) * 100;
-            timelineProgress.style.width = `${pct}%`;
-        }
+
 
         // Always update the PIP progress UI
         updateProgressBar();
@@ -2032,7 +2084,7 @@
 
         const currentTime = mediaEl.currentTime;
         const sortedMarkers = [...stackMarkers].sort((a, b) => a - b);
-        
+
         const nextMarker = sortedMarkers.find(m => m > currentTime);
         if (nextMarker !== undefined) {
             mediaEl.currentTime = nextMarker;
@@ -2047,7 +2099,7 @@
 
     // Update Next button behavior in PIP
     const originalAdvanceSlide = advanceSlide;
-    advanceSlide = async function() {
+    advanceSlide = async function () {
         if (stackMode === 'media' && pipWindow) {
             await advanceToNextMarker();
         } else {

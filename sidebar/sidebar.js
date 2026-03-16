@@ -2422,6 +2422,11 @@ class SidebarUI {
                 this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
             } else if (type === 'stack') {
+                const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.resourceId || item.id}&packetId=${this.currentPacket.id}`);
+                // Don't show the current stack in its own editor's sidebar
+                if (this.urlsMatch(this.activeUrl, stackUrl)) {
+                    return;
+                }
                 stackCount++;
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
