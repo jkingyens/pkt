@@ -156,17 +156,30 @@ chrome.runtime.onMessage.addListener((message) => {
             startTime = Date.now();
             updateUI();
             window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true, height: 40 }, '*');
-            // SW already has the streamId and started the pipeline, but we just need to update UI
-            // and potentially confirm starting if SW didn't do it yet.
-            // In our new flow, SW handles the START_RECORDING message to offscreen.
+        }
+    } else if (message.type === 'AUDIO_CLIP_FINISHED' || message.type === 'VIDEO_CLIP_FINISHED') {
+        if (isRecording) {
+            isRecording = false;
+            clearInterval(timerInterval);
+            updateUI();
+            window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: false, height: 40 }, '*');
         }
     } else if (message.type === 'RECORDING_ERROR') {
         timerEl.textContent = message.error;
         timerEl.style.color = '#ff453a';
+        isRecording = false;
+        clearInterval(timerInterval);
+        updateUI();
         setTimeout(() => {
             timerEl.textContent = 'Wildcard';
             timerEl.style.color = 'white';
         }, 5000);
+    }
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isRecording) {
+        toggleRecording();
     }
 });
 

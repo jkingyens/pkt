@@ -302,6 +302,7 @@ class SidebarUI {
         this.unlockBtn = document.getElementById('unlockBtn');
 
         this.terminalTabs = {}; // packetId -> tabId
+        this.activeRecordingTabId = null;
 
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
@@ -601,6 +602,10 @@ class SidebarUI {
                 this.isVideoRecording = false;
                 this.isTabVideoRecording = false;
                 this.updateRecordingUI();
+                if (this.activeRecordingTabId) {
+                    chrome.tabs.sendMessage(this.activeRecordingTabId, { type: 'SET_RECORDING_OVERLAY', active: false }).catch(() => {});
+                    this.activeRecordingTabId = null;
+                }
                 this.handleMediaClipFinished(message.mediaId, message.size, message.mimeType || (message.type === 'VIDEO_CLIP_FINISHED' ? 'video/webm' : 'audio/webm'));
             } else if (message.type === 'RECORDING_STARTED') {
                 this.isRecording = true;
@@ -4514,6 +4519,14 @@ class SidebarUI {
                     streamId,
                     region: region
                 });
+
+                // Show recording overlay on the tab
+                this.activeRecordingTabId = tab.id;
+                chrome.tabs.sendMessage(tab.id, {
+                    type: 'SET_RECORDING_OVERLAY',
+                    active: true,
+                    region: region
+                }).catch(() => {});
                 
                 this.pendingVideoClip = false;
                 this.pendingVideoRegion = null;
@@ -4607,6 +4620,10 @@ class SidebarUI {
     }
 
     handleClipperCancelled() {
+        if (this.isRecording) {
+            console.log('[Sidebar] Clipper cancelled while recording. Stopping recording.');
+            this.sendMessage({ action: 'STOP_AUDIO_RECORDING' }).catch(() => {});
+        }
         this.isClipperManuallyCancelled = true;
         this.isClipperInvoked = false;
         this.setClipperActive(false);

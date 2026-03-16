@@ -10,6 +10,7 @@
     let shadow = null;
     let overlay = null;
     let selection = null;
+    let recordingFrame = null;
 
     function createOverlay() {
         // If a host already exists (e.g., from an orphaned script), remove it
@@ -23,6 +24,7 @@
             overlay = null;
             selection = null;
             island = null;
+            recordingFrame = null;
         }
 
         // Create the host element that will hold the shadow root
@@ -66,8 +68,23 @@
             pointerEvents: 'none'
         });
 
+        recordingFrame = document.createElement('div');
+        recordingFrame.id = 'wildcard-recording-frame';
+        Object.assign(recordingFrame.style, {
+            position: 'absolute',
+            boxSizing: 'border-box',
+            display: 'none',
+            pointerEvents: 'none',
+            // Border is outside the recording area
+            border: '2px solid #ff4444',
+            // Large box-shadow creates the dimming effect
+            boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+            zIndex: '2147483646' 
+        });
+
         shadow.appendChild(overlay);
         overlay.appendChild(selection);
+        shadow.appendChild(recordingFrame);
 
         if (document.body) {
             document.body.appendChild(host);
@@ -141,7 +158,8 @@
     }
 
     function onKeyDown(e) {
-        if (e.key === 'Escape' && isActive) {
+        const isRecording = recordingFrame && recordingFrame.style.display === 'block';
+        if (e.key === 'Escape' && (isActive || isRecording)) {
             safeSendMessage({ type: 'CLIPPER_CANCELLED' });
             e.preventDefault();
             e.stopPropagation();
@@ -259,6 +277,21 @@
                 }
                 window.removeEventListener('keydown', onKeyDown, true);
                 isDragging = false;
+            }
+            sendResponse({ success: true });
+        } else if (message.type === 'SET_RECORDING_OVERLAY') {
+            if (message.active && message.region) {
+                createOverlay(); // Ensure exists
+                const r = message.region;
+                Object.assign(recordingFrame.style, {
+                    display: 'block',
+                    left: `${r.x - 2}px`,
+                    top: `${r.y - 2}px`,
+                    width: `${r.width + 4}px`,
+                    height: `${r.height + 4}px`
+                });
+            } else if (recordingFrame) {
+                recordingFrame.style.display = 'none';
             }
             sendResponse({ success: true });
         }
