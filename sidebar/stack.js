@@ -377,7 +377,7 @@
                 }
             } else {
                 width = 320;
-                height = 160;
+                height = 200;
             }
 
             pipWindow = await window.documentPictureInPicture.requestWindow({
@@ -882,7 +882,7 @@
     function resizePip(type = 'manual') {
         if (!pipWindow) return;
         let width = 320;
-        let height = 160;
+        let height = 200;
 
         if (type === 'audio') {
             width = 340;
@@ -1581,6 +1581,7 @@
         }
 
         updateProgressBar();
+        if (pipWindow) updatePipStatus();
     }
 
 
