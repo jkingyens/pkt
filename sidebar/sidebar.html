@@ -31,6 +31,7 @@
               <circle cx="12" cy="20" r="1.25" fill="currentColor" />
             </svg>
           </div>
+          <button id="userBtn" class="btn-icon header-user-btn" title="User Settings"></button>
           <button id="settingsBtn" class="btn-icon header-settings-btn" title="Settings"></button>
         </div>
       </div>
@@ -60,36 +61,6 @@
       <button id="settingsBackBtn" class="back-btn">← Back</button>
       <h2 class="detail-title">Settings</h2>
     </header>
-    <div class="constructor-body">
-      <div class="form-group">
-        <label style="display: flex; justify-content: space-between; align-items: center;">
-          Gemini API Key
-        </label>
-        <input type="password" id="geminiApiKeyInput" class="form-input" placeholder="Enter Gemini API Key"
-          style="margin-top: 6px;">
-        <p class="hint">The API key is required for the "Generate Functions" feature.</p>
-      </div>
-      <div class="form-group" style="margin-top: 10px;">
-        <label>Gemini Model</label>
-        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
-          <select id="geminiModelSelect" class="form-input" style="flex: 1;">
-            <option value="">Select a model...</option>
-          </select>
-          <button id="fetchModelsBtn" class="btn btn-secondary btn-sm" title="Fetch available models">🔄</button>
-        </div>
-      </div>
-      <p id="modelFetchStatus" class="hint"></p>
-      <div class="form-group" style="margin-top: 10px;">
-        <label style="display: flex; justify-content: space-between; align-items: center;">
-          System Prompt
-          <div style="display: flex; gap: 4px;">
-            <button id="restoreDefaultPromptBtn" class="btn btn-secondary btn-sm"
-              style="font-size: 10px; padding: 2px 6px;">Restore Default</button>
-          </div>
-        </label>
-        <textarea id="geminiSystemPromptInput" class="form-input"
-          style="height: 120px; margin-top: 6px; font-family: monospace; font-size: 11px;"></textarea>
-      </div>
 
       <div class="settings-group" style="margin-top: 16px;">
         <div class="settings-row">
@@ -158,6 +129,45 @@
             <span class="theme-label">Dark</span>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== USER VIEW ===== -->
+  <div id="userView" class="view">
+    <header class="detail-header">
+      <button id="userBackBtn" class="back-btn">← Back</button>
+      <h2 class="detail-title">User</h2>
+    </header>
+    <div class="constructor-body">
+      <div class="form-group">
+        <label style="display: flex; justify-content: space-between; align-items: center;">
+          Gemini API Key
+        </label>
+        <input type="password" id="geminiApiKeyInput" class="form-input" placeholder="Enter Gemini API Key"
+          style="margin-top: 6px;">
+        <p class="hint">The API key is required for the "Generate Functions" feature.</p>
+      </div>
+      <div class="form-group" style="margin-top: 10px;">
+        <label>Gemini Model</label>
+        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+          <select id="geminiModelSelect" class="form-input" style="flex: 1;">
+            <option value="">Select a model...</option>
+          </select>
+          <button id="fetchModelsBtn" class="btn btn-secondary btn-sm" title="Fetch available models">🔄</button>
+        </div>
+      </div>
+      <p id="modelFetchStatus" class="hint"></p>
+      <div class="form-group" style="margin-top: 10px;">
+        <label style="display: flex; justify-content: space-between; align-items: center;">
+          System Prompt
+          <div style="display: flex; gap: 4px;">
+            <button id="restoreDefaultPromptBtn" class="btn btn-secondary btn-sm"
+              style="font-size: 10px; padding: 2px 6px;">Restore Default</button>
+          </div>
+        </label>
+        <textarea id="geminiSystemPromptInput" class="form-input"
+          style="height: 120px; margin-top: 6px; font-family: monospace; font-size: 11px;"></textarea>
       </div>
     </div>
   </div>

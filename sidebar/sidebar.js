@@ -278,11 +278,13 @@ class SidebarUI {
         this.constructorView = document.getElementById('constructorView');
         this.schemaConstructorView = document.getElementById('schemaConstructorView');
         this.settingsView = document.getElementById('settingsView');
+        this.userView = document.getElementById('userView');
 
         // List view elements
         this.collectionsList = document.getElementById('collectionsList');
         this.template = document.getElementById('collectionTemplate');
         this.settingsBtn = document.getElementById('settingsBtn');
+        this.userBtn = document.getElementById('userBtn');
         this.importBtn = document.getElementById('importBtn');
         this.importPacketBtn = document.getElementById('importPacketBtn');
 
@@ -292,6 +294,7 @@ class SidebarUI {
         this.fetchModelsBtn = document.getElementById('fetchModelsBtn');
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
+        this.userBackBtn = document.getElementById('userBackBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeLightCard = document.getElementById('themeLight');
@@ -1219,9 +1222,14 @@ class SidebarUI {
             await this.checkEmptyPacketGarbageCollector();
             this.showSettingsView();
         });
+        this.userBtn.addEventListener('click', async () => {
+            await this.checkEmptyPacketGarbageCollector();
+            this.showUserView();
+        });
 
         // Settings view
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
+        this.userBackBtn.addEventListener('click', () => this.showListView());
         this.geminiApiKeyInput.addEventListener('input', () => this.saveApiKey(true));
         this.geminiSystemPromptInput.addEventListener('input', () => this.savePrompt(true));
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
@@ -2007,6 +2015,7 @@ class SidebarUI {
         this.witsView.classList.remove('active');
         this.witEditorView.classList.remove('active');
         this.settingsView.classList.remove('active');
+        this.userView.classList.remove('active');
     }
 
     async showListView() {
@@ -4085,10 +4094,14 @@ class SidebarUI {
         }, 3000);
     }
     showSettingsView() {
-        this.geminiApiKeyInput.value = this.geminiApiKey;
-        this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.showView('settingsView');
         this.updateThemeUI();
+    }
+
+    showUserView() {
+        this.geminiApiKeyInput.value = this.geminiApiKey;
+        this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+        this.showView('userView');
         this.renderModelSelect();
     }
 
