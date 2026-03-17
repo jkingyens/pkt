@@ -694,6 +694,7 @@ class SidebarUI {
             this.addTabToCurrentPacket();
         } else {
             this.sendMessage({ action: 'getCurrentTab' }).then(resp => {
+                if (!resp) return;
                 if (resp.success) {
                     const { title, url } = resp.tab;
                     this.createAndShowNewPacket([{ type: 'page', title: title || url, url }]);
@@ -2165,22 +2166,8 @@ class SidebarUI {
         btn.textContent = 'Saving...';
 
         try {
-            let sql;
-            let params;
-            if (this.currentWitId) {
-                sql = "UPDATE wits SET name = ?, wit = ? WHERE rowid = ?";
-                params = [name, wit, this.currentWitId];
-            } else {
-                sql = "INSERT INTO wits (name, wit) VALUES (?, ?)";
-                params = [name, wit];
-            }
-
-            // We need a way to execute with params. 'executeSQL' in SW calls db.exec(sql). Use proper escaping or add bind support?
-            // SW executeSQL: db.exec(request.sql).
-            // It doesn't support params! This is dangerous if names have quotes.
-            // I should update SW to support bind params or handle escaping here.
-            // For now, I'll escape single quotes.
             const esc = str => str.replace(/'/g, "''");
+            let sql;
             if (this.currentWitId) {
                 sql = `UPDATE wits SET name = '${esc(name)}', wit = '${esc(wit)}' WHERE rowid = ${this.currentWitId}`;
             } else {
@@ -2188,6 +2175,7 @@ class SidebarUI {
             }
 
             const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
+            if (!resp) return;
             if (resp.success) {
                 // Checkpoint
                 await this.sendMessage({ action: 'saveCheckpoint', name: 'wits', prefix: 'db_' });
@@ -2199,8 +2187,10 @@ class SidebarUI {
             console.error(e);
             alert('Error saving WIT');
         } finally {
-            btn.disabled = false;
-            btn.textContent = originalText;
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
         }
     }
 
@@ -2214,6 +2204,7 @@ class SidebarUI {
         try {
             const sql = `DELETE FROM wits WHERE rowid = ${this.currentWitId}`;
             const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
+            if (!resp) return;
             if (resp.success) {
                 await this.sendMessage({ action: 'saveCheckpoint', name: 'wits', prefix: 'db_' });
                 this.showWitsView();
@@ -2563,6 +2554,7 @@ class SidebarUI {
             const packetDbName = `packet_${this.currentPacket.id}`;
             await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
             const schemaResp = await this.sendMessage({ action: 'getSchema', name: packetDbName });
+            if (!schemaResp) return;
 
             if (schemaResp.success) {
                 const tables = schemaResp.schema;
@@ -3050,6 +3042,7 @@ class SidebarUI {
 
         try {
             const schemaResp = await this.sendMessage({ action: 'getSchema', name });
+            if (!schemaResp) return;
             if (schemaResp.success) {
                 this.currentSchema = schemaResp.schema;
                 this.renderSchema(schemaResp.schema);
@@ -3133,6 +3126,7 @@ class SidebarUI {
                     tableName
                 });
 
+                if (!resp) continue;
                 if (resp.success) {
                     totalCount += resp.entries.length;
                     if (schema.length > 1) {
@@ -4615,6 +4609,7 @@ class SidebarUI {
 
         try {
             const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
+            if (!resp) return;
             if (resp.success) {
                 this.showWasmResults(resp.logs, resp.result, true);
             } else {

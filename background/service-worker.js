@@ -515,8 +515,8 @@ async function navigatePacketItems(groupId, direction, manager) {
 
     try {
         const db = manager.getDatabase('packets');
-        const rows = await db.exec(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
-        if (!rows.length) return;
+        const rows = await db.query(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
+        if (!rows || !rows.length) return;
 
         const { name, urls: urlsJson } = rows[0];
         const packet = { id: packetId, name, urls: JSON.parse(urlsJson) };
@@ -1046,8 +1046,8 @@ async function handleMessage(request, sender, sendResponse) {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
 
-                    const result = await db.exec(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
-                    if (!result.length) {
+                    const result = await db.query(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
+                    if (!result || !result.length) {
                         throw new Error('Packet not found');
                     }
 
@@ -1136,7 +1136,7 @@ async function handleMessage(request, sender, sendResponse) {
                         sendResponse({ success: true, id });
                     } else {
                         await db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
-                        const result = await db.exec("SELECT last_insert_rowid()");
+                        const result = await db.query("SELECT last_insert_rowid()");
                         const newId = result[0]['last_insert_rowid()'];
                         
                         // Sync tab order for new packet
@@ -1674,8 +1674,8 @@ async function ensurePacketDatabase(packetId, manager) {
 
     // Migration: ensure columns exist in existing stacks table
     try {
-        const columns = await db.exec("PRAGMA table_info(stacks)");
-        if (columns.length) {
+        const columns = await db.query("PRAGMA table_info(stacks)");
+        if (columns && columns.length) {
             const columnNames = columns.map(c => c.name);
             if (!columnNames.includes('mode')) {
                 await db.exec("ALTER TABLE stacks ADD COLUMN mode TEXT DEFAULT 'manual'");
@@ -1735,8 +1735,8 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         await initializeSQLite();
         const db = manager.getDatabase('packets');
         if (!db) return;
-        const result = await db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-        if (!result.length) return;
+        const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+        if (!result || !result.length) return;
         const { rowid: id, name, urls: urlsJson } = result[0];
 
         // Use mapping if available but prefer active tab URL if it matches any item in the packet
@@ -1783,8 +1783,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 await initializeSQLite();
         const db = manager.getDatabase('packets');
                 if (!db) return;
-                const result = await db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
-                if (!result.length) return;
+                const result = await db.query(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+                if (!result || !result.length) return;
                 const { urls: urlsJson } = result[0];
                 const urls = JSON.parse(urlsJson);
 
