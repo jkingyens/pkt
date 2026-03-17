@@ -2503,6 +2503,138 @@ body:not(.dark-mode) .lock-screen {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ===== USER MENU EXPANSION ===== */
+.user-body {
+  padding-top: 4px;
+}
+
+.search-container {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+#apiSearchInput {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+#apiSearchInput:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  background: var(--surface);
+}
+
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: slideUp 0.15s ease-out;
+}
+
+.search-result-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.search-result-item:hover {
+  background: var(--surface-hover);
+}
+
+.search-result-item .icon {
+  font-size: 16px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+
+.api-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.api-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.api-item:hover {
+  border-color: var(--primary);
+  background: var(--surface-hover);
+  transform: translateX(4px);
+}
+
+.api-item[style*="cursor: default"]:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  transform: none;
+}
+
+.api-item-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.api-item-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.api-item-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.api-item-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.api-item-chevron {
+  color: var(--text-muted);
+  font-size: 18px;
+}
+
 .lock-content #unlockBtn:hover {
   background: rgba(255, 255, 255, 0.9);
   transform: scale(1.02);

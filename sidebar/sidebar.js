@@ -279,6 +279,7 @@ class SidebarUI {
         this.schemaConstructorView = document.getElementById('schemaConstructorView');
         this.settingsView = document.getElementById('settingsView');
         this.userView = document.getElementById('userView');
+        this.apiDetailView = document.getElementById('apiDetailView');
 
         // List view elements
         this.collectionsList = document.getElementById('collectionsList');
@@ -295,6 +296,11 @@ class SidebarUI {
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
         this.userBackBtn = document.getElementById('userBackBtn');
+        this.apiDetailBackBtn = document.getElementById('apiDetailBackBtn');
+        this.apiDetailTitle = document.getElementById('apiDetailTitle');
+        this.apiSearchInput = document.getElementById('apiSearchInput');
+        this.searchDropdown = document.getElementById('searchDropdown');
+        this.apiList = document.getElementById('apiList');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeLightCard = document.getElementById('themeLight');
@@ -1227,9 +1233,24 @@ class SidebarUI {
             this.showUserView();
         });
 
-        // Settings view
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
         this.userBackBtn.addEventListener('click', () => this.showListView());
+        this.apiDetailBackBtn.addEventListener('click', () => this.showUserView());
+
+        if (this.apiSearchInput) {
+            this.apiSearchInput.addEventListener('input', () => this.handleApiSearch());
+            this.apiSearchInput.addEventListener('focus', () => {
+                if (this.apiSearchInput.value.trim().length > 0) {
+                    this.searchDropdown.classList.remove('hidden');
+                }
+            });
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!this.apiSearchInput.contains(e.target) && !this.searchDropdown.contains(e.target)) {
+                    this.searchDropdown.classList.add('hidden');
+                }
+            });
+        }
         this.geminiApiKeyInput.addEventListener('input', () => this.saveApiKey(true));
         this.geminiSystemPromptInput.addEventListener('input', () => this.savePrompt(true));
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
@@ -2016,6 +2037,7 @@ class SidebarUI {
         this.witEditorView.classList.remove('active');
         this.settingsView.classList.remove('active');
         this.userView.classList.remove('active');
+        this.apiDetailView.classList.remove('active');
     }
 
     async showListView() {
@@ -4099,10 +4121,80 @@ class SidebarUI {
     }
 
     showUserView() {
-        this.geminiApiKeyInput.value = this.geminiApiKey;
-        this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.showView('userView');
-        this.renderModelSelect();
+        this.renderApiList();
+    }
+
+    showApiDetailView(apiId) {
+        if (apiId === 'gemini') {
+            this.apiDetailTitle.textContent = 'Gemini AI';
+            this.geminiApiKeyInput.value = this.geminiApiKey;
+            this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+            this.renderModelSelect();
+        }
+        this.showView('apiDetailView');
+    }
+
+    renderApiList() {
+        if (!this.apiList) return;
+        this.apiList.innerHTML = '';
+
+        const apis = [
+            { id: 'gemini', name: 'Gemini AI', icon: '✨', status: this.geminiApiKey ? 'Configured' : 'Needs Setup' },
+            { id: 'bookmarks', name: 'Chrome Bookmark API', icon: '🔖', status: 'System', configurable: false }
+        ];
+
+        apis.forEach(api => {
+            const item = document.createElement('div');
+            item.className = 'api-item';
+            item.innerHTML = `
+                <div class="api-item-info">
+                    <div class="api-item-icon">${api.icon}</div>
+                    <div class="api-item-text">
+                        <div class="api-item-name">${api.name}</div>
+                        <div class="api-item-status">${api.status}</div>
+                    </div>
+                </div>
+                ${api.configurable !== false ? '<div class="api-item-chevron">›</div>' : ''}
+            `;
+            if (api.configurable !== false) {
+                item.onclick = () => this.showApiDetailView(api.id);
+            } else {
+                item.style.cursor = 'default';
+                item.style.transform = 'none';
+            }
+            this.apiList.appendChild(item);
+        });
+    }
+
+    handleApiSearch() {
+        const query = this.apiSearchInput.value.trim().toLowerCase();
+        if (query.length === 0) {
+            this.searchDropdown.classList.add('hidden');
+            return;
+        }
+
+        const mockApis = [
+            { name: 'OpenAI (GPT-4)', icon: '🤖' },
+            { name: 'Anthropic (Claude)', icon: '🧠' },
+            { name: 'Mistral AI', icon: '🌪️' },
+            { name: 'Cohere', icon: '🌊' },
+            { name: 'Local Llama', icon: '🦙' }
+        ];
+
+        const filtered = mockApis.filter(api => api.name.toLowerCase().includes(query));
+        
+        if (filtered.length > 0) {
+            this.searchDropdown.innerHTML = filtered.map(api => `
+                <div class="search-result-item">
+                    <span class="icon">${api.icon}</span>
+                    <span>${api.name}</span>
+                </div>
+            `).join('');
+            this.searchDropdown.classList.remove('hidden');
+        } else {
+            this.searchDropdown.classList.add('hidden');
+        }
     }
 
     renderModelSelect() {
