@@ -69,6 +69,37 @@ class BlobStorage {
     }
 
     /**
+     * Get all keys in the store
+     * @returns {Promise<Array>}
+     */
+    async listKeys() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.getAllKeys();
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => reject(event.target.error);
+        });
+    }
+
+    /**
+     * Clear all entries in the store
+     */
+    async clearAll() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.clear();
+
+            request.onsuccess = () => resolve();
+            request.onerror = (event) => reject(event.target.error);
+        });
+    }
+
+    /**
      * Simple content-based ID generation using SHA-256
      */
     async generateId(blob) {

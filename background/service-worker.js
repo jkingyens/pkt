@@ -850,6 +850,15 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'RESET_STATE': {
+                console.log('[SW] RESET_STATE received. Clearing in-memory databases and caches.');
+                initialized = false;
+                sqliteManager = null;
+                tabToUrlMapCached = {};
+                isSessionVerified = false; // Require biometrics re-auth if enabled
+                sendResponse({ success: true });
+                break;
+            }
             case 'stopRecording':
             case 'stopMicRecording': {
                 chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });

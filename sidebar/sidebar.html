@@ -83,6 +83,17 @@
             <span class="slider round"></span>
           </label>
         </div>
+        <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+          <div class="settings-info">
+            <span class="settings-label">Full Backup</span>
+            <p class="settings-hint">Export or restore the entire extension state (DBs, media, and settings).</p>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="backupDataBtn" class="btn btn-secondary btn-sm">Backup</button>
+            <button id="restoreDataBtn" class="btn btn-secondary btn-sm">Restore</button>
+            <input type="file" id="restoreFileInput" accept=".json" style="display: none;">
+          </div>
+        </div>
       </div>
       <div class="settings-group" style="margin-top: 12px;">
         <div class="theme-selector">
@@ -535,6 +546,17 @@
     </div>
   </div>
 
+  <!-- ===== PROGRESS MODAL ===== -->
+  <div id="progressModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div id="progressCheckpoint" class="progress-checkpoint">Preparing...</div>
+      <div class="progress-container">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+      <div id="progressText" class="progress-text">0%</div>
+    </div>
+  </div>
+
   <!-- Collection Item Template (list view) -->
   <template id="collectionTemplate">
     <div class="collection-item">
@@ -677,6 +699,8 @@
     </div>
   </div>
 
+  <script src="../src/blob-storage.js"></script>
+  <script src="../src/backup-manager.js"></script>
   <script type="module" src="sidebar.js"></script>
 </body>
 

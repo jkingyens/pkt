@@ -311,6 +311,16 @@ class SidebarUI {
         this.lockScreen = document.getElementById('lockScreen');
         this.unlockBtn = document.getElementById('unlockBtn');
         this.permissionIndicator = document.getElementById('permissionIndicator');
+        this.backupDataBtn = document.getElementById('backupDataBtn');
+        this.restoreDataBtn = document.getElementById('restoreDataBtn');
+        this.restoreFileInput = document.getElementById('restoreFileInput');
+        this.progressModal = document.getElementById('progressModal');
+        this.progressCheckpoint = document.getElementById('progressCheckpoint');
+        this.progressBar = document.getElementById('progressBar');
+        this.progressText = document.getElementById('progressText');
+
+        this.blobStorage = new BlobStorage();
+        this.backupManager = new BackupManager(this.blobStorage);
 
         this.terminalTabs = {}; // packetId -> tabId
         this.activeRecordingTabId = null;
@@ -1531,6 +1541,16 @@ class SidebarUI {
                 this.handleKeyDown(e);
             }
         });
+
+        if (this.backupDataBtn) {
+            this.backupDataBtn.onclick = () => this.handleBackupData();
+        }
+        if (this.restoreDataBtn) {
+            this.restoreDataBtn.onclick = () => this.restoreFileInput.click();
+        }
+        if (this.restoreFileInput) {
+            this.restoreFileInput.onchange = (e) => this.handleRestoreData(e);
+        }
     }
 
     // ===== NAVIGATION =====
@@ -5258,6 +5278,79 @@ class SidebarUI {
                 this.showNotification('Import failed: ' + err.message, 'error');
             }
         }
+    }
+
+    async handleBackupData() {
+        try {
+            this.showProgress('Preparing backup...', 0);
+            
+            const backup = await this.backupManager.exportFullBackup(({ checkpoint, percent }) => {
+                this.showProgress(checkpoint, percent);
+            });
+            
+            this.showProgress('Finalizing backup file...', 99);
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filename = `wildcard-backup-${timestamp}.json`;
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            this.showNotification('Backup downloaded successfully!', 'success');
+        } catch (err) {
+            console.error('[Backup] Failed:', err);
+            this.showNotification('Backup failed: ' + err.message, 'error');
+        } finally {
+            if (this.progressModal) this.progressModal.classList.add('hidden');
+        }
+    }
+
+    async handleRestoreData(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!confirm('WARNING: This will overwrite ALL current data (databases, packets, media, and settings). Are you sure you want to proceed?')) {
+            event.target.value = '';
+            return;
+        }
+
+        try {
+            this.showProgress('Reading backup file...', 5);
+            const text = await file.text();
+            const backup = JSON.parse(text);
+            
+            await this.backupManager.importFullBackup(backup, ({ checkpoint, percent }) => {
+                this.showProgress(checkpoint, percent);
+            });
+            
+            // Notify background worker to flush its cache/state before reload
+            await this.sendMessage({ action: 'RESET_STATE' });
+            
+            this.showProgress('Restore successful! Reloading...', 100);
+            this.showNotification('Restore successful! Reloading...', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } catch (err) {
+            console.error('[Restore] Failed:', err);
+            this.showNotification('Restore failed: ' + err.message, 'error');
+            if (this.progressModal) this.progressModal.classList.add('hidden');
+        } finally {
+            event.target.value = '';
+        }
+    }
+
+    showProgress(checkpoint, percent) {
+        if (!this.progressModal) return;
+        this.progressModal.classList.remove('hidden');
+        if (this.progressCheckpoint) this.progressCheckpoint.textContent = checkpoint;
+        if (this.progressBar) this.progressBar.style.width = `${percent}%`;
+        if (this.progressText) this.progressText.textContent = `${percent}%`;
     }
 
     isMediaPage(url) {
