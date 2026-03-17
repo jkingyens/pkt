@@ -689,6 +689,38 @@ class SidebarUI {
         });
     }
 
+    /**
+     * Unified message sender with automatic retries for transient SW unavailability
+     * @param {Object} request - Message to send
+     * @param {number} retries - Number of retries left
+     * @returns {Promise<Object|null>}
+     */
+    async sendMessage(request, retries = 5) {
+        return new Promise((resolve) => {
+            const attempt = async (remaining) => {
+                try {
+                    const resp = await chrome.runtime.sendMessage(request);
+                    // SW might return success:false with 'Database not initialized' during deadlock break
+                    if (resp && !resp.success && resp.error === 'Database not initialized' && remaining > 0) {
+                        console.log(`[Sidebar] SW initializing, retrying index: ${retries - remaining + 1}...`);
+                        setTimeout(() => attempt(remaining - 1), 1000);
+                        return;
+                    }
+                    resolve(resp);
+                } catch (e) {
+                    if (remaining > 0) {
+                        console.warn(`[Sidebar] sendMessage failed, retrying (${remaining} left):`, e);
+                        setTimeout(() => attempt(remaining - 1), 1000);
+                    } else {
+                        console.error('[Sidebar] sendMessage ultimately failed:', e);
+                        resolve(null);
+                    }
+                }
+            };
+            attempt(retries);
+        });
+    }
+
     handleTriggerNewPacketWithTab(silent = false) {
         if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
             this.addTabToCurrentPacket();
@@ -5350,9 +5382,9 @@ class SidebarUI {
                 setTimeout(() => {
                     this.progressModal.classList.add('hidden');
                     window.location.reload();
-                }, 2000);
+                }, 5000); // Increased from 2000 to 5000 for SW cycle
             } else {
-                setTimeout(() => window.location.reload(), 2000);
+                setTimeout(() => window.location.reload(), 5000);
             }
         } catch (err) {
             console.error('[Restore] Failed:', err);

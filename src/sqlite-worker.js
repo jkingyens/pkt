@@ -86,8 +86,29 @@ self.onmessage = async (event) => {
 
             case 'export': {
                 const { name } = payload;
-                const db = getDb(name);
-                const byteArray = sqlite3.capi.sqlite3_js_db_serialize(db.pointer);
+                const db = dbs[name];
+                
+                let byteArray;
+                if (db instanceof sqlite3.oo1.OpfsDb) {
+                    console.log(`[SQLiteWorker] Exporting OPFS database: ${name}`);
+                    const root = await navigator.storage.getDirectory();
+                    const fileHandle = await root.getFileHandle(`wildcard_${name}.sqlite3`);
+                    const file = await fileHandle.getFile();
+                    const arrayBuffer = await file.arrayBuffer();
+                    byteArray = new Uint8Array(arrayBuffer);
+                } else if (db) {
+                    console.log(`[SQLiteWorker] Exporting memory/transient database: ${name}`);
+                    if (sqlite3.wasm && typeof sqlite3.wasm.exportDb === 'function') {
+                        byteArray = sqlite3.wasm.exportDb(db);
+                    } else if (sqlite3.capi && typeof sqlite3.capi.sqlite3_js_db_serialize === 'function') {
+                        byteArray = sqlite3.capi.sqlite3_js_db_serialize(db.pointer);
+                    } else {
+                        throw new Error('SQLite serialization not supported in this environment');
+                    }
+                } else {
+                    throw new Error(`Database not open: ${name}`);
+                }
+                
                 self.postMessage({ id, success: true, result: byteArray }, [byteArray.buffer]);
                 break;
             }
@@ -105,8 +126,18 @@ self.onmessage = async (event) => {
                     
                     dbs[name] = new sqlite3.oo1.OpfsDb(`/wildcard_${name}.sqlite3`);
                 } else {
+                    // Memory fallback
                     dbs[name] = new sqlite3.oo1.DB();
-                    sqlite3.capi.sqlite3_js_db_deserialize(dbs[name].pointer, 'main', data, data.length, data.length, 0);
+                    if (sqlite3.capi && typeof sqlite3.capi.sqlite3_js_db_deserialize === 'function') {
+                        sqlite3.capi.sqlite3_js_db_deserialize(dbs[name].pointer, 'main', data, data.length, data.length, 0);
+                    } else {
+                        // Fallback: If we can't deserialize into a new DB, we might have to re-think memory imports
+                        // but usually in memory mode we just create a fresh DB. 
+                        // If 'data' was provided, it's a failure if we can't load it.
+                        if (data && data.length > 0) {
+                            throw new Error('SQLite deserialization (import) not supported in this environment');
+                        }
+                    }
                 }
                 self.postMessage({ id, success: true });
                 break;

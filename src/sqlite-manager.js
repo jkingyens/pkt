@@ -48,6 +48,7 @@ class SQLiteManager {
     this._initPromise = null;
     this.databases = new Set(); // track all discovered/known collections
     this._activeDatabases = new Set(); // track active handles in the worker
+    this._pendingInit = new Map(); // track in-flight initDatabase calls
   }
 
   /**
@@ -213,9 +214,24 @@ class SQLiteManager {
    */
   async initDatabase(collectionName) {
     if (this._activeDatabases.has(collectionName)) return;
-    await this._sendRequest('open', { name: collectionName });
-    this._activeDatabases.add(collectionName);
-    this.databases.add(collectionName);
+    
+    // Concurrency guard: wait for existing init if in progress
+    if (this._pendingInit.has(collectionName)) {
+      return this._pendingInit.get(collectionName);
+    }
+
+    const initPromise = (async () => {
+      try {
+        await this._sendRequest('open', { name: collectionName });
+        this._activeDatabases.add(collectionName);
+        this.databases.add(collectionName);
+      } finally {
+        this._pendingInit.delete(collectionName);
+      }
+    })();
+    
+    this._pendingInit.set(collectionName, initPromise);
+    return initPromise;
   }
 
   /**
@@ -421,14 +437,21 @@ interface sqlite {
   getDatabase(collectionName) {
     if (!this.databases.has(collectionName)) return null;
     return {
-      exec: (sql, bind) => this._sendRequest('exec', { name: collectionName, sql, bind }),
+      exec: async (sql, bind) => {
+        await this.initDatabase(collectionName);
+        return this._sendRequest('exec', { name: collectionName, sql, bind });
+      },
       // query returns normalized row objects
       query: async (sql, bind) => {
+        await this.initDatabase(collectionName);
         const result = await this._sendRequest('exec', { name: collectionName, sql, bind });
         return this._normalizeRows(result);
       },
       // Compatibility run method
-      run: (sql, bind) => this._sendRequest('exec', { name: collectionName, sql, bind }),
+      run: async (sql, bind) => {
+        await this.initDatabase(collectionName);
+        return this._sendRequest('exec', { name: collectionName, sql, bind });
+      },
       close: () => this.closeDatabase(collectionName)
     };
   }

@@ -345,6 +345,20 @@ async function initiateTabCapture(streamId, targetTabId, isVideo = false, region
 
 // Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
 /**
+ * Safely parses packet URLs, handling malformed data or string "undefined".
+ */
+function safeParseUrls(urlsJson) {
+    if (!urlsJson || urlsJson === 'undefined') return [];
+    try {
+        const parsed = (typeof urlsJson === 'string') ? JSON.parse(urlsJson) : urlsJson;
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        console.error('[SW] Failed to parse URLs JSON:', urlsJson, e);
+        return [];
+    }
+}
+
+/**
  * Normalizes a URL for comparison.
  */
 function normalizeUrl(url) {
@@ -519,7 +533,7 @@ async function navigatePacketItems(groupId, direction, manager) {
         if (!rows || !rows.length) return;
 
         const { name, urls: urlsJson } = rows[0];
-        const packet = { id: packetId, name, urls: JSON.parse(urlsJson) };
+        const packet = { id: packetId, name, urls: safeParseUrls(urlsJson) };
 
         const visualSeq = await getVisualSequence(packet);
         if (visualSeq.length === 0) return;
@@ -1018,6 +1032,10 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'getSchema': {
+                if (!request.name || request.name === 'undefined') {
+                    sendResponse({ success: false, error: 'Invalid database name' });
+                    break;
+                }
                 const schema = await manager.getSchema(request.name);
                 sendResponse({ success: true, schema });
                 break;
@@ -1052,7 +1070,7 @@ async function handleMessage(request, sender, sendResponse) {
                     }
 
                     const { name, urls: urlsJson } = result[0];
-                    const items = JSON.parse(urlsJson);
+                    const items = safeParseUrls(urlsJson);
 
                     if (!items.length) {
                         sendResponse({ success: true, message: 'No items in packet' });
@@ -1122,7 +1140,7 @@ async function handleMessage(request, sender, sendResponse) {
                 try {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const urlsJson = JSON.stringify(request.urls);
+                    const urlsJson = JSON.stringify(request.urls || []);
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
 
@@ -1212,7 +1230,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
                     if (!result.length) { sendResponse({ success: true, packet: null }); break; }
                     const { rowid: id, name, urls: urlsJson } = result[0];
-                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
+                    sendResponse({ success: true, packet: { id, name, urls: safeParseUrls(urlsJson) } });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
                 }
@@ -1361,7 +1379,7 @@ async function handleMessage(request, sender, sendResponse) {
                         packet: {
                             id,
                             name,
-                            urls: JSON.parse(urlsJson),
+                            urls: safeParseUrls(urlsJson),
                             groupId: tab.groupId,
                             activeUrl: getMappedUrlSync(tab.id) || tab.url
                         }
@@ -1383,7 +1401,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const { rowid: id, name, urls: urlsJson } = result[0];
                     sendResponse({
                         success: true,
-                        packet: { id, name, urls: JSON.parse(urlsJson) }
+                        packet: { id, name, urls: safeParseUrls(urlsJson) }
                     });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1631,9 +1649,11 @@ async function handleMessage(request, sender, sendResponse) {
             default:
                 sendResponse({ success: false, error: 'Unknown action' });
         }
-    } catch (error) {
-        console.error('Error handling message:', error);
-        sendResponse({ success: false, error: error.message });
+    } catch (err) {
+        console.error('[SW] Unhandled error in handleMessage:', err);
+        // Ensure sendResponse is only called once. If the inner code already called it, 
+        // this might fail, but that's okay as the hang is already avoided.
+        try { sendResponse({ success: false, error: err.message || 'Internal background error' }); } catch (e) {}
     }
 }
 
@@ -1741,7 +1761,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
         // Use mapping if available but prefer active tab URL if it matches any item in the packet
         const mappedUrl = getMappedUrlSync(tabId);
-        const urls = JSON.parse(urlsJson);
+        const urls = safeParseUrls(urlsJson);
         const currentUrlMatches = urls.some(item => {
             const u = getItemUrl(item, packetId);
             return u && urlsMatch(u, tab.url);
@@ -1786,7 +1806,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 const result = await db.query(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
                 if (!result || !result.length) return;
                 const { urls: urlsJson } = result[0];
-                const urls = JSON.parse(urlsJson);
+                const urls = safeParseUrls(urlsJson);
 
                 // If new URL matches a packet item, update mapping
                 const currentUrlMatches = urls.some(item => {
@@ -2006,10 +2026,10 @@ async function syncTabOrderForPacket(packetId, manager) {
         const db = manager.getDatabase('packets');
         if (!db) return;
 
-        const result = await db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+        const result = await db.query(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
         if (!result.length) return;
 
-        const urls = JSON.parse(result[0].urls);
+        const urls = safeParseUrls(result[0].urls);
         
         // Categorize items into sections: Stacks, Pages, and Media (Total Ordering)
         const totalUrls = [];
@@ -2202,7 +2222,7 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId, man
             try {
                 const db = manager.getDatabase('packets');
                 if (db) {
-                    const result = await db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
+                    const result = await db.query(`SELECT name FROM packets WHERE rowid = ${packetId}`);
                     if (result.length) packetName = result[0].name;
                 }
             } catch (e) { }
@@ -2248,11 +2268,11 @@ async function reassociateTabGroups(manager) {
         const db = manager.getDatabase('packets');
         if (!db) return;
 
-        const result = await db.exec(`SELECT rowid, name, urls FROM packets`);
+        const result = await db.query(`SELECT rowid, name, urls FROM packets`);
         const allPackets = result.map(row => ({
             id: row.rowid,
             name: row.name,
-            urls: JSON.parse(row.urls)
+            urls: safeParseUrls(row.urls)
         }));
 
         const newActiveGroups = { ...activeGroups };
@@ -2343,12 +2363,12 @@ async function reassociateTabGroups(manager) {
                 const packetId = newActiveGroups[activeTab.groupId];
                 if (packetId) {
                     const db = manager.getDatabase('packets');
-                    const res = await db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    const res = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
                     if (res.length) {
                         const { rowid: id, name, urls: urlsJson } = res[0];
                         chrome.runtime.sendMessage({ 
                             type: 'packetFocused', 
-                            packet: { id, name, urls: JSON.parse(urlsJson), groupId: activeTab.groupId, activeUrl: activeTab.url } 
+                            packet: { id, name, urls: safeParseUrls(urlsJson), groupId: activeTab.groupId, activeUrl: activeTab.url } 
                         }).catch(() => {});
                     }
                 }
