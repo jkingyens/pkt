@@ -71,6 +71,23 @@
 
         container.appendChild(info);
 
+        // Add keyboard listener for stack navigation
+        window.addEventListener('keydown', (e) => {
+            if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) ||
+                document.activeElement.isContentEditable) {
+                return;
+            }
+
+            const keys = ['ArrowRight', 'ArrowLeft', 'Space', 'Enter', 'r', 'R'];
+            if (keys.includes(e.key)) {
+                e.preventDefault();
+                chrome.runtime.sendMessage({
+                    type: 'STACK_NAVIGATION',
+                    action: e.key
+                });
+            }
+        });
+
     } catch (err) {
         console.error('Media preview failed:', err);
         loading.innerHTML = `<div class="error">Error: ${err.message}</div>`;

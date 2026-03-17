@@ -814,7 +814,10 @@
                         } catch (e) { }
                         contentTabId = null;
                     }
-                    pipWindow.close();
+                    if (pipWindow) {
+                        pipWindow.close();
+                        pipWindow = null;
+                    }
                 };
             } else {
                 nextBtn.innerHTML = `Next ${ICONS.next}`;
@@ -889,6 +892,7 @@
         }, 100);
     }
 
+    let lastPipSize = { width: 0, height: 0 };
     function resizePip(type = 'manual') {
         if (!pipWindow) return;
         let width = 320;
@@ -902,10 +906,17 @@
             height = 450;
         }
 
+        if (lastPipSize.width === width && lastPipSize.height === height) return;
+
         try {
             pipWindow.resizeTo(width, height);
+            lastPipSize = { width, height };
         } catch (e) {
-            console.warn('[Stack] Failed to resize PIP:', e);
+            // NotAllowedErrors are expected if there's no user activation in the PiP window
+            // We only warn if it's a different kind of error
+            if (e.name !== 'NotAllowedError') {
+                console.warn('[Stack] Failed to resize PIP:', e);
+            }
         }
     }
 
@@ -931,34 +942,45 @@
     }
 
     function injectKeyboardListener(tabId) {
-        chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-                // Remove existing listener if any
-                if (window.__wildcardKeyboardListener) {
-                    window.removeEventListener('keydown', window.__wildcardKeyboardListener);
-                }
-
-                window.__wildcardKeyboardListener = (e) => {
-                    // Only handle if not in an input/textarea
-                    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) ||
-                        document.activeElement.isContentEditable) {
-                        return;
-                    }
-
-                    const keys = ['ArrowRight', 'ArrowLeft', 'Space', 'Enter', 'r', 'R'];
-                    if (keys.includes(e.key)) {
-                        e.preventDefault();
-                        chrome.runtime.sendMessage({
-                            type: 'STACK_NAVIGATION',
-                            action: e.key
-                        });
-                    }
-                };
-
-                window.addEventListener('keydown', window.__wildcardKeyboardListener);
+        chrome.tabs.get(tabId, (tab) => {
+            if (chrome.runtime.lastError || !tab || !tab.url) return;
+            
+            // Skip script injection for internal extension pages to avoid permission errors
+            // These pages should have their own key listeners
+            if (tab.url.startsWith('chrome-extension://')) {
+                console.log('[Stack] Skipping script injection for internal page:', tab.url);
+                return;
             }
-        }).catch(err => console.error('Script injection failed:', err));
+
+            chrome.scripting.executeScript({
+                target: { tabId },
+                func: () => {
+                    // Remove existing listener if any
+                    if (window.__wildcardKeyboardListener) {
+                        window.removeEventListener('keydown', window.__wildcardKeyboardListener);
+                    }
+
+                    window.__wildcardKeyboardListener = (e) => {
+                        // Only handle if not in an input/textarea
+                        if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase()) ||
+                            document.activeElement.isContentEditable) {
+                            return;
+                        }
+
+                        const keys = ['ArrowRight', 'ArrowLeft', 'Space', 'Enter', 'r', 'R'];
+                        if (keys.includes(e.key)) {
+                            e.preventDefault();
+                            chrome.runtime.sendMessage({
+                                type: 'STACK_NAVIGATION',
+                                action: e.key
+                            });
+                        }
+                    };
+
+                    window.addEventListener('keydown', window.__wildcardKeyboardListener);
+                }
+            }).catch(err => console.error('Script injection failed:', err));
+        });
     }
 
     async function advanceSlide() {
