@@ -4232,32 +4232,67 @@ class SidebarUI {
         });
     }
 
-    handleApiSearch() {
-        const query = this.apiSearchInput.value.trim().toLowerCase();
+    _normalizeRows(result) {
+        if (!Array.isArray(result) || result.length === 0) return [];
+        
+        // Check if result is in legacy format: [{columns: [...], values: [...]}]
+        if (result[0] && Array.isArray(result[0].columns) && Array.isArray(result[0].values)) {
+            const columns = result[0].columns;
+            return result[0].values.map(values => {
+                const row = {};
+                columns.forEach((col, idx) => {
+                    row[col] = values[idx];
+                });
+                return row;
+            });
+        }
+        
+        // Already array of objects (or empty)
+        return result;
+    }
+
+    async handleApiSearch() {
+        const query = this.apiSearchInput.value.trim();
         if (query.length === 0) {
             this.searchDropdown.classList.add('hidden');
             return;
         }
 
-        const mockApis = [
-            { name: 'OpenAI (GPT-4)', icon: '🤖' },
-            { name: 'Anthropic (Claude)', icon: '🧠' },
-            { name: 'Mistral AI', icon: '🌪️' },
-            { name: 'Cohere', icon: '🌊' },
-            { name: 'Local Llama', icon: '🦙' }
-        ];
+        try {
+            // Robust FTS5 query: wrap in quotes and escape quotes if present
+            // This treats the entire input as a prefix match
+            const escapedQuery = query.replace(/"/g, '""');
+            const sql = "SELECT name, icon, description FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
+            const bind = [`"${escapedQuery}"*`];
+            
+            const resp = await this.sendMessage({ 
+                action: 'query', // Use query for automatic normalization
+                payload: { name: 'services', sql, bind } 
+            });
 
-        const filtered = mockApis.filter(api => api.name.toLowerCase().includes(query));
-        
-        if (filtered.length > 0) {
-            this.searchDropdown.innerHTML = filtered.map(api => `
-                <div class="search-result-item">
-                    <span class="icon">${api.icon}</span>
-                    <span>${api.name}</span>
-                </div>
-            `).join('');
-            this.searchDropdown.classList.remove('hidden');
-        } else {
+            if (resp && resp.success) {
+                const results = this._normalizeRows(resp.result);
+                
+                if (results && results.length > 0) {
+                    this.searchDropdown.innerHTML = results.map(api => `
+                        <div class="search-result-item" data-api-name="${api.name}">
+                            <span class="icon">${api.icon || '🧩'}</span>
+                            <div class="api-item-text">
+                                <div class="api-item-name">${api.name}</div>
+                                <div class="api-item-hint">${api.description || ''}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                    this.searchDropdown.classList.remove('hidden');
+                } else {
+                    this.searchDropdown.classList.add('hidden');
+                }
+            } else {
+                console.warn('[Sidebar] API search returned failure:', resp?.error);
+                this.searchDropdown.classList.add('hidden');
+            }
+        } catch (e) {
+            console.error('[Sidebar] API search failed:', e);
             this.searchDropdown.classList.add('hidden');
         }
     }

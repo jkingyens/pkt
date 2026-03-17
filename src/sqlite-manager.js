@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS events (
   created      TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
+const SERVICES_COLLECTION = 'services';
+const SERVICES_SCHEMA = `
+CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
+  name, 
+  icon, 
+  description,
+  config_id UNINDEXED
+);`;
+
 class SQLiteManager {
   constructor() {
     this.worker = null;
@@ -428,6 +437,36 @@ interface sqlite {
   }
 
   /**
+   * Ensure the 'services' system collection exists with FTS5 and default entries
+   */
+  async ensureServicesCollection() {
+    await this.initDatabase(SERVICES_COLLECTION);
+    const db = this.getDatabase(SERVICES_COLLECTION);
+    await db.exec(SERVICES_SCHEMA);
+
+    // Populate with default services if empty
+    try {
+      const count = await db.query("SELECT count(*) as count FROM services_fts");
+      if (count[0].count === 0) {
+        const defaults = [
+          ['Gemini AI', '✨', 'Google DeepMind multimodal AI model', 'gemini'],
+          ['OpenAI (GPT-4)', '🤖', 'The original GPT-4 model from OpenAI', 'openai'],
+          ['Anthropic (Claude)', '🧠', 'Claude 3 model by Anthropic', 'anthropic'],
+          ['Mistral AI', '🌪️', 'Open-weight models from Mistral', 'mistral'],
+          ['Cohere', '🌊', 'Enterprise NLP and Rerank models', 'cohere'],
+          ['Local Llama', '🦙', 'Search and connect to local Ollama or LM Studio instances', 'local']
+        ];
+        for (const [name, icon, desc, cid] of defaults) {
+          await db.exec("INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)", [name, icon, desc, cid]);
+        }
+        console.log('[SQLiteManager] Initialized services_fts with defaults');
+      }
+    } catch (e) {
+      console.error('[SQLiteManager] Error ensuring services collection:', e);
+    }
+  }
+
+  /**
    * List all active collections
    * @returns {Array<string>} Array of collection names
    */
@@ -636,4 +675,6 @@ if (typeof self !== 'undefined') {
   self.WITS_SCHEMA = WITS_SCHEMA;
   self.EVENTS_COLLECTION = EVENTS_COLLECTION;
   self.EVENTS_SCHEMA = EVENTS_SCHEMA;
+  self.SERVICES_COLLECTION = SERVICES_COLLECTION;
+  self.SERVICES_SCHEMA = SERVICES_SCHEMA;
 }

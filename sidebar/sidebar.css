@@ -2596,6 +2596,23 @@ body:not(.dark-mode) .lock-screen {
   font-size: 16px;
 }
 
+.search-result-item .api-item-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.search-result-item .api-item-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.search-result-item .api-item-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
 .section-label {
   font-size: 11px;
   font-weight: 700;

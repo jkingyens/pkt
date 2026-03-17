@@ -787,6 +787,7 @@ async function initializeSQLite() {
         await sqliteManager.ensureSchemasCollection();
         await sqliteManager.ensureWitsCollection();
         await sqliteManager.ensureEventsCollection();
+        await sqliteManager.ensureServicesCollection();
         console.log('[SQLiteInit] System collections ensured.');
 
             // Load tab mappings into memory cache
@@ -1021,6 +1022,28 @@ async function handleMessage(request, sender, sendResponse) {
                     break;
                 }
                 const result = await db.exec(request.sql, request.params || []);
+                sendResponse({ success: true, result });
+                break;
+            }
+            case 'exec': {
+                const { name, sql, bind } = request.payload || request;
+                const db = manager.getDatabase(name);
+                if (!db) {
+                    sendResponse({ success: false, error: 'Database not found' });
+                    break;
+                }
+                const result = await db.exec(sql, bind || []);
+                sendResponse({ success: true, result });
+                break;
+            }
+            case 'query': {
+                const { name, sql, bind } = request.payload || request;
+                const db = manager.getDatabase(name);
+                if (!db) {
+                    sendResponse({ success: false, error: 'Database not found' });
+                    break;
+                }
+                const result = await db.query(sql, bind || []);
                 sendResponse({ success: true, result });
                 break;
             }
