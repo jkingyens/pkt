@@ -41,52 +41,202 @@ CREATE TABLE IF NOT EXISTS events (
 );`;
 
 class SQLiteManager {
-  constructor(SQL) {
-    this.SQL = SQL;
-    this.databases = new Map(); // collectionName -> db instance
+  constructor() {
+    this.worker = null;
+    this.pendingRequests = new Map();
+    this.requestId = 0;
+    this._initPromise = null;
+    this.databases = new Set(); // track all discovered/known collections
+    this._activeDatabases = new Set(); // track active handles in the worker
+  }
+
+  /**
+   * Initialize the SQLite worker or proxy
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+
+    this._initPromise = (async () => {
+        // 1. Core connection setup
+        await new Promise((resolve, reject) => {
+            const isBackground = typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
+            
+            if (isBackground) {
+                const listener = (message) => {
+                    if (message.type === 'SQLITE_PROXY_RESPONSE' && message.success && message.id === 'OFFSCREEN_READY') {
+                        chrome.runtime.onMessage.removeListener(listener);
+                        resolve();
+                    }
+                };
+                chrome.runtime.onMessage.addListener(listener);
+                
+                const checkReady = async () => {
+                  try {
+                    await chrome.runtime.sendMessage({ type: 'SQLITE_PROXY_REQUEST', action: 'ping', id: 'ping' });
+                    chrome.runtime.onMessage.removeListener(listener);
+                    resolve();
+                  } catch (e) {
+                    setTimeout(checkReady, 500);
+                  }
+                };
+                checkReady();
+                return;
+            }
+
+            try {
+                this.worker = new Worker(chrome.runtime.getURL('src/sqlite-worker.js'), { type: 'module' });
+                this.worker.onmessage = (event) => {
+                    const { type, id, success, result, error } = event.data;
+                    if (type === 'READY') resolve();
+                    else if (type === 'ERROR' && !id) reject(new Error(error));
+                    else if (id !== undefined) {
+                        const handler = this.pendingRequests.get(id);
+                        if (handler) {
+                            this.pendingRequests.delete(id);
+                            if (success) handler.resolve(result);
+                            else handler.reject(new Error(error));
+                        }
+                    }
+                };
+                this.worker.onerror = (err) => reject(err);
+            } catch (e) {
+                reject(e);
+            }
+        });
+
+        // 2. Database discovery (must happen after connection but before init resolves)
+        try {
+            // We use a direct message here or ensure _sendRequest handles the partial state
+            const id = this.requestId++;
+            const discoveryPromise = new Promise((resolve, reject) => {
+                this.pendingRequests.set(id, { resolve, reject });
+                if (this.worker) {
+                    this.worker.postMessage({ id, action: 'list', payload: {} });
+                } else {
+                    chrome.runtime.sendMessage({
+                        type: 'SQLITE_PROXY_REQUEST',
+                        id,
+                        action: 'list',
+                        payload: {}
+                    });
+                }
+            });
+
+            const existingNames = await discoveryPromise;
+            if (Array.isArray(existingNames)) {
+                existingNames.forEach(name => this.databases.add(name));
+                console.log('[SQLiteManager] Discovered existing databases:', existingNames);
+            }
+        } catch (e) {
+            console.warn('[SQLiteManager] Initial discovery failed:', e);
+        }
+    })();
+
+    return this._initPromise;
+  }
+
+  async _sendRequest(action, payload) {
+    await this.init();
+    const id = this.requestId++;
+    return new Promise((resolve, reject) => {
+        if (this.worker) {
+            this.pendingRequests.set(id, { resolve, reject });
+            this.worker.postMessage({ id, action, payload });
+        } else {
+            // PROXY MODE - Normalize binary data if present in payload
+            const serializedPayload = { ...payload };
+            if (serializedPayload.data instanceof Uint8Array) {
+              serializedPayload.data = Array.from(serializedPayload.data);
+            }
+
+            this.pendingRequests.set(id, { resolve, reject });
+            chrome.runtime.sendMessage({
+                type: 'SQLITE_PROXY_REQUEST',
+                id,
+                action,
+                payload: serializedPayload
+            });
+            // Result will come back via chrome.runtime.onMessage in service-worker/manager
+        }
+    });
+  }
+
+  /**
+   * Helper: Normalize legacy result format [{columns, values}] to array of objects
+   */
+  _normalizeRows(result) {
+    if (!Array.isArray(result) || result.length === 0) return [];
+    
+    // Check if result is in legacy format: [{columns: [...], values: [...]}]
+    if (result[0] && Array.isArray(result[0].columns) && Array.isArray(result[0].values)) {
+        const columns = result[0].columns;
+        return result[0].values.map(values => {
+            const row = {};
+            columns.forEach((col, idx) => {
+                row[col] = values[idx];
+            });
+            return row;
+        });
+    }
+    
+    // Already array of objects (or empty)
+    return result;
+  }
+
+  /**
+   * Handle a response from the offscreen proxy (called by Service Worker)
+   */
+  handleProxyResponse(message) {
+      const { id, success, result, error, action } = message;
+      const handler = this.pendingRequests.get(id);
+      if (!handler) return;
+
+      this.pendingRequests.delete(id);
+
+      if (!success) {
+          handler.reject(new Error(error));
+          return;
+      }
+
+      // Restore binary data if result is an array and we expect binary (e.g. for 'export')
+      let finalResult = result;
+      if (Array.isArray(result) && (action === 'export' || id === 'export')) {
+          finalResult = new Uint8Array(result);
+      }
+
+      handler.resolve(finalResult);
   }
 
   /**
    * Initialize or get an existing database
    * @param {string} collectionName - Name of the collection/database
-   * @returns {Object} Database instance
    */
-  initDatabase(collectionName) {
-    if (this.databases.has(collectionName)) {
-      return this.databases.get(collectionName);
-    }
-
-    const db = new this.SQL.Database();
-    this.databases.set(collectionName, db);
-    return db;
+  async initDatabase(collectionName) {
+    if (this._activeDatabases.has(collectionName)) return;
+    await this._sendRequest('open', { name: collectionName });
+    this._activeDatabases.add(collectionName);
+    this.databases.add(collectionName);
   }
 
   /**
-   * Import a database from a blob/file
+   * Import a database from a data source
    * @param {string} collectionName - Name for the collection
-   * @param {Blob|ArrayBuffer} data - SQLite database file data
-   * @returns {Promise<void>}
+   * @param {Blob|ArrayBuffer|Uint8Array} data - SQLite database file data
    */
   async importFromBlob(collectionName, data) {
-    let arrayBuffer;
-
+    let uint8Array;
     if (data instanceof Blob) {
-      arrayBuffer = await data.arrayBuffer();
+      uint8Array = new Uint8Array(await data.arrayBuffer());
     } else if (data instanceof ArrayBuffer) {
-      arrayBuffer = data;
+      uint8Array = new Uint8Array(data);
+    } else if (data instanceof Uint8Array) {
+      uint8Array = data;
     } else {
-      throw new Error('Data must be a Blob or ArrayBuffer');
+      throw new Error('Data must be a Blob, ArrayBuffer, or Uint8Array');
     }
 
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const db = new this.SQL.Database(uint8Array);
-
-    // Close existing database if present
-    if (this.databases.has(collectionName)) {
-      this.databases.get(collectionName).close();
-    }
-
-    this.databases.set(collectionName, db);
+    await this._sendRequest('import', { name: collectionName, data: uint8Array });
+    this.databases.add(collectionName);
   }
 
   /**
@@ -95,35 +245,25 @@ class SQLiteManager {
    * @returns {Promise<Blob>} SQLite database as blob
    */
   async exportToBlob(collectionName) {
-    const db = this.databases.get(collectionName);
-    if (!db) {
-      throw new Error(`Database '${collectionName}' not found`);
-    }
-
-    const uint8Array = db.export();
+    const uint8Array = await this._sendRequest('export', { name: collectionName });
     return new Blob([uint8Array], { type: 'application/x-sqlite3' });
   }
 
   /**
    * Save database state (checkpoint) to storage
    * @param {string} collectionName - Name of the collection
-   * @param {Object} storage - Storage interface (e.g., chrome.storage.local or Map for Node.js)
-   * @returns {Promise<void>}
+   * @param {Object} storage - Storage interface
    */
   async saveCheckpoint(collectionName, storage, prefix = 'db_') {
-    const db = this.databases.get(collectionName);
-    if (!db) {
-      throw new Error(`Database '${collectionName}' not found`);
-    }
-
-    const uint8Array = db.export();
+    // With OPFS, we don't strictly NEED checkpoints anymore for persistence,
+    // but we can still use this to "mirror" data to chrome.storage.local for backup/sync if desired.
+    // For now, let's keep it to allow "legacy" backup to work, but it's redundant.
+    const uint8Array = await this._sendRequest('export', { name: collectionName });
     const base64 = this._arrayBufferToBase64(uint8Array);
 
     if (storage.set) {
-      // Chrome storage API
       await storage.set({ [`${prefix}${collectionName}`]: base64 });
     } else {
-      // Simple Map for testing
       storage.set(`${prefix}${collectionName}`, base64);
     }
   }
@@ -136,30 +276,18 @@ class SQLiteManager {
    */
   async restoreCheckpoint(collectionName, storage, prefix = 'db_') {
     let base64;
-
     if (storage.get) {
-      // Chrome storage API
       const key = `${prefix}${collectionName}`;
       const result = await storage.get([key]);
       base64 = result[key];
     } else {
-      // Simple Map for testing
       base64 = storage.get(`${prefix}${collectionName}`);
     }
 
-    if (base64 === null || base64 === undefined) {
-      return false;
-    }
+    if (!base64) return false;
 
     const uint8Array = this._base64ToArrayBuffer(base64);
-    const db = new this.SQL.Database(uint8Array);
-
-    // Close existing database if present
-    if (this.databases.has(collectionName)) {
-      this.databases.get(collectionName).close();
-    }
-
-    this.databases.set(collectionName, db);
+    await this.importFromBlob(collectionName, uint8Array);
     return true;
   }
 
@@ -179,9 +307,15 @@ class SQLiteManager {
         if (key.startsWith(prefix)) {
           const collectionName = key.replace(prefix, '');
           try {
-            const restored = await this.restoreCheckpoint(collectionName, storage, prefix);
-            if (restored) {
-              restoredCollections.push(collectionName);
+            // Avoid duplicate restoration if we already restored this collection with a different prefix
+            if (restoredCollections.includes(collectionName)) continue;
+
+            const restoredValue = await storage.get(key);
+            const base64 = restoredValue[key];
+            if (base64) {
+               const uint8Array = this._base64ToArrayBuffer(base64);
+               await this.importFromBlob(collectionName, uint8Array);
+               restoredCollections.push(collectionName);
             }
           } catch (error) {
             console.error(`[SQLiteManager] Failed to restore ${collectionName}:`, error);
@@ -195,43 +329,34 @@ class SQLiteManager {
 
   /**
    * Ensure the 'packets' system collection exists with the correct schema
-   * @param {Object} storage - Storage interface
    */
   async ensurePacketsCollection() {
-    let db = this.databases.get(PACKETS_COLLECTION);
-    if (!db) {
-      db = await this.initDatabase(PACKETS_COLLECTION);
-    }
-    db.exec(PACKETS_SCHEMA);
+    await this.initDatabase(PACKETS_COLLECTION);
+    const db = this.getDatabase(PACKETS_COLLECTION);
+    await db.exec(PACKETS_SCHEMA);
   }
 
   /**
    * Ensure the 'schemas' system collection exists with the correct schema
-   * @param {Object} storage - Storage interface
    */
   async ensureSchemasCollection() {
-    let db = this.databases.get(SCHEMAS_COLLECTION);
-    if (!db) {
-      db = await this.initDatabase(SCHEMAS_COLLECTION);
-    }
-    db.exec(SCHEMAS_SCHEMA);
+    await this.initDatabase(SCHEMAS_COLLECTION);
+    const db = this.getDatabase(SCHEMAS_COLLECTION);
+    await db.exec(SCHEMAS_SCHEMA);
   }
 
   /**
    * Ensure the 'wits' system collection exists with the correct schema and default entry
-   * @param {Object} storage - Storage interface
    */
   async ensureWitsCollection() {
-    let db = this.databases.get(WITS_COLLECTION);
-    if (!db) {
-      db = await this.initDatabase(WITS_COLLECTION);
-    }
-    db.exec(WITS_SCHEMA);
+    await this.initDatabase(WITS_COLLECTION);
+    const db = this.getDatabase(WITS_COLLECTION);
+    await db.exec(WITS_SCHEMA);
 
     // Check for defaults
     try {
-      const check = db.exec("SELECT rowid FROM wits WHERE name = 'chrome:bookmarks'");
-      if (!check.length || !check[0].values.length) {
+      const check = await db.exec("SELECT rowid FROM wits WHERE name = 'chrome:bookmarks'");
+      if (!check.length) {
         const defaultWit = `package chrome:bookmarks;
 
 interface bookmarks {
@@ -246,12 +371,11 @@ interface bookmarks {
     get-tree: func() -> result<list<bookmark-node>, string>;
     create: func(title: string, url: string) -> result<bookmark-node, string>;
 }`;
-        // Use run with binding parameters to avoid SQL injection/escaping issues
-        db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
+        await db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
       }
 
-      const checkSqlite = db.exec("SELECT rowid FROM wits WHERE name = 'user:sqlite'");
-      if (!checkSqlite.length || !checkSqlite[0].values.length) {
+      const checkSqlite = await db.exec("SELECT rowid FROM wits WHERE name = 'user:sqlite'");
+      if (!checkSqlite.length) {
         const sqliteWit = `package user:sqlite;
 
 interface sqlite {
@@ -267,7 +391,7 @@ interface sqlite {
     execute: func(db: string, sql: string) -> result<u32, string>;
     query: func(db: string, sql: string) -> result<query-result, string>;
 }`;
-        db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['user:sqlite', sqliteWit]);
+        await db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['user:sqlite', sqliteWit]);
       }
     } catch (e) { console.error('Error ensuring default wits:', e); }
   }
@@ -276,11 +400,9 @@ interface sqlite {
    * Ensure the 'events' system collection exists with the correct schema
    */
   async ensureEventsCollection() {
-    let db = this.databases.get(EVENTS_COLLECTION);
-    if (!db) {
-      db = await this.initDatabase(EVENTS_COLLECTION);
-    }
-    db.exec(EVENTS_SCHEMA);
+    await this.initDatabase(EVENTS_COLLECTION);
+    const db = this.getDatabase(EVENTS_COLLECTION);
+    await db.exec(EVENTS_SCHEMA);
   }
 
   /**
@@ -288,69 +410,105 @@ interface sqlite {
    * @returns {Array<string>} Array of collection names
    */
   listCollections() {
-    return Array.from(this.databases.keys());
+    return Array.from(this.databases);
   }
 
   /**
-   * Get database instance for direct SQL operations
+   * Get database proxy for SQL operations
    * @param {string} collectionName - Name of the collection
-   * @returns {Object|null} Database instance or null
+   * @returns {Object|null} Proxy with async exec/run methods
    */
   getDatabase(collectionName) {
-    return this.databases.get(collectionName) || null;
+    if (!this.databases.has(collectionName)) return null;
+    return {
+      exec: (sql, bind) => this._sendRequest('exec', { name: collectionName, sql, bind }),
+      // query returns normalized row objects
+      query: async (sql, bind) => {
+        const result = await this._sendRequest('exec', { name: collectionName, sql, bind });
+        return this._normalizeRows(result);
+      },
+      // Compatibility run method
+      run: (sql, bind) => this._sendRequest('exec', { name: collectionName, sql, bind }),
+      close: () => this.closeDatabase(collectionName)
+    };
   }
 
   /**
    * Close and remove a database
    * @param {string} collectionName - Name of the collection
    */
-  closeDatabase(collectionName) {
-    const db = this.databases.get(collectionName);
-    if (db) {
-      db.close();
-      this.databases.delete(collectionName);
+  async closeDatabase(collectionName) {
+    if (this._activeDatabases.has(collectionName)) {
+      await this._sendRequest('close', { name: collectionName });
+      this._activeDatabases.delete(collectionName);
+      // Note: this.databases still retains the name, indicating it's a known collection,
+      // but it's no longer actively open.
     }
+  }
+
+  /**
+   * Delete a collection entirely (removes from storage)
+   * @param {string} collectionName - Name of the collection
+   * @returns {Promise<boolean>} True if deleted, false if not found
+   */
+  async deleteCollection(collectionName) {
+    if (this.databases.has(collectionName)) {
+      await this._sendRequest('close', { name: collectionName }); // Ensure closed before deleting
+      this.databases.delete(collectionName);
+      this._activeDatabases.delete(collectionName); // Remove from active handles
+      await this._sendRequest('delete', { name: collectionName }); // Request actual deletion
+      return true;
+    }
+    return false;
   }
 
   /**
    * Close all databases
    */
-  closeAll() {
-    for (const [name, db] of this.databases) {
-      db.close();
+  async closeAll() {
+    for (const name of this._activeDatabases) { // Iterate over active databases
+      await this.closeDatabase(name);
     }
+  }
+
+  /**
+   * Wipe all local databases
+   */
+  async wipe() {
+    await this._sendRequest('wipe', {});
     this.databases.clear();
+    this._activeDatabases.clear();
   }
 
   /**
    * Get schema (table definitions) for a collection
    * @param {string} collectionName
-   * @returns {Array<{name: string, sql: string}>} Array of table definitions
+   * @returns {Promise<Array<{name: string, sql: string}>>} Array of table definitions
    */
-  getSchema(collectionName) {
-    const db = this.databases.get(collectionName);
+  async getSchema(collectionName) {
+    const db = this.getDatabase(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
-    const result = db.exec(
+    const result = await db.exec(
       `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
     );
-    if (!result.length) return [];
-    return result[0].values.map(([name, sql]) => ({ name, sql }));
+    const rows = this._normalizeRows(result);
+    return rows.map(row => ({ name: row.name, sql: row.sql }));
   }
 
   /**
    * Get all row IDs for a table in a collection
    * @param {string} collectionName
    * @param {string} tableName
-   * @returns {Array<number>} Array of rowids
+   * @returns {Promise<Array<number>>} Array of rowids
    */
-  getEntries(collectionName, tableName) {
-    const db = this.databases.get(collectionName);
+  async getEntries(collectionName, tableName) {
+    const db = this.getDatabase(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
-    const result = db.exec(`SELECT rowid FROM "${tableName}" ORDER BY rowid`);
-    if (!result.length) return [];
-    return result[0].values.map(([id]) => id);
+    const result = await db.exec(`SELECT rowid FROM "${tableName}" ORDER BY rowid`);
+    const rows = this._normalizeRows(result);
+    return rows.map(row => row.rowid || row.id);
   }
 
   /**
@@ -358,35 +516,23 @@ interface sqlite {
    * @param {string} collectionName
    * @param {string} tableName
    * @param {number|string} rowId
-   * @returns {Object|null} Entry data or null
+   * @returns {Promise<Object|null>} Entry data or null
    */
-  getEntry(collectionName, tableName, rowId) {
-    const db = this.databases.get(collectionName);
+  async getEntry(collectionName, tableName, rowId) {
+    const db = this.getDatabase(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
-    const result = db.exec(`SELECT * FROM "${tableName}" WHERE rowid = ?`, [rowId]);
-    if (!result.length || !result[0].values.length) return null;
-
-    const columns = result[0].columns;
-    const values = result[0].values[0];
-    const data = {};
-    columns.forEach((col, i) => {
-      data[col] = values[i];
-    });
-    return data;
+    const result = await db.exec(`SELECT * FROM "${tableName}" WHERE rowid = ?`, [rowId]);
+    const rows = this._normalizeRows(result);
+    if (!rows.length) return null;
+    return rows[0];
   }
 
   /**
    * Apply a full schema to a collection.
-   * Parses all CREATE TABLE statements from the provided SQL,
-   * drops any existing tables NOT in the new schema, then
-   * drops-and-recreates each table that IS in the new schema.
-   * @param {string} collectionName
-   * @param {string} fullSQL - One or more CREATE TABLE statements
-   * @param {Object} storage - Storage interface for auto-save
    */
   async applySchema(collectionName, fullSQL, storage, prefix = 'db_') {
-    const db = this.databases.get(collectionName);
+    const db = this.getDatabase(collectionName);
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
     // Parse all table names from the new SQL
@@ -402,12 +548,12 @@ interface sqlite {
     }
 
     // Get existing user tables
-    const existing = this.getSchema(collectionName);
+    const existing = await this.getSchema(collectionName);
     const existingNames = new Set(existing.map(t => t.name));
 
     for (const name of existingNames) {
       if (!newTableNames.has(name)) {
-        db.run(`DROP TABLE IF EXISTS "${name}"`);
+        await db.exec(`DROP TABLE IF EXISTS "${name}"`);
       }
     }
 
@@ -421,12 +567,12 @@ interface sqlite {
       const nameMatch = stmt.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`']?(\w+)["`']?/i);
       if (nameMatch) {
         const tableName = nameMatch[1];
-        db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
-        db.exec(stmt);
+        await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+        await db.exec(stmt);
       }
     }
 
-    // Auto-save checkpoint so schema persists
+    // Auto-save checkpoint so schema persists (redundant but kept for backup compatibility)
     if (storage) {
       await this.saveCheckpoint(collectionName, storage, prefix);
     }

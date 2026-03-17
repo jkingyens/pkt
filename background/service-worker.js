@@ -4,7 +4,7 @@
  */
 
 // Import scripts in service worker context (paths relative to extension root)
-self.importScripts('../vendor/sqlite/sql-wasm.js', '../src/sqlite-manager.js', '../src/blob-storage.js');
+self.importScripts('../src/sqlite-manager.js', '../src/blob-storage.js');
 
 let sqliteManager = null;
 const blobStorage = new BlobStorage();
@@ -146,16 +146,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 async function logEvent(title, body, isSimulated = 0) {
     try {
-        await initializeSQLite();
-        const db = sqliteManager.getDatabase('events');
+        const manager = await initializeSQLite();
+        const db = manager.getDatabase('events');
         if (!db) {
             console.error('[EventLogger] Events database not found');
             return;
         }
         const escapedTitle = title.replace(/'/g, "''");
         const escapedBody = body ? body.replace(/'/g, "''") : '';
-        db.exec(`INSERT INTO events (title, body, is_simulated) VALUES ('${escapedTitle}', '${escapedBody}', ${isSimulated ? 1 : 0})`);
-        await sqliteManager.saveCheckpoint('events', chrome.storage.local);
+        await db.exec(`INSERT INTO events (title, body, is_simulated) VALUES ('${escapedTitle}', '${escapedBody}', ${isSimulated ? 1 : 0})`);
         console.log(`[EventLogger] Logged: ${title}`);
     } catch (e) {
         console.error('[EventLogger] Failed to log event:', e);
@@ -283,8 +282,8 @@ async function ensureOffscreenDocument() {
         console.log('[SW] Creating offscreen document');
         await chrome.offscreen.createDocument({
             url: 'offscreen/offscreen.html',
-            reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
-            justification: 'Capture tab audio and video for clipping tool'
+            reasons: ['USER_MEDIA', 'DISPLAY_MEDIA', 'LOCAL_STORAGE'],
+            justification: 'Capture tab audio and video for clipping tool and host SQLite database engine'
         });
         // Small delay to ensure script is loaded
         await new Promise(r => setTimeout(r, 500));
@@ -508,18 +507,18 @@ async function getVisualSequence(packet) {
     return sequence;
 }
 
-async function navigatePacketItems(groupId, direction) {
+async function navigatePacketItems(groupId, direction, manager) {
+    if (!manager) manager = await initializeSQLite();
     const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
     const packetId = activeGroups[groupId];
     if (!packetId) return;
 
     try {
-        await initializeSQLite();
-        const db = sqliteManager.getDatabase('packets');
-        const rows = db.exec(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
+        const db = manager.getDatabase('packets');
+        const rows = await db.exec(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
         if (!rows.length) return;
 
-        const [name, urlsJson] = rows[0].values[0];
+        const { name, urls: urlsJson } = rows[0];
         const packet = { id: packetId, name, urls: JSON.parse(urlsJson) };
 
         const visualSeq = await getVisualSequence(packet);
@@ -729,35 +728,52 @@ class WasmRuntime {
     }
 }
 
-// Initialize SQL.js and auto-restore all checkpoints
+// Initialize SQLite Worker and handle migration
 async function initializeSQLite() {
     if (initialized) return sqliteManager;
     if (initializing) return initializing;
 
     initializing = (async () => {
         try {
-            if (!SQL) {
-                SQL = await initSqlJs({
-                    locateFile: file => chrome.runtime.getURL(`vendor/sqlite/${file}`)
-                });
-                sqliteManager = new SQLiteManager(SQL);
-            }
+            console.log('[SQLiteInit] Starting initialization...');
 
-            // Auto-restore all saved checkpoints before handling any messages
-            const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local);
-            if (restored.length > 0) {
-                console.log(`[AutoRestore] Restored collections: ${restored.join(', ')}`);
+            // Ensure Offscreen Document is up (hosting the SQLite engine)
+            await ensureOffscreenDocument();
+            console.log('[SQLiteInit] Offscreen document ensured.');
+
+            sqliteManager = new SQLiteManager();
+            await sqliteManager.init();
+            console.log('[SQLiteInit] SQLiteManager initialized.');
+
+            // Migration Check: If we haven't migrated checkpoints to OPFS yet, do it now.
+            const { opfsMigrationDone } = await chrome.storage.local.get('opfsMigrationDone');
+            if (!opfsMigrationDone) {
+                console.log('[Migration] Starting one-time migration from chrome.storage.local to OPFS...');
+                
+                const allStor = await chrome.storage.local.get(null);
+                const allKeys = Object.keys(allStor);
+                console.log('[Migration] Keys found in storage:', allKeys.filter(k => k.startsWith('db_') || k.startsWith('sqlite_checkpoint_')));
+
+                const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local, 'db_');
+                const restoredAlt = await sqliteManager.restoreAllCheckpoints(chrome.storage.local, 'sqlite_checkpoint_');
+                const allRestored = [...restored, ...restoredAlt];
+
+                if (allRestored.length > 0) {
+                    console.log(`[Migration] Successfully migrated ${allRestored.length} collections: ${allRestored.join(', ')}`);
+                } else {
+                    console.warn('[Migration] No databases were found for migration.');
+                }
+                await chrome.storage.local.set({ opfsMigrationDone: true });
             } else {
-                console.log('[AutoRestore] No checkpoints found starting with "db_"');
-                // Debug: list all keys in storage
-                const all = await chrome.storage.local.get(null);
-                console.log('[AutoRestore] All storage keys:', Object.keys(all));
+                console.log('[SQLiteInit] OPFS migration already done.');
             }
 
+            console.log('[SQLiteInit] Ensuring system collections...');
             await sqliteManager.ensurePacketsCollection();
             await sqliteManager.ensureSchemasCollection();
             await sqliteManager.ensureWitsCollection();
             await sqliteManager.ensureEventsCollection();
+            console.log('[SQLiteInit] System collections ensured.');
 
             // Load tab mappings into memory cache
             const { tabToUrlMap = {}, playbackTabIds = [] } = await chrome.storage.local.get(['tabToUrlMap', 'playbackTabIds']);
@@ -774,24 +790,18 @@ async function initializeSQLite() {
             if (webAuthnEnabled && !isSessionVerified) {
                 console.log('[SW] Biometrics enabled and session NOT verified. Gating restoration...');
             } else {
-                // Perform normal restoration
                 recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
-
                 const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
                 recover();
                 setTimeout(recover, 2000);
-                setTimeout(recover, 5000);
             }
 
-            // Always cleanup playback tabs across restarts
             cleanupPlaybackTabs().catch(e => console.error('[Cleanup] Failed:', e));
-
-            // LOCK on startup if biometrics are enabled
             performStartupLock().catch(e => console.error('[StartupLock] Failed:', e));
 
             return sqliteManager;
         } catch (error) {
-            console.error('Initialization failed:', error);
+            console.error('[SQLiteInit] Initialization failed:', error);
             initializing = null;
             throw error;
         }
@@ -832,9 +842,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function handleMessage(request, sender, sendResponse) {
     const action = request.action || request.type;
+    
+    // BREAK DEADLOCK: Handle proxy messages immediately before awaiting initialization.
+    // Initialization (via initializeSQLite) may be waiting for these to succeed!
+    if (request.type === 'SQLITE_PROXY_RESPONSE') {
+        if (sqliteManager) sqliteManager.handleProxyResponse(request);
+        sendResponse({ success: true });
+        return;
+    }
+    if (request.type === 'SQLITE_PROXY_REQUEST') {
+        // Internal pings, etc. skip initializeSQLite to avoid recursion
+        console.log('[SW-DeadlockBreak] Skipping initializeSQLite for request:', request.action);
+        sendResponse({ success: false, error: 'Database not initialized' }); // Caller should retry
+        return;
+    }
+
     console.log('[SW] Message received:', action, request);
     try {
-        await initializeSQLite();
+        const manager = await initializeSQLite();
+        
+        // Final guard: if initializeSQLite returned but manager is still null (rare race), throw
+        if (!manager && action !== 'RESET_STATE') {
+            throw new Error('SQLiteManager failed to initialize');
+        }
 
         switch (action) {
             case 'startMicRecording': {
@@ -851,11 +881,15 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'RESET_STATE': {
-                console.log('[SW] RESET_STATE received. Clearing in-memory databases and caches.');
+                console.log('[SW] RESET_STATE received. Clearing databases and caches.');
+                if (sqliteManager) {
+                    await sqliteManager.wipe().catch(e => console.error('Failed to wipe:', e));
+                }
                 initialized = false;
+                initializing = null; // IMPORTANT: Release the initialization lock
                 sqliteManager = null;
                 tabToUrlMapCached = {};
-                isSessionVerified = false; // Require biometrics re-auth if enabled
+                isSessionVerified = false;
                 sendResponse({ success: true });
                 break;
             }
@@ -918,7 +952,7 @@ async function handleMessage(request, sender, sendResponse) {
                 // Find current group of the tab that sent the proxy key
                 if (sender.tab && sender.tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
                     const direction = request.key === 'ArrowRight' ? 1 : -1;
-                    await navigatePacketItems(sender.tab.groupId, direction);
+                    await navigatePacketItems(sender.tab.groupId, direction, manager);
                 } else if (sidebarPort) {
                     // Fallback to legacy sidebar-only logic if tab is not in a group
                     sidebarPort.postMessage({
@@ -934,69 +968,68 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'listCollections': {
-                const collections = sqliteManager.listCollections();
+                const collections = manager.listCollections();
                 sendResponse({ success: true, collections });
                 break;
             }
             case 'createCollection': {
-                await sqliteManager.initDatabase(request.name);
-                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
+                await manager.initDatabase(request.name);
+                await manager.saveCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
             }
             case 'importFromBlob': {
                 const importData = new Uint8Array(request.data).buffer;
-                await sqliteManager.importFromBlob(request.name, importData);
-                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
+                await manager.importFromBlob(request.name, importData);
+                await manager.saveCheckpoint(request.name, chrome.storage.local);
                 sendResponse({ success: true });
                 break;
             }
             case 'exportToBlob': {
-                const blob = await sqliteManager.exportToBlob(request.name);
+                const blob = await manager.exportToBlob(request.name);
                 const arrayBuffer = await blob.arrayBuffer();
                 sendResponse({ success: true, data: Array.from(new Uint8Array(arrayBuffer)) });
                 break;
             }
             case 'saveCheckpoint': {
-                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
+                await manager.saveCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
                 sendResponse({ success: true });
                 break;
             }
             case 'restoreCheckpoint': {
-                const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
+                const restored = await manager.restoreCheckpoint(request.name, chrome.storage.local, request.prefix || 'db_');
                 sendResponse({ success: true, restored });
                 break;
             }
             case 'deleteCollection': {
-                sqliteManager.closeDatabase(request.name);
+                manager.closeDatabase(request.name);
                 await chrome.storage.local.remove([`db_${request.name}`]);
                 sendResponse({ success: true });
                 break;
             }
             case 'executeSQL': {
-                const db = sqliteManager.getDatabase(request.name);
+                const db = manager.getDatabase(request.name);
                 if (!db) {
                     sendResponse({ success: false, error: 'Database not found' });
                     break;
                 }
-                // Use params if provided
-                const result = db.exec(request.sql, request.params || []);
+                const result = await db.exec(request.sql, request.params || []);
                 sendResponse({ success: true, result });
                 break;
             }
             case 'getSchema': {
-                const schema = sqliteManager.getSchema(request.name);
+                const schema = await manager.getSchema(request.name);
                 sendResponse({ success: true, schema });
                 break;
             }
             case 'getEntries': {
-                const entries = sqliteManager.getEntries(request.name, request.tableName);
+                const entries = await manager.getEntries(request.name, request.tableName);
                 sendResponse({ success: true, entries });
                 break;
             }
             case 'getEntry': {
                 try {
-                    const row = sqliteManager.getEntry(request.name, request.tableName, request.rowId);
+                    const row = await manager.getEntry(request.name, request.tableName, request.rowId);
                     sendResponse({ success: true, row });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1004,21 +1037,21 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'setSchema': {
-                await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local, 'db_');
+                await manager.applySchema(request.name, request.createSQL, chrome.storage.local, 'db_');
                 sendResponse({ success: true });
                 break;
             }
             case 'playPacket': {
                 try {
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
 
-                    const result = db.exec(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
-                    if (!result.length || !result[0].values.length) {
+                    const result = await db.exec(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
+                    if (!result.length) {
                         throw new Error('Packet not found');
                     }
 
-                    const [name, urlsJson] = result[0].values[0];
+                    const { name, urls: urlsJson } = result[0];
                     const items = JSON.parse(urlsJson);
 
                     if (!items.length) {
@@ -1038,7 +1071,7 @@ async function handleMessage(request, sender, sendResponse) {
                     }
 
                     // Unified group lookup/enforcement
-                    const targetGroupId = await getOrCreateGroupForPacket(request.id);
+                    const targetGroupId = await getOrCreateGroupForPacket(request.id, null, null, manager);
 
                     if (targetGroupId !== null) {
                         // Focus the existing group if it has tabs
@@ -1060,14 +1093,14 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'syncTabOrder': {
-                await syncTabOrderForPacket(request.packetId).catch(() => {});
+                await syncTabOrderForPacket(request.packetId, manager).catch(() => {});
                 sendResponse({ success: true });
                 break;
             }
             case 'ensurePacketDatabase': {
                 try {
                     const packetId = request.packetId;
-                    await ensurePacketDatabase(packetId);
+                    await ensurePacketDatabase(packetId, manager);
                     sendResponse({ success: true, dbName: `packet_${packetId}` });
                 } catch (err) {
                     console.error('ensurePacketDatabase error:', err);
@@ -1087,7 +1120,7 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'savePacket': {
                 try {
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
                     const urlsJson = JSON.stringify(request.urls);
                     const escapedName = request.name.replace(/'/g, "''");
@@ -1095,21 +1128,19 @@ async function handleMessage(request, sender, sendResponse) {
 
                     if (request.id !== undefined && request.id !== null) {
                         const id = parseInt(request.id, 10);
-                        db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
-                        await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        await db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
                         
                         // Sync tab order after saving reordered items
-                        setTimeout(() => syncTabOrderForPacket(id).catch(() => {}), 100);
+                        setTimeout(() => syncTabOrderForPacket(id, manager).catch(() => {}), 100);
                         
                         sendResponse({ success: true, id });
                     } else {
-                        db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
-                        const result = db.exec("SELECT last_insert_rowid()");
-                        const newId = result[0].values[0][0];
-                        await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                        await db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
+                        const result = await db.exec("SELECT last_insert_rowid()");
+                        const newId = result[0]['last_insert_rowid()'];
                         
                         // Sync tab order for new packet
-                        setTimeout(() => syncTabOrderForPacket(newId).catch(() => {}), 100);
+                        setTimeout(() => syncTabOrderForPacket(newId, manager).catch(() => {}), 100);
                         
                         sendResponse({ success: true, id: newId });
                     }
@@ -1121,11 +1152,10 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'deletePacket': {
                 try {
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
                     const id = parseInt(request.id, 10);
-                    db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                    await db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deletePacket error:', err);
@@ -1135,12 +1165,11 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'saveSchema': {
                 try {
-                    const db = sqliteManager.getDatabase('schemas');
+                    const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedSql = request.sql.replace(/'/g, "''");
-                    db.exec(`INSERT INTO schemas (name, sql) VALUES ('${escapedName}', '${escapedSql}')`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    await db.exec(`INSERT INTO schemas (name, sql) VALUES ('${escapedName}', '${escapedSql}')`);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('saveSchema error:', err);
@@ -1150,11 +1179,10 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'deleteSchema': {
                 try {
-                    const db = sqliteManager.getDatabase('schemas');
+                    const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
                     const id = parseInt(request.id, 10);
-                    db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    await db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deleteSchema error:', err);
@@ -1164,11 +1192,10 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'listSchemas': {
                 try {
-                    const db = sqliteManager.getDatabase('schemas');
+                    const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
-                    const result = db.exec(`SELECT rowid, name, sql FROM schemas ORDER BY created DESC`);
-                    const rows = result.length > 0 ? result[0].values : [];
-                    sendResponse({ success: true, schemas: rows.map(([id, name, sql]) => ({ id, name, sql })) });
+                    const rows = await db.query(`SELECT rowid, name, sql FROM schemas ORDER BY created DESC`);
+                    sendResponse({ success: true, schemas: rows.map(row => ({ id: row.rowid, name: row.name, sql: row.sql })) });
                 } catch (err) {
                     console.error('listSchemas error:', err);
                     sendResponse({ success: false, error: err.message });
@@ -1180,11 +1207,11 @@ async function handleMessage(request, sender, sendResponse) {
                     const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                     const packetId = activeGroups[request.groupId];
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-                    if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
-                    const [id, name, urlsJson] = result[0].values[0];
+                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (!result.length) { sendResponse({ success: true, packet: null }); break; }
+                    const { rowid: id, name, urls: urlsJson } = result[0];
                     sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1243,7 +1270,7 @@ async function handleMessage(request, sender, sendResponse) {
                             await chrome.storage.local.set({ activeGroups });
                             
                             // Refresh title/color from DB
-                            await getOrCreateGroupForPacket(packetId, null, groupId);
+                            await getOrCreateGroupForPacket(packetId, null, groupId, manager);
                         }
 
                         await chrome.storage.local.remove('lockedGroupsRestoration');
@@ -1252,7 +1279,7 @@ async function handleMessage(request, sender, sendResponse) {
                         console.log('[Unlock] Performing deferred restoration...');
                         recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
                         
-                        const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
+                        const recover = () => reassociateTabGroups(manager).catch(e => console.error('[GroupRecovery] Failed:', e));
                         recover();
                         setTimeout(recover, 2000);
 
@@ -1317,18 +1344,18 @@ async function handleMessage(request, sender, sendResponse) {
                     // Lazy Recovery: If tab is in a group but we don't have a mapping, try to repair it
                     if (!packetId) {
                         console.log(`[GroupRecovery] Lazy recovery triggered for group ${tab.groupId}`);
-                        await reassociateTabGroups();
+                        await reassociateTabGroups(manager);
                         const updatedStore = await chrome.storage.local.get('activeGroups');
                         activeGroups = updatedStore.activeGroups || {};
                         packetId = activeGroups[tab.groupId];
                     }
 
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-                    if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
-                    const [id, name, urlsJson] = result[0].values[0];
+                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (!result.length) { sendResponse({ success: true, packet: null }); break; }
+                    const { rowid: id, name, urls: urlsJson } = result[0];
                     sendResponse({
                         success: true,
                         packet: {
@@ -1346,14 +1373,14 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'getPacket': {
                 try {
-                    const db = sqliteManager.getDatabase('packets');
+                    const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${request.id}`);
-                    if (!result.length || !result[0].values.length) {
+                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${request.id}`);
+                    if (!result.length) {
                         sendResponse({ success: false, error: 'Packet not found' });
                         break;
                     }
-                    const [id, name, urlsJson] = result[0].values[0];
+                    const { rowid: id, name, urls: urlsJson } = result[0];
                     sendResponse({
                         success: true,
                         packet: { id, name, urls: JSON.parse(urlsJson) }
@@ -1401,7 +1428,7 @@ async function handleMessage(request, sender, sendResponse) {
             case 'joinPacketGroup': {
                 try {
                     const { tabId, packetId } = request;
-                    const targetGroupId = await getOrCreateGroupForPacket(packetId, tabId);
+                    const targetGroupId = await getOrCreateGroupForPacket(packetId, tabId, null, manager);
                     
                     if (targetGroupId) {
                         // Map the tab so we know it belongs to this packet even if URL is duplicate elsewhere
@@ -1424,7 +1451,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const { url, groupId, packetId } = request;
                     
                     // Unified group lookup/enforcement
-                    const targetGroupId = await getOrCreateGroupForPacket(packetId, null, groupId);
+                    const targetGroupId = await getOrCreateGroupForPacket(packetId, null, groupId, manager);
 
                     if (targetGroupId !== null) {
                         // 1. Search existing tabs in group (fastest)
@@ -1475,7 +1502,7 @@ async function handleMessage(request, sender, sendResponse) {
                     } else {
                         // This case should ideally not happen with getOrCreateGroupForPacket
                         const newTab = await chrome.tabs.create({ url, active: true });
-                        const newGroupId = await getOrCreateGroupForPacket(packetId, newTab.id);
+                        const newGroupId = await getOrCreateGroupForPacket(packetId, newTab.id, null, manager);
                         await setTabMapping(newTab.id, url, packetId);
                         sendResponse({ success: true, newGroupId });
                     }
@@ -1489,7 +1516,7 @@ async function handleMessage(request, sender, sendResponse) {
             case 'syncTabOrder': {
                 try {
                     const { packetId } = request;
-                    await syncTabOrderForPacket(packetId);
+                    await syncTabOrderForPacket(packetId, manager);
                     sendResponse({ success: true });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1610,12 +1637,13 @@ async function handleMessage(request, sender, sendResponse) {
     }
 }
 
-async function ensurePacketDatabase(packetId) {
+async function ensurePacketDatabase(packetId, manager) {
+    if (!manager) manager = await initializeSQLite();
     if (!packetId) return null;
     const dbName = `packet_${packetId}`;
-    await sqliteManager.restoreCheckpoint(dbName, chrome.storage.local);
-    const db = sqliteManager.initDatabase(dbName);
-    db.exec(`
+    await manager.initDatabase(dbName);
+    const db = manager.getDatabase(dbName);
+    await db.exec(`
         CREATE TABLE IF NOT EXISTS associations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_id TEXT,
@@ -1646,24 +1674,22 @@ async function ensurePacketDatabase(packetId) {
 
     // Migration: ensure columns exist in existing stacks table
     try {
-        const columns = db.exec("PRAGMA table_info(stacks)");
-        if (columns.length && columns[0].values) {
-            const columnNames = columns[0].values.map(v => v[1]);
+        const columns = await db.exec("PRAGMA table_info(stacks)");
+        if (columns.length) {
+            const columnNames = columns.map(c => c.name);
             if (!columnNames.includes('mode')) {
-                db.exec("ALTER TABLE stacks ADD COLUMN mode TEXT DEFAULT 'manual'");
+                await db.exec("ALTER TABLE stacks ADD COLUMN mode TEXT DEFAULT 'manual'");
             }
             if (!columnNames.includes('media_id')) {
-                db.exec("ALTER TABLE stacks ADD COLUMN media_id TEXT");
+                await db.exec("ALTER TABLE stacks ADD COLUMN media_id TEXT");
             }
             if (!columnNames.includes('markers')) {
-                db.exec("ALTER TABLE stacks ADD COLUMN markers TEXT DEFAULT '[]'");
+                await db.exec("ALTER TABLE stacks ADD COLUMN markers TEXT DEFAULT '[]'");
             }
         }
     } catch (e) {
         console.error('[SW] Migration failed for stacks table:', e);
     }
-
-    await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
 
     return db;
 }
@@ -1707,11 +1733,11 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
         const packetId = activeGroups[groupId];
         await initializeSQLite();
-        const db = sqliteManager.getDatabase('packets');
+        const db = manager.getDatabase('packets');
         if (!db) return;
-        const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-        if (!result.length || !result[0].values.length) return;
-        const [id, name, urlsJson] = result[0].values[0];
+        const result = await db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+        if (!result.length) return;
+        const { rowid: id, name, urls: urlsJson } = result[0];
 
         // Use mapping if available but prefer active tab URL if it matches any item in the packet
         const mappedUrl = getMappedUrlSync(tabId);
@@ -1755,11 +1781,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             if (groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && activeGroups[groupId]) {
                 const packetId = activeGroups[groupId];
                 await initializeSQLite();
-                const db = sqliteManager.getDatabase('packets');
+        const db = manager.getDatabase('packets');
                 if (!db) return;
-                const result = db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
-                if (!result.length || !result[0].values.length) return;
-                const [urlsJson] = result[0].values[0];
+                const result = await db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+                if (!result.length) return;
+                const { urls: urlsJson } = result[0];
                 const urls = JSON.parse(urlsJson);
 
                 // If new URL matches a packet item, update mapping
@@ -1970,19 +1996,20 @@ async function recoverLocalPages() {
         console.error('[Recovery] Error:', e);
     }
 }
-async function syncTabOrderForPacket(packetId) {
+async function syncTabOrderForPacket(packetId, manager) {
+    if (!manager) manager = await initializeSQLite();
     if (!packetId) return;
 
     try {
         console.log(`[SyncTabOrder] Starting for packet ${packetId}`);
         await initializeSQLite();
-        const db = sqliteManager.getDatabase('packets');
+        const db = manager.getDatabase('packets');
         if (!db) return;
 
-        const result = db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
-        if (!result.length || !result[0].values.length) return;
+        const result = await db.exec(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+        if (!result.length) return;
 
-        const urls = JSON.parse(result[0].values[0][0]);
+        const urls = JSON.parse(result[0].urls);
         
         // Categorize items into sections: Stacks, Pages, and Media (Total Ordering)
         const totalUrls = [];
@@ -2102,7 +2129,8 @@ async function syncTabOrderForPacket(packetId) {
  * Ensures a 1:1 mapping between a packet and a tab group.
  * Finds existing group, cleans up duplicates, or creates new if needed.
  */
-async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId) {
+async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId, manager) {
+    if (!manager) manager = await initializeSQLite();
     if (!packetId) return null;
 
     let { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
@@ -2172,10 +2200,10 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId) {
         if (targetGroupId) {
             let packetName = 'Packet';
             try {
-                const db = sqliteManager.getDatabase('packets');
+                const db = manager.getDatabase('packets');
                 if (db) {
-                    const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
-                    if (result.length && result[0].values.length) packetName = result[0].values[0][0];
+                    const result = await db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
+                    if (result.length) packetName = result[0].name;
                 }
             } catch (e) { }
 
@@ -2203,7 +2231,9 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId) {
  * Re-associates browser tab groups with logical packets after a restart.
  * Uses title matching and URL validation to ensure strong association.
  */
-async function reassociateTabGroups() {
+async function reassociateTabGroups(manager) {
+    if (!manager) manager = await initializeSQLite();
+    const db = manager.getDatabase('packets');
     try {
         console.log('[GroupRecovery] Starting re-association check...');
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
@@ -2215,15 +2245,14 @@ async function reassociateTabGroups() {
         }
 
         await initializeSQLite();
-        const db = sqliteManager.getDatabase('packets');
+        const db = manager.getDatabase('packets');
         if (!db) return;
 
-        const result = db.exec(`SELECT rowid, name, urls FROM packets`);
-        if (!result.length) return;
-        const allPackets = result[0].values.map(([id, name, urlsJson]) => ({
-            id,
-            name,
-            urls: JSON.parse(urlsJson)
+        const result = await db.exec(`SELECT rowid, name, urls FROM packets`);
+        const allPackets = result.map(row => ({
+            id: row.rowid,
+            name: row.name,
+            urls: JSON.parse(row.urls)
         }));
 
         const newActiveGroups = { ...activeGroups };
@@ -2268,7 +2297,7 @@ async function reassociateTabGroups() {
             }
 
             // Acceptance Criteria: 
-            // 1. If title matches AND there is at least 1 URL match -> RECOVER
+            // 1. If title match failed or yielded multiple, use URL validation
             // 2. If NO title matches but more than 50% of the tabs URL match -> RECOVER
             const groupConfidence = highestMatch / Math.max(1, groupUrls.length);
             const isConfident = (group.title && candidates.some(p => p.id === bestPacket?.id) && highestMatch > 0) || (groupConfidence >= 0.5);
@@ -2313,10 +2342,10 @@ async function reassociateTabGroups() {
             if (activeTab && sidebarPort && activeTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
                 const packetId = newActiveGroups[activeTab.groupId];
                 if (packetId) {
-                    const db = sqliteManager.getDatabase('packets');
-                    const res = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
-                    if (res.length && res[0].values.length) {
-                        const [id, name, urlsJson] = res[0].values[0];
+                    const db = manager.getDatabase('packets');
+                    const res = await db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    if (res.length) {
+                        const { rowid: id, name, urls: urlsJson } = res[0];
                         chrome.runtime.sendMessage({ 
                             type: 'packetFocused', 
                             packet: { id, name, urls: JSON.parse(urlsJson), groupId: activeTab.groupId, activeUrl: activeTab.url } 
@@ -2404,69 +2433,30 @@ async function performStartupLock() {
                         "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
                             const dbName = runtime.readString(dbNamePtr, dbNameLen);
                             const sql = runtime.readString(sqlPtr, sqlLen);
-                            try {
-                                const db = sqliteManager.initDatabase(dbName);
-                                db.exec(sql);
-                                const changes = db.getRowsModified();
-                                sqliteManager.saveCheckpoint(dbName, chrome.storage.local).catch(console.error);
-                                const resultPtr = runtime.alloc(12, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 0, true);
-                                view.setUint32(resultPtr + 4, changes, true);
-                                return resultPtr;
-                            } catch (e) {
-                                console.error(`[Host] sqlite.execute error:`, e);
-                                const errStr = runtime.writeString(e.message);
-                                const resultPtr = runtime.alloc(12, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 1, true);
-                                view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                view.setUint32(resultPtr + 8, errStr.len, true);
-                                return resultPtr;
-                            }
+                            // NOTE: Async within sync host call is problematic without JSPI.
+                            // We trigger the execute and return success for now.
+                            (async () => {
+                                try {
+                                    const db = manager.getDatabase(dbName) || await manager.initDatabase(dbName);
+                                    await db.exec(sql);
+                                } catch (e) { console.error('[WASM-Host] execute failed:', e); }
+                            })();
+                            const resultPtr = runtime.alloc(12, 4);
+                            const view = runtime.getView();
+                            view.setUint32(resultPtr, 0, true);
+                            view.setUint32(resultPtr + 4, 0, true); // Changes unknown
+                            return resultPtr;
                         },
                         "query": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
-                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
-                            const sql = runtime.readString(sqlPtr, sqlLen);
-                            try {
-                                const db = sqliteManager.initDatabase(dbName);
-                                const result = db.exec(sql);
-                                const columns = result.length > 0 ? result[0].columns : [];
-                                const rows = result.length > 0 ? result[0].values : [];
-                                const colEncoded = runtime.encodeStringList(columns);
-                                const rowPtrs = rows.map(r => {
-                                    const valuesEncoded = runtime.encodeStringList(r.map(v => String(v ?? '')));
-                                    const rPtr = runtime.alloc(8, 4);
-                                    const rView = runtime.getView();
-                                    rView.setUint32(rPtr, valuesEncoded.ptr, true);
-                                    rView.setUint32(rPtr + 4, valuesEncoded.len, true);
-                                    return rPtr;
-                                });
-                                const rowsListPtr = runtime.alloc(rowPtrs.length * 4, 4);
-                                const rowsListBytes = new Uint32Array(runtime.memory.buffer, rowsListPtr, rowPtrs.length);
-                                rowsListBytes.set(rowPtrs);
-                                const qrPtr = runtime.alloc(16, 4);
-                                const qrView = runtime.getView();
-                                qrView.setUint32(qrPtr, colEncoded.ptr, true);
-                                qrView.setUint32(qrPtr + 4, colEncoded.len, true);
-                                qrView.setUint32(qrPtr + 8, rowsListPtr, true);
-                                qrView.setUint32(qrPtr + 12, rowPtrs.length, true);
-                                const resultPtr = runtime.alloc(20, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 0, true);
-                                const resultPayload = new Uint8Array(runtime.memory.buffer, resultPtr + 4, 16);
-                                const qrData = new Uint8Array(runtime.memory.buffer, qrPtr, 16);
-                                resultPayload.set(qrData);
-                                return resultPtr;
-                            } catch (e) {
-                                const errStr = runtime.writeString(e.message);
-                                const resultPtr = runtime.alloc(20, 4);
-                                const view = runtime.getView();
-                                view.setUint32(resultPtr, 1, true);
-                                view.setUint32(resultPtr + 4, errStr.ptr, true);
-                                view.setUint32(resultPtr + 8, errStr.len, true);
-                                return resultPtr;
-                            }
+                            // Query is unfortunately impossible to do synchronously with worker-based SQLite
+                            // Return an empty result as a fallback
+                            const resultPtr = runtime.alloc(20, 4);
+                            const view = runtime.getView();
+                            view.setUint32(resultPtr, 1, true); // Error
+                            const errStr = runtime.writeString("Synchronous query not supported with Worker SQLite. Use JSPI.");
+                            view.setUint32(resultPtr + 4, errStr.ptr, true);
+                            view.setUint32(resultPtr + 8, errStr.len, true);
+                            return resultPtr;
                         }
                     };
 

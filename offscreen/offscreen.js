@@ -10,14 +10,67 @@ function log(msg, ...args) {
 let recorder;
 let data = [];
 
-chrome.runtime.onMessage.addListener(async (message) => {
+const sqliteManager = new SQLiteManager();
+
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     if (message.type === 'START_RECORDING') {
         startRecording(message.streamId, message.isVideo, message.region);
     } else if (message.type === 'START_MIC_RECORDING') {
         startMicRecording(message.video);
     } else if (message.type === 'STOP_RECORDING') {
         stopRecording();
+    } else if (message.type === 'SQLITE_PROXY_REQUEST') {
+        try {
+            const { action, payload, id } = message;
+            
+            if (action === 'ping') {
+                chrome.runtime.sendMessage({
+                    type: 'SQLITE_PROXY_RESPONSE',
+                    id,
+                    success: true,
+                    result: 'pong'
+                });
+                return;
+            }
+
+            // Restore binary data if present (proxied from SW)
+            if (payload && payload.data && Array.isArray(payload.data)) {
+                payload.data = new Uint8Array(payload.data);
+            }
+
+            let result = await sqliteManager._sendRequest(action, payload);
+            
+            // Serialize binary result for transport back to SW
+            if (result instanceof Uint8Array) {
+                result = Array.from(result);
+            }
+
+            chrome.runtime.sendMessage({
+                type: 'SQLITE_PROXY_RESPONSE',
+                id,
+                action,
+                success: true,
+                result
+            });
+        } catch (e) {
+            chrome.runtime.sendMessage({
+                type: 'SQLITE_PROXY_RESPONSE',
+                id: message.id,
+                action: message.action,
+                success: false,
+                error: e.message
+            });
+        }
     }
+});
+
+// 1. Initial worker discovery (if we just spawned)
+sqliteManager.init().then(() => {
+    chrome.runtime.sendMessage({
+        type: 'SQLITE_PROXY_RESPONSE',
+        id: 'OFFSCREEN_READY',
+        success: true
+    });
 });
 
 async function startMicRecording(isVideo = false) {

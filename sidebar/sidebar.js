@@ -1078,7 +1078,8 @@ class SidebarUI {
 
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
-            if (resp && resp.success && resp.tab) {
+            if (!resp) return;
+            if (resp.success && resp.tab) {
                 this.activeUrl = resp.tab.url;
             } else {
                 this.activeUrl = null;
@@ -1215,6 +1216,7 @@ class SidebarUI {
     async checkActivePacket() {
         try {
             const resp = await this.sendMessage({ action: 'getActivePacket' });
+            if (!resp) return; // SW might be initializing
             if (resp.success && resp.packet) {
                 // If the background found a packet associated with the active tab, show it!
                 this.showPacketDetailView(resp.packet);
@@ -2938,16 +2940,6 @@ class SidebarUI {
 
     // ===== COLLECTION LIST =====
 
-    async loadCollections() {
-        try {
-            const response = await this.sendMessage({ action: 'listCollections' });
-            if (response.success) {
-                this.renderCollections(response.collections);
-            }
-        } catch (error) {
-            console.error('Failed to load collections:', error);
-        }
-    }
 
     renderCollections(collections) {
         // Filter out internal packet databases (starting with packet_)
@@ -3381,6 +3373,7 @@ class SidebarUI {
 
         try {
             const resp = await this.sendMessage({ action: 'listSchemas' });
+            if (!resp) return;
             if (!resp.success) throw new Error(resp.error || 'Failed to load schemas');
 
             const schemas = resp.schemas;
@@ -3497,9 +3490,26 @@ class SidebarUI {
         this.showDetailView('schemas');
     }
 
+    async loadCollections() {
+        try {
+            const resp = await this.sendMessage({ action: 'listCollections' });
+            if (!resp) return; // SW might be initializing
+            if (resp.success) {
+                this.collections = resp.collections;
+                this.renderCollections(resp.collections);
+            } else {
+                throw new Error(resp.error || 'Failed to load collections');
+            }
+        } catch (error) {
+            console.error('Failed to load collections:', error);
+            this.collectionsList.innerHTML = '<p class="hint">Failed to load collections.</p>';
+        }
+    }
+
     async openSchemaPicker() {
         try {
             const resp = await this.sendMessage({ action: 'listSchemas' });
+            if (!resp) return;
             if (!resp.success) throw new Error(resp.error || 'Failed to load schemas');
 
             const schemas = resp.schemas;
@@ -4108,7 +4118,8 @@ class SidebarUI {
     }
 
     escapeHtml(str) {
-        return str
+        if (!str) return '';
+        return String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
@@ -5330,12 +5341,24 @@ class SidebarUI {
                 this.showProgress(checkpoint, percent);
             });
             
+            // 4. Reset migration flag so SW triggers a fresh migration from the restored checkpoints
+            await chrome.storage.local.set({ opfsMigrationDone: false });
+
             // Notify background worker to flush its cache/state before reload
             await this.sendMessage({ action: 'RESET_STATE' });
             
             this.showProgress('Restore successful! Reloading...', 100);
             this.showNotification('Restore successful! Reloading...', 'success');
-            setTimeout(() => window.location.reload(), 2000);
+            
+            // Ensure the modal is hidden before reload to prevent flicker on next load
+            if (this.progressModal) {
+                setTimeout(() => {
+                    this.progressModal.classList.add('hidden');
+                    window.location.reload();
+                }, 2000);
+            } else {
+                setTimeout(() => window.location.reload(), 2000);
+            }
         } catch (err) {
             console.error('[Restore] Failed:', err);
             this.showNotification('Restore failed: ' + err.message, 'error');

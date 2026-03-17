@@ -149,6 +149,25 @@
         trueFullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M12 17v4M8 21h8"/></svg>`
     };
 
+    function normalizeSqlResults(resp) {
+        if (!resp || !resp.success || !resp.result) return [];
+        const res = resp.result;
+        if (!Array.isArray(res) || res.length === 0) return [];
+
+        // Legacy format: [{columns: [...], values: [[...], [...]]}]
+        if (res[0] && Array.isArray(res[0].columns) && Array.isArray(res[0].values)) {
+            const cols = res[0].columns;
+            return res[0].values.map(v => {
+                const row = {};
+                cols.forEach((c, i) => row[c] = v[i]);
+                return row;
+            });
+        }
+
+        // Modern format: [row1, row2, ...]
+        return res;
+    }
+
     async function loadStack() {
         try {
             await chrome.runtime.sendMessage({ action: 'ensurePacketDatabase', packetId });
@@ -160,13 +179,14 @@
                     name: dbName,
                     sql: `SELECT name, mode, media_id, markers FROM stacks WHERE id = ${stackId}`
                 });
-                if (stackResp.success && stackResp.result[0]?.values?.length) {
-                    const row = stackResp.result[0].values[0];
-                    stackTitle.textContent = row[0];
-                    stackMode = row[1] || 'manual';
-                    stackMediaId = row[2];
+                const stackRows = normalizeSqlResults(stackResp);
+                if (stackRows.length > 0) {
+                    const row = stackRows[0];
+                    stackTitle.textContent = row.name;
+                    stackMode = row.mode || 'manual';
+                    stackMediaId = row.media_id;
                     try {
-                        stackMarkers = JSON.parse(row[3] || '[]');
+                        stackMarkers = JSON.parse(row.markers || '[]');
                     } catch (e) { stackMarkers = []; }
                 } else {
                     stackTitle.textContent = name;
@@ -183,29 +203,16 @@
             });
 
             console.log('[Stack] Items Query Resp:', itemsResp);
-            if (itemsResp.success) {
-                const result = itemsResp.result[0];
-                if (result) {
-                    const cols = result.columns;
-                    console.log('[Stack] Items Count:', result.values.length);
-                    items = result.values.map(v => {
-                        const item = {};
-                        cols.forEach((c, i) => item[c] = v[i]);
-                        try {
-                            if (item.metadata && typeof item.metadata === 'string') {
-                                item.metadata = JSON.parse(item.metadata);
-                            }
-                        } catch (e) { }
-                        return item;
-                    });
-                } else {
-                    console.log('[Stack] Result empty, set items to []');
-                    items = [];
-                }
-            } else {
-                console.error('[Stack] Items query failed:', itemsResp.error);
-                items = [];
-            }
+            const itemRows = normalizeSqlResults(itemsResp);
+            items = itemRows.map(item => {
+                try {
+                    if (item.metadata && typeof item.metadata === 'string') {
+                        item.metadata = JSON.parse(item.metadata);
+                    }
+                } catch (e) { }
+                return item;
+            });
+            console.log('[Stack] Loaded items:', items.length);
 
                 // Identify bound media from the packet's resources (not stack items, but packet media)
                 await loadBoundMediaInfo();
@@ -371,14 +378,14 @@
             if (stackMode === 'media' && boundMediaItem) {
                 if ((boundMediaItem.mimeType || '').startsWith('video')) {
                     width = 480;
-                    height = 450;
+                    height = 520;
                 } else {
                     width = 340;
-                    height = 280;
+                    height = 320;
                 }
             } else {
                 width = 320;
-                height = 200;
+                height = 240;
             }
 
             pipWindow = await window.documentPictureInPicture.requestWindow({
@@ -408,9 +415,11 @@
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                justify-content: flex-start;
-                padding-top: 16px;
+                justify-content: center;
+                padding: 0;
                 margin: 0;
+                height: 100vh;
+                width: 100vw;
                 overflow: hidden;
                 user-select: none;
             `;

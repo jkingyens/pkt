@@ -23,6 +23,7 @@
   "homepage": "https://github.com/jkingyens/wildcard#readme",
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2",
+    "@sqlite.org/sqlite-wasm": "^3.51.2-build8",
     "ghostty-web": "^0.4.0"
   }
 }

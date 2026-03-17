@@ -64,6 +64,10 @@
         {
             "resources": [
                 "vendor/sqlite/sql-wasm.wasm",
+                "vendor/sqlite/sqlite3.wasm",
+                "vendor/sqlite/sqlite3.mjs",
+                "vendor/sqlite/sqlite3-opfs-async-proxy.js",
+                "vendor/sqlite/sqlite3-worker1.mjs",
                 "src/island.html",
                 "src/island.js",
                 "sidebar/local-editor.js"

@@ -108,16 +108,17 @@ class BackupManager {
      * Helper: Convert Blob to Base64 string
      */
     async blobToBase64(blob) {
-        const arrayBuffer = await blob.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = '';
-        const len = bytes.byteLength;
-        const chunk = 65536; // 64k chunks
-        for (let i = 0; i < len; i += chunk) {
-            const end = Math.min(i + chunk, len);
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, end));
-        }
-        return btoa(binary);
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64String = reader.result
+                    .replace('data:', '')
+                    .replace(/^.+,/, '');
+                resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
     }
 
     /**
