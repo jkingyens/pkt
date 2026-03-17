@@ -284,6 +284,7 @@ class SidebarUI {
         this.template = document.getElementById('collectionTemplate');
         this.settingsBtn = document.getElementById('settingsBtn');
         this.importBtn = document.getElementById('importBtn');
+        this.importPacketBtn = document.getElementById('importPacketBtn');
 
         // Settings view elements
         this.geminiApiKeyInput = document.getElementById('geminiApiKeyInput');
@@ -307,10 +308,15 @@ class SidebarUI {
 
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
+        this.backBtn = document.getElementById('backBtn');
+        this.addPacketBtn = document.getElementById('addPacketBtn');
+        this.importPacketBtn = document.getElementById('importPacketBtn');
+        this.detailExportBtn = document.getElementById('detailExportBtn');
+        this.detailDeleteBtn = document.getElementById('detailDeleteBtn');
+        this.packetActions = document.getElementById('packetActions');
         this.schemaContent = document.getElementById('schemaContent');
         this.entriesContent = document.getElementById('entriesContent');
         this.entryCount = document.getElementById('entryCount');
-        this.addPacketFloatingBtn = document.getElementById('addPacketFloatingBtn');
 
         // Constructor view elements
         this.constructorList = document.getElementById('constructorList');
@@ -1141,7 +1147,7 @@ class SidebarUI {
             else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
             else if (type === 'stack') {
-                const sid = item.stackId; // Strictly use stackId
+                const sid = item.stackId || item.id;
                 if (sid) {
                     itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
                 }
@@ -1201,8 +1207,14 @@ class SidebarUI {
 
     setupEventListeners() {
         // List view
-        document.getElementById('createBtn').addEventListener('click', () => this.createCollection());
-        document.getElementById('importBtn').addEventListener('click', () => this.importDatabase());
+        const createBtn = document.getElementById('createBtn');
+        if (createBtn) createBtn.addEventListener('click', () => this.createCollection());
+        
+        const importBtn = document.getElementById('importBtn');
+        if (importBtn) importBtn.addEventListener('click', () => this.importDatabase());
+        if (this.importPacketBtn) {
+            this.importPacketBtn.addEventListener('click', () => this.handleImportPacket());
+        }
         this.settingsBtn.addEventListener('click', async () => {
             await this.checkEmptyPacketGarbageCollector();
             this.showSettingsView();
@@ -1230,18 +1242,30 @@ class SidebarUI {
         });
 
         // Detail view
-        document.getElementById('backBtn').addEventListener('click', () => this.showListView());
-        if (this.addPacketFloatingBtn) {
-            this.addPacketFloatingBtn.addEventListener('click', () => this.createAndShowNewPacket([]));
+        if (this.backBtn) {
+            this.backBtn.addEventListener('click', () => this.showListView());
         }
-        document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
-        document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
-        document.getElementById('detailDeleteBtn').addEventListener('click', () => this.deleteCollection(this.currentCollection));
+        if (this.addPacketBtn) {
+            this.addPacketBtn.addEventListener('click', () => this.createAndShowNewPacket([]));
+        }
+        const editSchemaBtn = document.getElementById('editSchemaBtn');
+        if (editSchemaBtn) editSchemaBtn.addEventListener('click', () => this.openSchemaModal());
+        if (this.detailExportBtn) {
+            this.detailExportBtn.addEventListener('click', () => this.exportCollection(this.currentCollection));
+        }
+        if (this.detailDeleteBtn) {
+            this.detailDeleteBtn.addEventListener('click', () => this.deleteCollection(this.currentCollection));
+        }
 
         // Packet detail view
-        document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.handlePacketDetailBack());
-        document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
-        document.getElementById('packetDetailTitle').addEventListener('click', () => this.renameCurrentPacket());
+        const packetDetailBackBtn = document.getElementById('packetDetailBackBtn');
+        if (packetDetailBackBtn) packetDetailBackBtn.addEventListener('click', () => this.handlePacketDetailBack());
+        
+        const packetDetailCloseBtn = document.getElementById('packetDetailCloseBtn');
+        if (packetDetailCloseBtn) packetDetailCloseBtn.addEventListener('click', () => this.closePacketGroup());
+        
+        const packetDetailTitle = document.getElementById('packetDetailTitle');
+        if (packetDetailTitle) packetDetailTitle.addEventListener('click', () => this.renameCurrentPacket());
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
                 if (this.mediaAddOptions) {
@@ -1365,7 +1389,8 @@ class SidebarUI {
         if (this.terminalOpenBtn) {
             this.terminalOpenBtn.addEventListener('click', () => this.openTerminal());
         }
-        document.getElementById('syncTabOrderBtn').addEventListener('click', () => this.syncTabOrder());
+        const syncTabOrderBtn = document.getElementById('syncTabOrderBtn');
+        if (syncTabOrderBtn) syncTabOrderBtn.addEventListener('click', () => this.syncTabOrder());
 
 
         // Constructor view (packets)
@@ -1988,6 +2013,7 @@ class SidebarUI {
         await this.checkEmptyPacketGarbageCollector();
         this.showView('listView');
         this.currentCollection = null;
+        this.activeUrl = null; // Clear active state when returning to list
         this.loadCollections();
     }
 
@@ -1995,6 +2021,13 @@ class SidebarUI {
         await this.checkEmptyPacketGarbageCollector();
         this.currentCollection = collectionName;
         this.detailTitle.textContent = collectionName;
+        
+        // Only the 'packets' database should have Add/Import buttons for now.
+        // We leave placeholder space by using visibility: hidden.
+        if (this.packetActions) {
+            this.packetActions.style.visibility = (collectionName === 'packets' ? 'visible' : 'hidden');
+        }
+
         this.showView('detailView');
         this.loadCollectionDetail(collectionName);
     }
@@ -2148,11 +2181,16 @@ class SidebarUI {
                 let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
                 const search = new URLSearchParams(parsed.search);
                 // Strip non-essential parameters for matching identity
-                search.delete('packetId');
+                // CRITICAL: stack.html MUST keep packetId for identity isolation
+                if (!path.endsWith('/stack.html')) {
+                    search.delete('packetId');
+                }
                 search.delete('name'); // Descriptive only
                 search.sort();
                 const searchString = search.toString();
-                return `extension:${path}${searchString ? '?' + searchString : ''}`;
+                const identity = `extension:${path}${searchString ? '?' + searchString : ''}`;
+                console.log('[Normalize] Extension URL:', url, 'Identity:', identity);
+                return identity;
             }
 
             // Standard web URLs
@@ -2273,6 +2311,7 @@ class SidebarUI {
         let wasmCount = 0;
         let stackCount = 0;
 
+        console.log('[Render] Rendering URLs:', urls, 'Active:', this.activeUrl);
         urls.forEach((item, index) => {
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
             if (type === 'page' || type === 'link') {
@@ -2422,7 +2461,9 @@ class SidebarUI {
                 this.addReorderEvents(card, index, 'wasm');
                 wasmList.appendChild(card);
             } else if (type === 'stack') {
-                const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${item.resourceId || item.id}&packetId=${this.currentPacket.id}`);
+                const sid = item.stackId || item.id;
+                const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}`);
+                console.log('[Render] Stack Card:', item.name, 'URL:', stackUrl, 'Match:', this.urlsMatch(this.activeUrl, stackUrl));
                 // Don't show the current stack in its own editor's sidebar
                 if (this.urlsMatch(this.activeUrl, stackUrl)) {
                     return;
@@ -2489,7 +2530,7 @@ class SidebarUI {
                 this.packetDataCount.textContent = '0';
             }
         } catch (err) {
-            console.error('Failed to load packet data:', err);
+            console.error('[SidebarUI] Failed to load packet data:', err);
             dataList.innerHTML = '<p class="hint">Error loading packet data.</p>';
             this.packetDataCount.textContent = '0';
         }
@@ -2667,7 +2708,7 @@ class SidebarUI {
         } else if (type === 'media') {
             this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'stack') {
-            const sid = item.stackId;
+            const sid = item.stackId || item.id;
             console.log('[Sidebar] Activating stack:', sid, item.name);
             this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'wasm') {
@@ -2749,7 +2790,7 @@ class SidebarUI {
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
                 return this.urlsMatch(mediaUrl, this.activeUrl);
             } else if (type === 'stack') {
-                const sid = item.stackId;
+                const sid = item.stackId || item.id;
                 if (sid) {
                     const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
                     return this.urlsMatch(stackUrl, this.activeUrl);
@@ -4848,6 +4889,269 @@ class SidebarUI {
         } catch (err) {
             console.error('[Wildcard] Audio clip saving failed:', err);
             this.showNotification('Audio clip saving failed: ' + err.message, 'error');
+        }
+    }
+
+    base64ToUint8Array(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    async handleImportPacket() {
+        try {
+            let fileData;
+            // 1. Pick file
+            if ('showOpenFilePicker' in window) {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [{
+                        description: 'Wildcard Packet',
+                        accept: { 'application/json': ['.json'] },
+                    }],
+                });
+                const file = await handle.getFile();
+                fileData = await file.text();
+            } else {
+                // Fallback for browsers without File System Access API
+                fileData = await new Promise((resolve, reject) => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.json';
+                    input.onchange = (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.onerror = reject;
+                            reader.readAsText(file);
+                        } else {
+                            reject(new Error('No file selected'));
+                        }
+                    };
+                    input.click();
+                });
+            }
+
+            const data = JSON.parse(fileData);
+            if (!data.stack || !data.items) {
+                throw new Error('Invalid packet format');
+            }
+
+            this.showNotification('Importing packet...', 'info');
+
+            // 2. Save blobs first (and regenerate IDs for isolation)
+            const idMap = {};
+            if (data.blobs) {
+                for (const [oldId, blobInfo] of Object.entries(data.blobs)) {
+                    // Handle version 2 (Base64) vs version 1 (Array)
+                    let blobData;
+                    if (typeof blobInfo.data === 'string') {
+                        blobData = Array.from(this.base64ToUint8Array(blobInfo.data));
+                    } else {
+                        blobData = blobInfo.data;
+                    }
+
+                    const blobResp = await this.sendMessage({
+                        action: 'saveMediaBlob',
+                        // Do NOT provide id - force regeneration for isolation
+                        data: blobData,
+                        type: blobInfo.type
+                    });
+
+                    if (blobResp.success) {
+                        idMap[oldId] = blobResp.id;
+                    } else {
+                        console.warn(`[Import] Failed to save blob ${oldId}:`, blobResp.error);
+                    }
+                }
+            }
+
+            // Helper to remap IDs in objects/arrays
+            const remapIds = (obj) => {
+                if (!obj || typeof obj !== 'object') return obj;
+                if (Array.isArray(obj)) return obj.map(remapIds);
+                
+                const newObj = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    // Support both camelCase and underscore versions of media/resource IDs
+                    const isIdKey = key === 'mediaId' || key === 'resourceId' || key === 'media_id' || key === 'resource_id';
+                    if (isIdKey && idMap[value]) {
+                        newObj[key] = idMap[value];
+                    } else if (typeof value === 'object') {
+                        newObj[key] = remapIds(value);
+                    } else {
+                        newObj[key] = value;
+                    }
+                }
+                return newObj;
+            };
+
+            // 3. Create initial packet (we'll update URLs after we have stack ID)
+            const packetName = data.packetName || data.stack.name || 'Imported Packet';
+            const initialSaveResp = await this.sendMessage({
+                action: 'savePacket',
+                name: packetName,
+                urls: []
+            });
+
+            if (!initialSaveResp.success) throw new Error(initialSaveResp.error || 'Failed to create packet');
+            const newPacketId = initialSaveResp.id;
+
+            // 4. Initialize packet database
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: newPacketId });
+            const dbName = `packet_${initialSaveResp.id}`;
+
+            // 5. Insert Stack (atomically get the ID)
+            const stack = remapIds(data.stack);
+            const escapedName = stack.name.replace(/'/g, "''");
+            const escapedMode = (stack.mode || 'manual').replace(/'/g, "''");
+            const escapedMediaId = stack.mediaId ? `'${stack.mediaId.replace(/'/g, "''")}'` : 'NULL';
+            const escapedMarkers = JSON.parse(JSON.stringify(stack.markers || [])).length > 0 ? `'${JSON.stringify(stack.markers).replace(/'/g, "''")}'` : "'[]'";
+
+            const insertStackSql = `INSERT INTO stacks (name, mode, media_id, markers) VALUES ('${escapedName}', '${escapedMode}', ${escapedMediaId}, ${escapedMarkers}); SELECT last_insert_rowid();`;
+            const stackResp = await this.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: insertStackSql
+            });
+            console.log('[Import] Stack Insert Resp:', stackResp);
+            if (!stackResp.success || !stackResp.result || stackResp.result.length === 0) {
+                throw new Error(stackResp.error || 'Failed to insert stack');
+            }
+            
+            // The result of SELECT last_insert_rowid() is in the last result object
+            const lastResult = stackResp.result[stackResp.result.length - 1];
+            const newStackId = lastResult.values[0][0];
+            console.log('[Import] New Stack ID assigned:', newStackId);
+            
+            if (!newStackId) throw new Error('Could not retrieve new stack ID');
+            console.log('[Import] New Stack ID:', newStackId, 'Mode:', stack.mode, 'MediaID:', stack.mediaId);
+
+            // 6. Insert stack items
+            for (const rawItem of data.items) {
+                const item = remapIds(rawItem);
+                const escapedItemName = (item.name || 'Slide').replace(/'/g, "''");
+                const escapedItemUrl = (item.url || '').replace(/'/g, "''");
+                const itemType = (item.type || 'page').replace(/'/g, "''");
+                // Ensure metadata is stringified
+                const metaObj = typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {});
+                const escapedItemMeta = JSON.stringify(remapIds(metaObj)).replace(/'/g, "''");
+                
+                const insertItemSql = `INSERT INTO stack_items (stack_id, type, name, url, metadata, position) 
+                                     VALUES (${newStackId}, '${itemType}', '${escapedItemName}', '${escapedItemUrl}', '${escapedItemMeta}', ${item.position || 0})`;
+                console.log('[Import] Inserting Item:', item.name || 'Slide', 'Type:', itemType, 'into stack:', newStackId);
+                const itemInsertResp = await this.sendMessage({
+                    action: 'executeSQL',
+                    name: dbName,
+                    sql: insertItemSql
+                });
+                if (!itemInsertResp.success) {
+                    console.error('[Import] Failed to insert item:', item.name, itemInsertResp.error);
+                }
+            }
+
+            await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
+
+            // 7. Reconstruct packet-level URLs (including references to media and the stack)
+            const packetUrls = [];
+            
+            // A. Add the stack itself
+            packetUrls.push({
+                type: 'stack',
+                name: stack.name,
+                stackId: newStackId
+            });
+
+            const seenMediaIds = new Set();
+            const seenResourceIds = new Set();
+
+            // B. Add the driver media if it exists and has metadata
+            if (stack.mediaId) {
+                // Find the old ID in the blobs object that corresponds to the new mediaId
+                const oldDriverId = Object.keys(idMap).find(k => idMap[k] === stack.mediaId) || stack.mediaId;
+                const blobInfo = data.blobs[oldDriverId];
+                console.log('[Import] Driver Media:', stack.mediaId, 'Old ID:', oldDriverId, 'Info:', blobInfo);
+                packetUrls.push({
+                    type: 'media',
+                    name: `Driver: ${stack.name}`,
+                    mediaId: stack.mediaId,
+                    mimeType: blobInfo?.type || 'video/webm',
+                    size: 0,
+                    metadata: { mediaId: stack.mediaId, mimeType: blobInfo?.type }
+                });
+                seenMediaIds.add(stack.mediaId);
+            }
+
+            // C. Add media/local items found in stack to packet (if they have necessary metadata)
+            for (const rawItem of data.items) {
+                const item = remapIds(rawItem);
+                const meta = typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {});
+                const mid = item.mediaId || meta.mediaId;
+                const rid = item.resourceId || meta.resourceId;
+
+                // Create a clean packet-level item
+                const packetItem = {
+                    type: item.type,
+                    name: item.name || meta.name || '',
+                    url: item.url || '',
+                    // Flatten metadata properties for sidebar renderer
+                    mediaId: mid,
+                    resourceId: rid,
+                    mimeType: item.mimeType || meta.mimeType,
+                    size: item.size || meta.size,
+                    metadata: meta
+                };
+
+                if (mid && !seenMediaIds.has(mid)) {
+                    packetUrls.push(packetItem);
+                    seenMediaIds.add(mid);
+                } else if (rid && item.type === 'local' && !seenResourceIds.has(rid)) {
+                    packetUrls.push(packetItem);
+                    seenResourceIds.add(rid);
+                } else if (item.type === 'wasm') {
+                     packetUrls.push(packetItem);
+                }
+            }
+
+            console.log('[Import] Final Packet URLs:', packetUrls);
+
+            // 8. Update packet with full URL list
+            await this.sendMessage({
+                action: 'savePacket',
+                id: newPacketId,
+                name: packetName,
+                urls: packetUrls
+            });
+
+            // 9. Explicitly checkpoint the per-packet database to ensure persistence
+            await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
+            console.log('[Import] Checkpointed database:', dbName);
+
+            // 9. Verify count
+            const countResp = await this.sendMessage({
+                action: 'executeSQL',
+                name: dbName,
+                sql: `SELECT COUNT(*) FROM stack_items WHERE stack_id = ${newStackId}`
+            });
+            console.log('[Import] Verification Row Count:', countResp.result?.[0]?.values?.[0]?.[0]);
+
+            // 10. Update UI
+            this.showNotification('Packet imported successfully!', 'success');
+            await this.loadPackets(); 
+            
+            // Auto-open the imported packet's detail view
+            const finalPacket = { id: newPacketId, name: packetName, urls: packetUrls };
+            this.showPacketDetailView(finalPacket);
+
+        } catch (err) {
+            console.error('[Import] Failed:', err);
+            if (err.name !== 'AbortError') {
+                this.showNotification('Import failed: ' + err.message, 'error');
+            }
         }
     }
 

@@ -11,6 +11,7 @@
     const flowSvg = document.getElementById('flow-svg');
     const dropZone = document.getElementById('drop-zone');
     const playBtn = document.getElementById('play-btn');
+    const shareBtn = document.getElementById('share-btn');
 
     function showNotification(message, type = 'info') {
         const notification = document.createElement('div');
@@ -181,10 +182,12 @@
                 sql: `SELECT * FROM stack_items WHERE stack_id = ${stackId} ORDER BY position ASC`
             });
 
+            console.log('[Stack] Items Query Resp:', itemsResp);
             if (itemsResp.success) {
                 const result = itemsResp.result[0];
                 if (result) {
                     const cols = result.columns;
+                    console.log('[Stack] Items Count:', result.values.length);
                     items = result.values.map(v => {
                         const item = {};
                         cols.forEach((c, i) => item[c] = v[i]);
@@ -196,8 +199,13 @@
                         return item;
                     });
                 } else {
+                    console.log('[Stack] Result empty, set items to []');
                     items = [];
                 }
+            } else {
+                console.error('[Stack] Items query failed:', itemsResp.error);
+                items = [];
+            }
 
                 // Identify bound media from the packet's resources (not stack items, but packet media)
                 await loadBoundMediaInfo();
@@ -209,7 +217,6 @@
                 if (tabResp.success && tabResp.tab) {
                     updateActiveHighlight(tabResp.tab.url);
                 }
-            }
         } catch (err) {
             console.error('Failed to load stack:', err);
         } finally {
@@ -1386,6 +1393,120 @@
     window.addEventListener('resize', drawConnectors);
 
     playBtn.addEventListener('click', () => startPlayback(0));
+
+    if (shareBtn) {
+        shareBtn.addEventListener('click', handleShare);
+    }
+
+    function uint8ArrayToBase64(Uint8Arr) {
+        let binary = '';
+        const len = Uint8Arr.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(Uint8Arr[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    async function handleShare() {
+        try {
+            // 1. Collect all referenced IDs
+            const mediaIds = new Set();
+            const resourceIds = new Set();
+
+            if (stackMediaId) mediaIds.add(String(stackMediaId));
+
+            items.forEach(item => {
+                const meta = item.metadata || {};
+                const rid = item.resourceId || meta.resourceId;
+                const mid = item.mediaId || meta.mediaId;
+                if (rid) resourceIds.add(String(rid));
+                if (mid) mediaIds.add(String(mid));
+            });
+
+            // 2. Fetch blobs
+            const blobs = {};
+            const allIds = new Set([...mediaIds, ...resourceIds]);
+            
+            if (allIds.size > 0) {
+                showNotification(`Preparing ${allIds.size} resources...`);
+            }
+
+            for (const id of allIds) {
+                const resp = await chrome.runtime.sendMessage({ action: 'getMediaBlob', id });
+                if (resp.success) {
+                    const data = resp.data instanceof Uint8Array ? resp.data :
+                                 (resp.data && typeof resp.data === 'object' ? new Uint8Array(Object.values(resp.data)) : resp.data);
+                    blobs[id] = { 
+                        data: uint8ArrayToBase64(new Uint8Array(data)), 
+                        type: resp.type 
+                    };
+                } else {
+                    console.warn(`[Share] Failed to fetch blob ${id}:`, resp.error);
+                }
+            }
+
+            // 3. Package data
+            const exportData = {
+                version: 2,
+                packetId: packetId,
+                packetName: name,
+                stack: {
+                    name: stackTitle.textContent,
+                    mode: stackMode,
+                    mediaId: stackMediaId,
+                    markers: stackMarkers
+                },
+                items: items.map(item => {
+                    const exportItem = { ...item };
+                    // Remove internal database IDs to prevent confusion on import
+                    delete exportItem.id;
+                    delete exportItem.stack_id;
+                    // Ensure metadata is an object if it's a string
+                    if (typeof exportItem.metadata === 'string') {
+                        try { exportItem.metadata = JSON.parse(exportItem.metadata); } catch(e){}
+                    }
+                    return exportItem;
+                }),
+                blobs
+            };
+
+            // 4. Sanitize filename
+            const sanitizedName = name.replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '');
+            const filename = `${sanitizedName}_stack.json`;
+
+            // 5. Save file
+            if ('showSaveFilePicker' in window) {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [{
+                        description: 'JSON Files',
+                        accept: { 'application/json': ['.json'] },
+                    }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(JSON.stringify(exportData, null, 2));
+                await writable.close();
+                showNotification('Stack shared successfully!', 'success');
+            } else {
+                // Fallback for browsers without File System Access API
+                const json = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                showNotification('Stack downloaded!', 'success');
+            }
+
+        } catch (err) {
+            console.error('[Share] Failed:', err);
+            if (err.name !== 'AbortError') {
+                showNotification('Share failed: ' + err.message, 'error');
+            }
+        }
+    }
 
     chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
         if (tabId === contentTabId && changeInfo.status === 'complete') {

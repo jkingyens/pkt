@@ -36,12 +36,12 @@
       </div>
     </header>
 
-    <div class="actions">
-      <button id="createBtn" class="btn btn-primary">
-        <span>➕</span> Create Database
+    <div class="actions" style="display: flex; gap: 8px;">
+      <button id="createBtn" class="btn btn-primary" style="flex: 1;">
+        <span>➕</span> Create DB
       </button>
-      <button id="importBtn" class="btn btn-secondary">
-        <span>📥</span> Import Database
+      <button id="importBtn" class="btn btn-secondary" style="flex: 1;">
+        <span>📥</span> Import DB
       </button>
     </div>
 
@@ -164,15 +164,27 @@
 
   <!-- ===== DETAIL VIEW ===== -->
   <div id="detailView" class="view">
-    <header class="detail-header">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <button id="backBtn" class="back-btn">← Databases</button>
-          <h2 id="detailTitle" class="detail-title"></h2>
+    <header>
+      <div class="header-main">
+        <div class="brand">
+          <button id="backBtn" class="back-btn" title="Back to Databases">←</button>
+          <h1 id="detailTitle"></h1>
         </div>
-        <button id="addPacketFloatingBtn" class="floating-action-btn hidden" title="Add Packet">＋</button>
+        <div class="header-actions">
+          <button id="detailExportBtn" class="btn-icon" title="Export Database" style="font-size: 14px;">📤</button>
+          <button id="detailDeleteBtn" class="btn-icon danger" title="Delete Database" style="font-size: 14px;">🗑️</button>
+        </div>
       </div>
     </header>
+
+    <div id="packetActions" class="actions" style="display: flex; gap: 8px; margin-bottom: 20px;">
+      <button id="addPacketBtn" class="btn btn-primary" style="flex: 1;">
+        <span>➕</span> Add Packet
+      </button>
+      <button id="importPacketBtn" class="btn btn-secondary" style="flex: 1;">
+        <span>📦</span> Import Packet
+      </button>
+    </div>
 
     <!-- Schema Section -->
     <section id="schemaSection" class="detail-section">
@@ -196,11 +208,6 @@
       </div>
     </section>
 
-    <!-- Collection Actions -->
-    <section class="detail-section detail-actions">
-      <button id="detailExportBtn" class="btn btn-secondary btn-sm">📤 Export</button>
-      <button id="detailDeleteBtn" class="btn btn-danger btn-sm">🗑️ Delete</button>
-    </section>
   </div>
 
   <!-- ===== PACKET DETAIL VIEW (active tab group) ===== -->

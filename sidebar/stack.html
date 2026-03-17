@@ -343,6 +343,33 @@
             transform: translateY(0) scale(0.98);
         }
 
+        .share-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 999px;
+            padding: 10px 24px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+            margin-right: 0;
+        }
+
+        .share-btn:hover {
+            transform: translateY(-2px) scale(1.05);
+            background: var(--primary-light);
+            box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4);
+        }
+
+        .share-btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+
         .restart-btn {
             background: var(--bg-alt);
             color: var(--text-secondary);
@@ -732,11 +759,16 @@
             <div class="header-top">
                 <h1 id="stack-title">Loading...</h1>
                 <div class="status-area">
-                    <button id="play-btn" class="play-btn" title="Play Stack">
-                        <span class="play-icon">
-                            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
-                        </span> Play
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="share-btn" class="share-btn" title="Share Stack">
+                            <span style="font-size: 18px; margin-right: 2px;">📤</span> Share
+                        </button>
+                        <button id="play-btn" class="play-btn" title="Play Stack">
+                            <span class="play-icon">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
+                            </span> Play
+                        </button>
+                    </div>
                 </div>
             </div>
             

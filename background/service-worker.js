@@ -1084,7 +1084,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
 
-                    if (request.id) {
+                    if (request.id !== undefined && request.id !== null) {
                         const id = parseInt(request.id, 10);
                         db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
                         await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
