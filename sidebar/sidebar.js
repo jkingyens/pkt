@@ -5125,10 +5125,10 @@ class SidebarUI {
                         type: blobInfo.type
                     });
 
-                    if (blobResp.success) {
+                    if (blobResp && blobResp.success) {
                         idMap[oldId] = blobResp.id;
                     } else {
-                        console.warn(`[Import] Failed to save blob ${oldId}:`, blobResp.error);
+                        console.warn(`[Import] Failed to save blob ${oldId}:`, blobResp ? blobResp.error : 'Timeout or background worker unavailable');
                     }
                 }
             }

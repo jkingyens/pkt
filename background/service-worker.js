@@ -1319,7 +1319,8 @@ async function handleMessage(request, sender, sendResponse) {
                         // Handle binary (Uint8Array or serialized Object)
                         const data = request.data instanceof Uint8Array ? request.data : 
                                      (request.data?.buffer instanceof ArrayBuffer ? new Uint8Array(request.data.buffer) :
-                                     (request.data && typeof request.data === 'object' ? new Uint8Array(Object.values(request.data)) : request.data));
+                                     (Array.isArray(request.data) ? new Uint8Array(request.data) :
+                                     (request.data && typeof request.data === 'object' ? new Uint8Array(Object.values(request.data)) : request.data)));
                         blob = new Blob([data], { type: request.type });
                     }
                     
