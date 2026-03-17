@@ -472,7 +472,8 @@ class SidebarUI {
         });
         
         // Polling fallback every 5s (sometimes extension side panels miss window events)
-        setInterval(() => this.updateOnlineStatus(), 5000);
+        // Initial polling for connectivity
+        this.startConnectivityPolling(5000);
 
         // Consolidated initialization flow
         this.init();
@@ -1050,8 +1051,13 @@ class SidebarUI {
         if (!name) return;
 
         try {
-            const dbName = `packet_${this.currentPacket.id}`;
-            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
+            const packetId = this.currentPacket?.id;
+            if (!packetId) {
+                console.warn('[Stack] Cannot create stack: currentPacket.id is undefined');
+                return;
+            }
+            const dbName = `packet_${packetId}`;
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packetId });
             
             const sql = `INSERT INTO stacks (name) VALUES ('${name.replace(/'/g, "''")}'); SELECT last_insert_rowid();`;
             const insertResp = await this.sendMessage({
@@ -1865,6 +1871,11 @@ class SidebarUI {
         }
     }
 
+    startConnectivityPolling(interval) {
+        if (this.connectivityInterval) clearInterval(this.connectivityInterval);
+        this.connectivityInterval = setInterval(() => this.updateOnlineStatus(), interval);
+    }
+
     async updateOnlineStatus() {
         if (!this.statusIndicator) return;
 
@@ -1896,11 +1907,18 @@ class SidebarUI {
                 if (this.lastStateWasOnline === false) {
                     console.log('[Status] Back Online');
                     this.enforceOfflineState(false);
+                    // Slow down polling when online
+                    this.startConnectivityPolling(30000);
                 }
             }
         } else {
             this.consecutiveFailures++;
-            console.warn(`[Status] Connectivity probe failed (${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES})`);
+            console.log(`[Status] Connectivity probe failed (${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES})`);
+            
+            // Speed up polling if we are having trouble
+            if (this.consecutiveFailures === 1) {
+                this.startConnectivityPolling(10000);
+            }
             
             if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
                 this.handleOfflineTransition();
@@ -2036,25 +2054,7 @@ class SidebarUI {
     }
 
     async checkActualConnectivity() {
-        // Step 1: Check network interfaces
-        try {
-            if (chrome.system && chrome.system.network) {
-                const interfaces = await new Promise(resolve => chrome.system.network.getNetworkInterfaces(resolve));
-                const activeInterfaces = interfaces.filter(i => 
-                    !i.address.startsWith('127.') && 
-                    !i.address.startsWith('::1') && 
-                    !i.address.startsWith('fe80:') // Ignore loopback and link-local
-                );
-                if (activeInterfaces.length === 0) {
-                    console.log('[Status] No active network interfaces found.');
-                    return false;
-                }
-            }
-        } catch (e) {
-            console.warn('[Status] chrome.system.network failed:', e);
-        }
-
-        // Step 2: Probe for truth across multiple endpoints to avoid single-point failure sensitivity
+        // Step 1: Probe for truth across multiple endpoints to avoid single-point failure sensitivity
         const endpoints = [
             `https://clients3.google.com/generate_204?cb=${Math.random()}`,
             `https://1.1.1.1/generate_204?cb=${Math.random()}`
@@ -2075,7 +2075,8 @@ class SidebarUI {
                 clearTimeout(timeoutId);
                 return true; // Any single success is enough to consider us "Online"
             } catch (e) {
-                console.log(`[Status] Probe to ${new URL(probeUrl).hostname} failed: ${e.message}`);
+                // Keep probe failures quiet unless we are debugging
+                // console.log(`[Status] Probe to ${new URL(probeUrl).hostname} failed: ${e.message}`);
             }
         }
 
@@ -2583,8 +2584,15 @@ class SidebarUI {
 
         // Load and render per-packet data
         try {
-            const packetDbName = `packet_${this.currentPacket.id}`;
-            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: this.currentPacket.id });
+            const packetId = this.currentPacket?.id;
+            if (!packetId) {
+                dataList.innerHTML = '<p class="hint">No packet ID found.</p>';
+                this.packetDataCount.textContent = '0';
+                return;
+            }
+
+            const packetDbName = `packet_${packetId}`;
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packetId });
             const schemaResp = await this.sendMessage({ action: 'getSchema', name: packetDbName });
             if (!schemaResp) return;
 

@@ -866,6 +866,13 @@ async function handleMessage(request, sender, sendResponse) {
             throw new Error('SQLiteManager failed to initialize');
         }
 
+        // Validate database name if provided in request to avoid 'packet_undefined' errors
+        if (request.name && (request.name === 'undefined' || request.name === 'packet_undefined')) {
+            console.warn(`[SW] Invalid database name: ${request.name} for action: ${action}`);
+            sendResponse({ success: false, error: 'Invalid database name: ' + request.name });
+            return;
+        }
+
         switch (action) {
             case 'startMicRecording': {
                 try {
@@ -1018,8 +1025,8 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'getSchema': {
-                if (!request.name || request.name === 'undefined') {
-                    sendResponse({ success: false, error: 'Invalid database name' });
+                if (!request.name) {
+                    sendResponse({ success: false, error: 'Missing database name' });
                     break;
                 }
                 const schema = await manager.getSchema(request.name);
