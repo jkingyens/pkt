@@ -12,7 +12,7 @@ let data = [];
 
 const sqliteManager = new SQLiteManager();
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'START_RECORDING') {
         startRecording(message.streamId, message.isVideo, message.region);
     } else if (message.type === 'START_MIC_RECORDING') {
@@ -20,47 +20,47 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     } else if (message.type === 'STOP_RECORDING') {
         stopRecording();
     } else if (message.type === 'SQLITE_PROXY_REQUEST') {
-        try {
-            const { action, payload, id } = message;
-            
-            if (action === 'ping') {
-                chrome.runtime.sendMessage({
-                    type: 'SQLITE_PROXY_RESPONSE',
-                    id,
-                    success: true,
-                    result: 'pong'
-                });
-                return;
-            }
-
-            // Restore binary data if present (proxied from SW)
-            if (payload && payload.data && Array.isArray(payload.data)) {
-                payload.data = new Uint8Array(payload.data);
-            }
-
-            let result = await sqliteManager._sendRequest(action, payload);
-            
-            // Serialize binary result for transport back to SW
-            if (result instanceof Uint8Array) {
-                result = Array.from(result);
-            }
-
-            chrome.runtime.sendMessage({
-                type: 'SQLITE_PROXY_RESPONSE',
-                id,
-                action,
-                success: true,
-                result
-            });
-        } catch (e) {
-            chrome.runtime.sendMessage({
-                type: 'SQLITE_PROXY_RESPONSE',
-                id: message.id,
-                action: message.action,
-                success: false,
-                error: e.message
-            });
+        const { action, payload, id } = message;
+        
+        if (action === 'ping') {
+            sendResponse({ success: true, result: 'pong' });
+            return;
         }
+
+        (async () => {
+            try {
+                // Restore binary data if present (proxied from SW)
+                if (payload && payload.data && Array.isArray(payload.data)) {
+                    payload.data = new Uint8Array(payload.data);
+                }
+
+                log(`[Proxy] Executing ${action} ID: ${id}`);
+                let result = await sqliteManager._sendRequest(action, payload);
+                log(`[Proxy] ${action} success ID: ${id}`);
+                
+                // Serialize binary result for transport back to SW
+                if (result instanceof Uint8Array) {
+                    result = Array.from(result);
+                }
+
+                sendResponse({
+                    id,
+                    action,
+                    success: true,
+                    result
+                });
+            } catch (e) {
+                const errorMsg = e instanceof Error ? e.message : String(e);
+                log(`[Proxy] ${action} FAILED ID: ${id} Error: ${errorMsg}`);
+                sendResponse({
+                    id,
+                    action,
+                    success: false,
+                    error: errorMsg || `Offscreen proxy failed for ${action}`
+                });
+            }
+        })();
+        return true; // Keep channel open for async sendResponse
     }
 });
 

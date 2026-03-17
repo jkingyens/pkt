@@ -780,14 +780,14 @@ async function initializeSQLite() {
                 await chrome.storage.local.set({ opfsMigrationDone: true });
             } else {
                 console.log('[SQLiteInit] OPFS migration already done.');
-            }
+        }
 
-            console.log('[SQLiteInit] Ensuring system collections...');
-            await sqliteManager.ensurePacketsCollection();
-            await sqliteManager.ensureSchemasCollection();
-            await sqliteManager.ensureWitsCollection();
-            await sqliteManager.ensureEventsCollection();
-            console.log('[SQLiteInit] System collections ensured.');
+        console.log('[SQLiteInit] Ensuring system collections...');
+        await sqliteManager.ensurePacketsCollection();
+        await sqliteManager.ensureSchemasCollection();
+        await sqliteManager.ensureWitsCollection();
+        await sqliteManager.ensureEventsCollection();
+        console.log('[SQLiteInit] System collections ensured.');
 
             // Load tab mappings into memory cache
             const { tabToUrlMap = {}, playbackTabIds = [] } = await chrome.storage.local.get(['tabToUrlMap', 'playbackTabIds']);
@@ -857,20 +857,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleMessage(request, sender, sendResponse) {
     const action = request.action || request.type;
     
-    // BREAK DEADLOCK: Handle proxy messages immediately before awaiting initialization.
-    // Initialization (via initializeSQLite) may be waiting for these to succeed!
-    if (request.type === 'SQLITE_PROXY_RESPONSE') {
-        if (sqliteManager) sqliteManager.handleProxyResponse(request);
-        sendResponse({ success: true });
-        return;
-    }
-    if (request.type === 'SQLITE_PROXY_REQUEST') {
-        // Internal pings, etc. skip initializeSQLite to avoid recursion
-        console.log('[SW-DeadlockBreak] Skipping initializeSQLite for request:', request.action);
-        sendResponse({ success: false, error: 'Database not initialized' }); // Caller should retry
-        return;
-    }
-
     console.log('[SW] Message received:', action, request);
     try {
         const manager = await initializeSQLite();

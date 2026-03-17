@@ -107,23 +107,7 @@ class SQLiteManager {
 
         // 2. Database discovery (must happen after connection but before init resolves)
         try {
-            // We use a direct message here or ensure _sendRequest handles the partial state
-            const id = this.requestId++;
-            const discoveryPromise = new Promise((resolve, reject) => {
-                this.pendingRequests.set(id, { resolve, reject });
-                if (this.worker) {
-                    this.worker.postMessage({ id, action: 'list', payload: {} });
-                } else {
-                    chrome.runtime.sendMessage({
-                        type: 'SQLITE_PROXY_REQUEST',
-                        id,
-                        action: 'list',
-                        payload: {}
-                    });
-                }
-            });
-
-            const existingNames = await discoveryPromise;
+            const existingNames = await this._sendRequest('list', {});
             if (Array.isArray(existingNames)) {
                 existingNames.forEach(name => this.databases.add(name));
                 console.log('[SQLiteManager] Discovered existing databases:', existingNames);
@@ -137,29 +121,51 @@ class SQLiteManager {
   }
 
   async _sendRequest(action, payload) {
-    await this.init();
+    // Avoid recursion during init()
+    if (action !== 'list' && action !== 'ping') {
+        await this.init();
+    }
+    
     const id = this.requestId++;
-    return new Promise((resolve, reject) => {
-        if (this.worker) {
+    if (this.worker) {
+        return new Promise((resolve, reject) => {
             this.pendingRequests.set(id, { resolve, reject });
             this.worker.postMessage({ id, action, payload });
-        } else {
-            // PROXY MODE - Normalize binary data if present in payload
-            const serializedPayload = { ...payload };
-            if (serializedPayload.data instanceof Uint8Array) {
-              serializedPayload.data = Array.from(serializedPayload.data);
-            }
-
-            this.pendingRequests.set(id, { resolve, reject });
-            chrome.runtime.sendMessage({
-                type: 'SQLITE_PROXY_REQUEST',
-                id,
-                action,
-                payload: serializedPayload
-            });
-            // Result will come back via chrome.runtime.onMessage in service-worker/manager
+        });
+    } else {
+        // PROXY MODE - Normalize binary data if present in payload
+        const serializedPayload = { ...payload };
+        if (serializedPayload.data instanceof Uint8Array) {
+          serializedPayload.data = Array.from(serializedPayload.data);
         }
-    });
+
+        const response = await chrome.runtime.sendMessage({
+            type: 'SQLITE_PROXY_REQUEST',
+            id,
+            action,
+            payload: serializedPayload
+        });
+
+        console.log(`[SW-Proxy] Response for ${action} ID: ${id}`, response);
+
+        if (!response) {
+            console.error(`[SW-Proxy] NO RESPONSE for ${action} ID: ${id}`);
+            throw new Error(`No response from SQLite Proxy for action: ${action}`);
+        }
+
+        if (!response.success) {
+            console.error(`[SW-Proxy] FAILED for ${action} ID: ${id} Error: ${response.error}`);
+            throw new Error(response.error || `Proxy request failed for action: ${action}`);
+        }
+
+        // Restore binary data if result is an array and we expect binary (e.g. for 'export')
+        let finalResult = response.result;
+        if (Array.isArray(finalResult) && (action === 'export' || id === 'export' || action === 'exportToBlob')) {
+            finalResult = new Uint8Array(finalResult);
+        }
+
+        return finalResult;
+    }
   }
 
   /**

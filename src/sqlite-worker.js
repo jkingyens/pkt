@@ -44,7 +44,13 @@ self.onmessage = async (event) => {
         switch (action) {
             case 'open': {
                 const { name } = payload;
-                if (dbs[name]) dbs[name].close();
+                if (dbs[name]) {
+                    try {
+                        if (typeof dbs[name].close === 'function') dbs[name].close();
+                    } catch (e) {
+                        console.warn(`[SQLiteWorker] Error closing database ${name}:`, e);
+                    }
+                }
                 
                 if (sqlite3.opfs) {
                     dbs[name] = new sqlite3.oo1.OpfsDb(`/wildcard_${name}.sqlite3`);
@@ -212,7 +218,8 @@ self.onmessage = async (event) => {
         }
     } catch (err) {
         console.error(`[SQLiteWorker] Action ${action} failed:`, err);
-        self.postMessage({ id, success: false, error: err.message });
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        self.postMessage({ id, success: false, error: errorMsg || `Unknown worker error for ${action}` });
     }
 };
 
