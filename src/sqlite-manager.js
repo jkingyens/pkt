@@ -444,23 +444,34 @@ interface sqlite {
     const db = this.getDatabase(SERVICES_COLLECTION);
     await db.exec(SERVICES_SCHEMA);
 
-    // Populate with default services if empty
+    // Populate with default services (robustly check for duplicates)
     try {
-      const count = await db.query("SELECT count(*) as count FROM services_fts");
-      if (count[0].count === 0) {
-        const defaults = [
-          ['Gemini AI', '✨', 'Google DeepMind multimodal AI model', 'gemini'],
-          ['OpenAI (GPT-4)', '🤖', 'The original GPT-4 model from OpenAI', 'openai'],
-          ['Anthropic (Claude)', '🧠', 'Claude 3 model by Anthropic', 'anthropic'],
-          ['Mistral AI', '🌪️', 'Open-weight models from Mistral', 'mistral'],
-          ['Cohere', '🌊', 'Enterprise NLP and Rerank models', 'cohere'],
-          ['Local Llama', '🦙', 'Search and connect to local Ollama or LM Studio instances', 'local']
-        ];
-        for (const [name, icon, desc, cid] of defaults) {
+      const defaults = [
+        ['Gemini AI', '✨', 'Google DeepMind multimodal AI model', 'gemini'],
+        ['OpenAI (GPT-4)', '🤖', 'The original GPT-4 model from OpenAI', 'openai'],
+        ['Anthropic (Claude)', '🧠', 'Claude 3 model by Anthropic', 'anthropic'],
+        ['Mistral AI', '🌪️', 'Open-weight models from Mistral', 'mistral'],
+        ['Cohere', '🌊', 'Enterprise NLP and Rerank models', 'cohere'],
+        ['Local Llama', '🦙', 'Search and connect to local Ollama or LM Studio instances', 'local'],
+        ['Chrome: Tabs & Windows', '🪟', 'Manage browser tabs, windows, and tab groups', 'chrome:tabs'],
+        ['Chrome: Side Panel & UI', '⌨️', 'Control side panel, context menus, and notifications', 'chrome:ui'],
+        ['Chrome: Data & Storage', '💾', 'Access bookmarks, history, downloads, and storage', 'chrome:data'],
+        ['Chrome: Scripting', '📜', 'Inject scripts and manage network request rules', 'chrome:scripting'],
+        ['Chrome: Identity', '👤', 'Manage OAuth2 tokens and extension permissions', 'chrome:identity'],
+        ['Chrome: System', '⚙️', 'Handle alarms, runtime lifecycle, and idle state', 'chrome:system'],
+        ['Chrome: Media', '🎤', 'Record audio/video and use text-to-speech', 'chrome:media'],
+        ['Chrome: DevTools', '🛠️', 'Extend Chrome Developer Tools and debugger', 'chrome:devtools']
+      ];
+
+      for (const [name, icon, desc, cid] of defaults) {
+        // Since FTS5 tables don't support UNIQUE constraints directly on virtual columns,
+        // we check for existence manually to avoid duplicate defaults on re-init.
+        const check = await db.query("SELECT count(*) as count FROM services_fts WHERE config_id = ?", [cid]);
+        if (check[0].count === 0) {
           await db.exec("INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)", [name, icon, desc, cid]);
         }
-        console.log('[SQLiteManager] Initialized services_fts with defaults');
       }
+      console.log('[SQLiteManager] Initialized services_fts with robust defaults');
     } catch (e) {
       console.error('[SQLiteManager] Error ensuring services collection:', e);
     }
