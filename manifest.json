@@ -16,7 +16,8 @@
         "scripting",
         "declarativeNetRequest",
         "downloads.open",
-        "downloads"
+        "downloads",
+        "privacy"
     ],
     "host_permissions": [
         "<all_urls>"

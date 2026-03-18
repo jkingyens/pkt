@@ -4247,6 +4247,8 @@ class SidebarUI {
         // Hide all settings groups first
         this.geminiSettings.classList.add('hidden');
         this.chromePermissionSettings.classList.add('hidden');
+        const sourceSchemaContainer = document.getElementById('apiSourceSchemaContainer');
+        if (sourceSchemaContainer) sourceSchemaContainer.classList.add('hidden');
 
         if (apiId === 'gemini') {
             this.apiDetailTitle.textContent = 'Gemini AI';
@@ -4319,6 +4321,36 @@ class SidebarUI {
                         }
                     }
                     
+                    // Source schema link logic — look up schema_path from local apis.json
+                    if (sourceSchemaContainer) {
+                        try {
+                            const localUrl = chrome.runtime.getURL('apis.json');
+                            const resp = await fetch(localUrl);
+                            if (resp.ok) {
+                                const allApis = await resp.json();
+                                const match = allApis.find(a => a.config_id === apiId);
+                                if (match && match.schema_path && this.chromiumSourceBaseUrl) {
+                                    const schemaUrl = `${this.chromiumSourceBaseUrl}/${match.schema_path}`;
+                                    sourceSchemaContainer.classList.remove('hidden');
+                                    const schemaLink = document.getElementById('apiSourceSchemaLink');
+                                    if (schemaLink) {
+                                        schemaLink.href = schemaUrl;
+                                        // Determine file type for the label
+                                        const ext = match.schema_path.split('.').pop();
+                                        const typeLabel = ext.toUpperCase();
+                                        schemaLink.innerHTML = `<span>🔬</span> View Source Schema (${typeLabel})`;
+                                        schemaLink.onclick = (e) => {
+                                            e.preventDefault();
+                                            window.open(schemaUrl, '_blank');
+                                        };
+                                    }
+                                }
+                            }
+                        } catch (schemaErr) {
+                            console.warn('[Sidebar] Failed to look up schema_path:', schemaErr);
+                        }
+                    }
+
                     if (api.manifest_permission) {
                         this.chromePermissionSettings.classList.remove('hidden');
                         this.permissionStatusTitle.textContent = `${api.name.replace('Chrome AI: ', '').replace('Chrome: ', '')} Permission`;
