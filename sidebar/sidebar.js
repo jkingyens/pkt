@@ -500,7 +500,8 @@ class SidebarUI {
         this.clearApisBtn.onclick = () => this.handleClearApis();
         this.syncApisBtn.onclick = () => this.handleSyncApis();
 
-        this.renderApiList();
+        this.currentPlatform = null; // Will be set by detectPlatform()
+        this.detectPlatform().then(() => this.renderApiList());
     }
 
     async init() {
@@ -4398,9 +4399,10 @@ class SidebarUI {
             });
             const rows = this._normalizeRows(info.result);
             const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
+            const hasPlatformCol = rows && rows.some(r => r.name === 'supported_platforms');
             
-            if (!hasDocCol) {
-                console.log('[Sidebar] services_fts is missing documentation_url, triggering auto-sync...');
+            if (!hasDocCol || !hasPlatformCol) {
+                console.log('[Sidebar] services_fts schema outdated, triggering auto-sync...');
                 await this.handleSyncApis(true); // Force local sync
             }
         } catch (e) {
@@ -4515,7 +4517,8 @@ class SidebarUI {
                             description,
                             config_id UNINDEXED,
                             manifest_permission UNINDEXED,
-                            documentation_url UNINDEXED
+                            documentation_url UNINDEXED,
+                            supported_platforms UNINDEXED
                           )` 
                 }
             });
@@ -4523,12 +4526,13 @@ class SidebarUI {
             // Insert new ones into cache
             for (const api of apis) {
                 try {
+                    const platforms = api.supported_platforms ? JSON.stringify(api.supported_platforms) : null;
                     await this.sendMessage({
                         action: 'exec',
                         payload: {
                             name: 'services',
-                            sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url) VALUES (?, ?, ?, ?, ?, ?)',
-                            bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null]
+                            sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url, supported_platforms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                            bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null, platforms]
                         }
                     });
                 } catch (err) {
@@ -4630,18 +4634,20 @@ class SidebarUI {
                                     description,
                                     config_id UNINDEXED,
                                     manifest_permission UNINDEXED,
-                                    documentation_url UNINDEXED
+                                    documentation_url UNINDEXED,
+                                    supported_platforms UNINDEXED
                                   )` 
                         }
                     });
                     for (const api of apis) {
                         try {
+                            const platforms = api.supported_platforms ? JSON.stringify(api.supported_platforms) : null;
                             await this.sendMessage({
                                 action: 'exec',
                                 payload: {
                                     name: 'services',
-                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url) VALUES (?, ?, ?, ?, ?, ?)',
-                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null]
+                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url, supported_platforms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null, platforms]
                                 }
                             });
                         } catch (err) {
@@ -4832,6 +4838,65 @@ class SidebarUI {
         return result;
     }
 
+    async detectPlatform() {
+        try {
+            const info = await chrome.runtime.getPlatformInfo();
+            // chrome.runtime.getPlatformInfo returns os: 'mac', 'win', 'linux', 'android', 'cros'
+            const isChromeOS = info.os === 'cros';
+            this.currentPlatform = isChromeOS ? 'chromeos' : 'chromebrowser';
+            this.currentPlatformOs = info.os;
+            this.updatePlatformUI();
+        } catch (e) {
+            console.warn('[Sidebar] Could not detect platform:', e);
+            this.currentPlatform = 'chromebrowser';
+            this.currentPlatformOs = 'unknown';
+            this.updatePlatformUI();
+        }
+    }
+
+    updatePlatformUI() {
+        const nameEl = document.getElementById('platformInfoName');
+        const badgeEl = document.getElementById('platformInfoBadge');
+        const segmentEl = document.getElementById('platformInfoSegment');
+        if (!nameEl || !badgeEl) return;
+
+        const isChromeOS = this.currentPlatform === 'chromeos';
+        const osLabels = { cros: 'ChromeOS', mac: 'macOS', win: 'Windows', linux: 'Linux', android: 'Android', unknown: 'Unknown' };
+        const osName = osLabels[this.currentPlatformOs] || this.currentPlatformOs;
+
+        if (isChromeOS) {
+            nameEl.textContent = 'ChromeOS';
+            badgeEl.textContent = 'All APIs';
+            badgeEl.className = 'platform-badge platform-badge-chromeos';
+            if (segmentEl) segmentEl.querySelector('.platform-info-icon').textContent = '🟢';
+        } else {
+            nameEl.textContent = `Chrome Browser · ${osName}`;
+            badgeEl.textContent = 'Filtered';
+            badgeEl.className = 'platform-badge platform-badge-browser';
+            if (segmentEl) segmentEl.querySelector('.platform-info-icon').textContent = '💻';
+        }
+    }
+
+    _isApiSupportedOnPlatform(api) {
+        // Non-Chrome APIs (Gemini, OpenAI, etc.) are always shown
+        if (!api.config_id || !api.config_id.startsWith('chrome:')) return true;
+        if (!this.currentPlatform) return true; // Platform not yet detected, show all
+
+        // supported_platforms is stored as a JSON string in the DB
+        let platforms = null;
+        if (api.supported_platforms) {
+            try {
+                platforms = typeof api.supported_platforms === 'string'
+                    ? JSON.parse(api.supported_platforms)
+                    : api.supported_platforms;
+            } catch (e) {
+                return true; // If we can't parse, show it
+            }
+        }
+        if (!platforms || !Array.isArray(platforms) || platforms.length === 0) return true;
+        return platforms.includes(this.currentPlatform);
+    }
+
     async handleApiSearch() {
         const query = this.apiSearchInput.value.trim();
         if (query.length === 0) {
@@ -4843,7 +4908,7 @@ class SidebarUI {
             const escapedQuery = query.replace(/"/g, '""');
             const sql = `
                 SELECT 
-                    name, icon, description, config_id, manifest_permission, documentation_url,
+                    name, icon, description, config_id, manifest_permission, documentation_url, supported_platforms,
                     (SELECT 1 FROM configured_services WHERE configured_services.config_id = services_fts.config_id) as is_configured
                 FROM services_fts 
                 WHERE services_fts MATCH ? 
@@ -4857,7 +4922,9 @@ class SidebarUI {
             });
 
             if (resp && resp.success) {
-                const results = this._normalizeRows(resp.result);
+                const allResults = this._normalizeRows(resp.result);
+                // Filter by current platform
+                const results = allResults.filter(api => this._isApiSupportedOnPlatform(api));
 
                 if (results && results.length > 0) {
                     this.searchDropdown.innerHTML = results.map(api => {

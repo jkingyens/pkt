@@ -14,7 +14,8 @@
         "offscreen",
         "contextMenus",
         "scripting",
-        "declarativeNetRequest"
+        "declarativeNetRequest",
+        "downloads.open"
     ],
     "host_permissions": [
         "<all_urls>"
