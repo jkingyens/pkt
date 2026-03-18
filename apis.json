@@ -18,69 +18,165 @@
     "config_id": "anthropic"
   },
   {
-    "name": "Mistral AI",
-    "icon": "🌪️",
-    "description": "Open-weight models from Mistral",
-    "config_id": "mistral"
+    "name": "Chrome: Active Tab",
+    "icon": "🎯",
+    "description": "Temporary access to the currently active tab",
+    "config_id": "chrome:activeTab"
   },
   {
-    "name": "Cohere",
-    "icon": "🌊",
-    "description": "Enterprise NLP and Rerank models",
-    "config_id": "cohere"
+    "name": "Chrome: Alarms",
+    "icon": "⏰",
+    "description": "Schedule code to run periodically or at a specific time",
+    "config_id": "chrome:alarms"
   },
   {
-    "name": "Local Llama",
-    "icon": "🦙",
-    "description": "Search and connect to local Ollama or LM Studio instances",
-    "config_id": "local"
+    "name": "Chrome: Bookmarks",
+    "icon": "🔖",
+    "description": "Read and search browser bookmarks",
+    "config_id": "chrome:bookmarks"
   },
   {
-    "name": "Chrome: Tabs & Windows",
-    "icon": "🪟",
-    "description": "Manage browser tabs, windows, and tab groups",
-    "config_id": "chrome:tabs"
+    "name": "Chrome: Browsing Data",
+    "icon": "🧹",
+    "description": "Clear browser data, history, and cache",
+    "config_id": "chrome:browsingData"
   },
   {
-    "name": "Chrome: Side Panel & UI",
-    "icon": "⌨️",
-    "description": "Control side panel, context menus, and notifications",
-    "config_id": "chrome:ui"
+    "name": "Chrome: Context Menus",
+    "icon": "🖱️",
+    "description": "Add items to the browser's right-click menu",
+    "config_id": "chrome:contextMenus"
   },
   {
-    "name": "Chrome: Data & Storage",
-    "icon": "💾",
-    "description": "Access bookmarks, history, downloads, and storage",
-    "config_id": "chrome:data"
+    "name": "Chrome: Cookies",
+    "icon": "🍪",
+    "description": "Query and modify browser cookies",
+    "config_id": "chrome:cookies"
   },
   {
-    "name": "Chrome: Scripting",
+    "name": "Chrome: Debugger",
+    "icon": "🐛",
+    "description": "Instrument browser tabs for debugging",
+    "config_id": "chrome:debugger"
+  },
+  {
+    "name": "Chrome: Declarative Net Request",
+    "icon": "🛡️",
+    "description": "Block or modify network requests",
+    "config_id": "chrome:declarativeNetRequest"
+  },
+  {
+    "name": "Chrome: Downloads",
+    "icon": "📥",
+    "description": "Manage and monitor browser downloads",
+    "config_id": "chrome:downloads"
+  },
+  {
+    "name": "Chrome: History",
     "icon": "📜",
-    "description": "Inject scripts and manage network request rules",
-    "config_id": "chrome:scripting"
+    "description": "Search and manage browser history",
+    "config_id": "chrome:history"
   },
   {
     "name": "Chrome: Identity",
     "icon": "👤",
-    "description": "Manage OAuth2 tokens and extension permissions",
+    "description": "OAuth2 flow and user identity management",
     "config_id": "chrome:identity"
   },
   {
-    "name": "Chrome: System",
+    "name": "Chrome: Idle",
+    "icon": "💤",
+    "description": "Detect when the machine's idle state changes",
+    "config_id": "chrome:idle"
+  },
+  {
+    "name": "Chrome: Management",
+    "icon": "🏢",
+    "description": "Manage installed extensions and apps",
+    "config_id": "chrome:management"
+  },
+  {
+    "name": "Chrome: Notifications",
+    "icon": "🔔",
+    "description": "Display rich notifications to the user",
+    "config_id": "chrome:notifications"
+  },
+  {
+    "name": "Chrome: Offscreen",
+    "icon": "📄",
+    "description": "Run scripts in a hidden offscreen document",
+    "config_id": "chrome:offscreen"
+  },
+  {
+    "name": "Chrome: Privacy",
+    "icon": "🔒",
+    "description": "Control browser privacy settings",
+    "config_id": "chrome:privacy"
+  },
+  {
+    "name": "Chrome: Runtime",
     "icon": "⚙️",
-    "description": "Handle alarms, runtime lifecycle, and idle state",
-    "config_id": "chrome:system"
+    "description": "Extension lifecycle and messaging",
+    "config_id": "chrome:runtime"
   },
   {
-    "name": "Chrome: Media",
-    "icon": "🎤",
-    "description": "Record audio/video and use text-to-speech",
-    "config_id": "chrome:media"
+    "name": "Chrome: Scripting",
+    "icon": "📜",
+    "description": "Inject JavaScript and CSS into websites",
+    "config_id": "chrome:scripting"
   },
   {
-    "name": "Chrome: DevTools",
-    "icon": "🛠️",
-    "description": "Extend Chrome Developer Tools and debugger",
-    "config_id": "chrome:devtools"
+    "name": "Chrome: Sessions",
+    "icon": "⏱️",
+    "description": "Query and restore recently closed tabs",
+    "config_id": "chrome:sessions"
+  },
+  {
+    "name": "Chrome: Side Panel",
+    "icon": "⌨️",
+    "description": "Control the extension's side panel behavior",
+    "config_id": "chrome:sidePanel"
+  },
+  {
+    "name": "Chrome: Storage",
+    "icon": "💾",
+    "description": "Persistent key-value storage for the extension",
+    "config_id": "chrome:storage"
+  },
+  {
+    "name": "Chrome: Tab Groups",
+    "icon": "📁",
+    "description": "Manage browser tab groups",
+    "config_id": "chrome:tabGroups"
+  },
+  {
+    "name": "Chrome: Tabs",
+    "icon": "📑",
+    "description": "Query, create, and modify browser tabs",
+    "config_id": "chrome:tabs"
+  },
+  {
+    "name": "Chrome: Top Sites",
+    "icon": "🌟",
+    "description": "Access the user's most visited websites",
+    "config_id": "chrome:topSites"
+  },
+  {
+    "name": "Chrome: TTS",
+    "icon": "🗣️",
+    "description": "Text-to-speech synthesis",
+    "config_id": "chrome:tts"
+  },
+  {
+    "name": "Chrome: Web Navigation",
+    "icon": "🌐",
+    "description": "Monitor the status of navigation requests",
+    "config_id": "chrome:webNavigation"
+  },
+  {
+    "name": "Chrome: Web Request",
+    "icon": "📡",
+    "description": "Observe and analyze network traffic",
+    "config_id": "chrome:webRequest"
   }
 ]
