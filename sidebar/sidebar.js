@@ -4126,6 +4126,8 @@ class SidebarUI {
             chrome.runtime.sendMessage(message, response => {
                 if (chrome.runtime.lastError) {
                     reject(chrome.runtime.lastError);
+                } else if (response && response.success === false) {
+                    reject(new Error(response.error || 'Unknown error'));
                 } else {
                     resolve(response);
                 }
@@ -4252,7 +4254,7 @@ class SidebarUI {
 
         try {
             const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
-            this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Granted' : 'Forbidden');
+            this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Available' : 'Unavailable');
         } catch (e) {
             console.error(`[Sidebar] Error checking ${permission} permission:`, e);
             this.updateChromePermissionStatus(false, 'Error');
@@ -4267,32 +4269,29 @@ class SidebarUI {
     }
 
     async handleClearApis() {
-        if (!confirm('Are you sure you want to clear the API repository and all your added APIs?')) {
+        if (!confirm('Are you sure you want to clear the API repository and all your added APIs? This will perform a full database wipe.')) {
             return;
         }
 
         try {
-            // Clear both the FS repository cache and the user-added configs
-            // We do these as separate calls because the service worker 'exec' handler
-            // expects a single operation per message.
+            this.showNotification('Wiping search index...', 'info');
+            
+            // Drop both tables for a complete wipe as requested
             await this.sendMessage({
                 action: 'exec',
-                payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+                payload: { name: 'services', sql: 'DROP TABLE IF EXISTS services_fts' }
             });
 
-            const resp = await this.sendMessage({
+            await this.sendMessage({
                 action: 'exec',
-                payload: { name: 'services', sql: 'DELETE FROM configured_services' }
+                payload: { name: 'services', sql: 'DROP TABLE IF EXISTS configured_services' }
             });
 
-            if (resp && resp.success) {
-                this.showNotification('APIs and configs cleared', 'success');
-                this.apiSearchInput.value = '';
-                this.searchDropdown.classList.add('hidden');
-                await this.renderApiList(); // Refresh the list (should be empty now)
-            } else {
-                this.showNotification('Failed to clear: ' + (resp?.error || 'Unknown error'), 'error');
-            }
+            this.showNotification('Database wiped. Click Sync to restore defaults.', 'success');
+            // Don't call renderApiList() here because tables are gone; just clear UI
+            if (this.apiList) this.apiList.innerHTML = '<div class="empty-state">No APIs added. Sync from GitHub to restore defaults.</div>';
+            if (this.apiSearchInput) this.apiSearchInput.value = '';
+            if (this.searchDropdown) this.searchDropdown.classList.add('hidden');
         } catch (e) {
             console.error('[Sidebar] Failed to clear APIs:', e);
             this.showNotification('Error clearing APIs', 'error');
@@ -4307,24 +4306,97 @@ class SidebarUI {
             if (!response.ok) throw new Error('Failed to fetch apis.json from GitHub');
 
             const apis = await response.json();
-
-            // Clear existing cache first (services_fts)
+            
+            // Ensure configured_services exists with modern schema
             await this.sendMessage({
                 action: 'exec',
-                payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+                payload: { 
+                    name: 'services', 
+                    sql: `CREATE TABLE IF NOT EXISTS configured_services (
+                            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name        TEXT NOT NULL,
+                            icon        TEXT,
+                            description TEXT,
+                            config_id   TEXT UNIQUE NOT NULL,
+                            manifest_permission TEXT,
+                            created     TEXT NOT NULL DEFAULT (datetime('now'))
+                          )` 
+                }
+            });
+
+            // Migration: Add manifest_permission to configured_services if it exists but is old
+            try {
+                const info = await this.sendMessage({
+                    action: 'query',
+                    payload: { name: 'services', sql: 'PRAGMA table_info(configured_services)' }
+                });
+                const rows = this._normalizeRows(info.result);
+                const hasCol = rows && rows.some(r => r.name === 'manifest_permission');
+                
+                if (!hasCol) {
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
+                    });
+                }
+            } catch (e) {
+                // Ignore errors now that sendMessage rejects correctly
+                if (!e.message.includes('duplicate column')) {
+                    console.warn('[Sidebar] Migration warning:', e.message);
+                }
+            }
+
+            // Virtual tables like FTS5 do NOT support ALTER TABLE ADD COLUMN.
+            // We must drop and recreate them to change the schema.
+            await this.sendMessage({
+                action: 'exec',
+                payload: { name: 'services', sql: 'DROP TABLE IF EXISTS services_fts' }
+            });
+            await this.sendMessage({
+                action: 'exec',
+                payload: { 
+                    name: 'services', 
+                    sql: `CREATE VIRTUAL TABLE services_fts USING fts5(
+                            name, 
+                            icon, 
+                            description,
+                            config_id UNINDEXED,
+                            manifest_permission UNINDEXED
+                          )` 
+                }
             });
 
             // Insert new ones into cache
             for (const api of apis) {
-                await this.sendMessage({
-                    action: 'exec',
-                    payload: {
-                        name: 'services',
-                        sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
-                        bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
-                    }
-                });
+                try {
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: {
+                            name: 'services',
+                            sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
+                            bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
+                        }
+                    });
+                } catch (err) {
+                    console.warn(`[Sidebar] Failed to insert ${api.name} into FTS cache, stopping sync:`, err);
+                    throw err; // Re-throw to trigger fallback or error notification
+                }
             }
+
+            // Backfill manifest_permission for existing configured services
+            await this.sendMessage({
+                action: 'exec',
+                payload: {
+                    name: 'services',
+                    sql: `UPDATE configured_services 
+                          SET manifest_permission = (
+                              SELECT manifest_permission 
+                              FROM services_fts 
+                              WHERE services_fts.config_id = configured_services.config_id
+                          )
+                          WHERE config_id IN (SELECT config_id FROM services_fts)`
+                }
+            });
 
             this.showNotification('APIs synced successfully', 'success');
         } catch (e) {
@@ -4335,20 +4407,94 @@ class SidebarUI {
                 const localResp = await fetch(localUrl);
                 if (localResp.ok) {
                     const apis = await localResp.json();
+                    
+                    // Ensure configured_services exists with modern schema
                     await this.sendMessage({
                         action: 'exec',
-                        payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+                        payload: { 
+                            name: 'services', 
+                            sql: `CREATE TABLE IF NOT EXISTS configured_services (
+                                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    name        TEXT NOT NULL,
+                                    icon        TEXT,
+                                    description TEXT,
+                                    config_id   TEXT UNIQUE NOT NULL,
+                                    manifest_permission TEXT,
+                                    created     TEXT NOT NULL DEFAULT (datetime('now'))
+                                  )` 
+                        }
+                    });
+
+                    // Schema Migration: Add manifest_permission to configured_services if it exists but is old
+                    try {
+                        const info = await this.sendMessage({
+                            action: 'query',
+                            payload: { name: 'services', sql: 'PRAGMA table_info(configured_services)' }
+                        });
+                        const rows = this._normalizeRows(info.result);
+                        const hasCol = rows && rows.some(r => r.name === 'manifest_permission');
+                        
+                        if (!hasCol) {
+                            await this.sendMessage({
+                                action: 'exec',
+                                payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
+                            });
+                        }
+                    } catch (e) {
+                        // Ignore if column already exists
+                        if (!e.message.includes('duplicate column')) {
+                            console.warn('[Sidebar] Fallback migration warning:', e.message);
+                        }
+                    }
+
+                    // Drop and recreate services_fts for schema update
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: { name: 'services', sql: 'DROP TABLE IF EXISTS services_fts' }
+                    });
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: { 
+                            name: 'services', 
+                            sql: `CREATE VIRTUAL TABLE services_fts USING fts5(
+                                    name, 
+                                    icon, 
+                                    description,
+                                    config_id UNINDEXED,
+                                    manifest_permission UNINDEXED
+                                  )` 
+                        }
                     });
                     for (const api of apis) {
-                        await this.sendMessage({
-                            action: 'exec',
-                            payload: {
-                                name: 'services',
-                                sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
-                                bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
-                            }
-                        });
+                        try {
+                            await this.sendMessage({
+                                action: 'exec',
+                                payload: {
+                                    name: 'services',
+                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
+                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
+                                }
+                            });
+                        } catch (err) {
+                            console.warn(`[Sidebar] Local insert failed for ${api.name}:`, err);
+                            throw err;
+                        }
                     }
+
+                    // Backfill manifest_permission for existing configured services (fallback path)
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: {
+                            name: 'services',
+                            sql: `UPDATE configured_services 
+                                  SET manifest_permission = (
+                                      SELECT manifest_permission 
+                                      FROM services_fts 
+                                      WHERE services_fts.config_id = configured_services.config_id
+                                  )
+                                  WHERE config_id IN (SELECT config_id FROM services_fts)`
+                        }
+                    });
                     this.showNotification('APIs synced from local bundle', 'success');
                     return;
                 }
@@ -4369,14 +4515,8 @@ class SidebarUI {
                 payload: { name: 'services', sql: 'SELECT * FROM configured_services ORDER BY created ASC' }
             });
 
-            let apis = [];
-            if (resp && resp.success && resp.result) {
-                apis = this._normalizeRows(resp.result);
-            }
+            const apis = this._normalizeRows(resp.result);
 
-            // If Gemini is not in the list, we probably want to ensure it's there as a default
-            // or if it IS there, we wire it to settings.
-            
             if (apis.length === 0) {
                 this.apiList.innerHTML = '<div class="api-item-empty">No APIs configured yet. Search and add them above.</div>';
                 return;
@@ -4411,7 +4551,12 @@ class SidebarUI {
                 this.apiList.appendChild(item);
             });
         } catch (e) {
-            console.error('[Sidebar] Failed to render API list:', e);
+            // Handle expected "no such table" error after wipe quietly
+            if (e.message.includes('no such table')) {
+                this.apiList.innerHTML = '<div class="api-item-empty">No APIs configured yet. Search and add them above.</div>';
+            } else {
+                console.error('[Sidebar] Failed to render API list:', e);
+            }
         }
     }
 
@@ -4468,7 +4613,7 @@ class SidebarUI {
 
         try {
             const escapedQuery = query.replace(/"/g, '""');
-            const sql = "SELECT name, icon, description, config_id FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
+            const sql = "SELECT name, icon, description, config_id, manifest_permission FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
             const bind = [`"${escapedQuery}"*`];
 
             const resp = await this.sendMessage({

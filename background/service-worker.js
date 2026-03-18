@@ -1029,25 +1029,33 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'exec': {
-                const { name, sql, bind } = request.payload || request;
-                const db = manager.getDatabase(name);
-                if (!db) {
-                    sendResponse({ success: false, error: 'Database not found' });
-                    break;
+                try {
+                    const { name, sql, bind } = request.payload || request;
+                    const db = manager.getDatabase(name);
+                    if (!db) {
+                        sendResponse({ success: false, error: 'Database not found' });
+                        break;
+                    }
+                    const result = await db.exec(sql, bind || []);
+                    sendResponse({ success: true, result });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
                 }
-                const result = await db.exec(sql, bind || []);
-                sendResponse({ success: true, result });
                 break;
             }
             case 'query': {
-                const { name, sql, bind } = request.payload || request;
-                const db = manager.getDatabase(name);
-                if (!db) {
-                    sendResponse({ success: false, error: 'Database not found' });
-                    break;
+                try {
+                    const { name, sql, bind } = request.payload || request;
+                    const db = manager.getDatabase(name);
+                    if (!db) {
+                        sendResponse({ success: false, error: 'Database not found' });
+                        break;
+                    }
+                    const result = await db.query(sql, bind || []);
+                    sendResponse({ success: true, result });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
                 }
-                const result = await db.query(sql, bind || []);
-                sendResponse({ success: true, result });
                 break;
             }
             case 'getSchema': {
@@ -1670,9 +1678,16 @@ async function handleMessage(request, sender, sendResponse) {
                 sendResponse({ success: false, error: 'Unknown action' });
         }
     } catch (err) {
-        console.error('[SW] Unhandled error in handleMessage:', err);
-        // Ensure sendResponse is only called once. If the inner code already called it, 
-        // this might fail, but that's okay as the hang is already avoided.
+        // Suppress expected SQL errors from the global handler to reduce console noise
+        const isExpectedSqlError = err.message && (err.message.includes('SQLITE_ERROR') && (err.message.includes('duplicate column') || err.message.includes('no such table')));
+        
+        if (!isExpectedSqlError) {
+            console.error('[SW] Unhandled error in handleMessage:', err);
+        } else {
+            console.log('[SW] Handled expected SQL error:', err.message);
+        }
+
+        // Ensure sendResponse is only called once.
         try { sendResponse({ success: false, error: err.message || 'Internal background error' }); } catch (e) {}
     }
 }

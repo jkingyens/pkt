@@ -46,7 +46,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
   name, 
   icon, 
   description,
-  config_id UNINDEXED
+  config_id UNINDEXED,
+  manifest_permission UNINDEXED
 );
 CREATE TABLE IF NOT EXISTS configured_services (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS configured_services (
   icon        TEXT,
   description TEXT,
   config_id   TEXT UNIQUE NOT NULL,
+  manifest_permission TEXT,
   created     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
@@ -172,7 +174,12 @@ class SQLiteManager {
         }
 
         if (!response.success) {
-            console.error(`[SW-Proxy] FAILED for ${action} ID: ${id} Error: ${response.error}`);
+            const isExpectedError = response.error && (response.error.includes('duplicate column') || response.error.includes('no such table'));
+            if (!isExpectedError) {
+                console.error(`[SW-Proxy] FAILED for ${action} ID: ${id} Error: ${response.error}`);
+            } else {
+                console.log(`[SW-Proxy] Handled expected migration error for ${action}: ${response.error}`);
+            }
             throw new Error(response.error || `Proxy request failed for action: ${action}`);
         }
 
