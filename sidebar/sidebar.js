@@ -4321,7 +4321,7 @@ class SidebarUI {
                     
                     if (api.manifest_permission) {
                         this.chromePermissionSettings.classList.remove('hidden');
-                        this.permissionStatusTitle.textContent = `${api.name.replace('Chrome: ', '')} Permission`;
+                        this.permissionStatusTitle.textContent = `${api.name.replace('Chrome AI: ', '').replace('Chrome: ', '')} Permission`;
                         this.permissionHint.textContent = `This API requires the "${api.manifest_permission}" permission in your extension's manifest.`;
                         this.currentDetailPermission = api.manifest_permission;
                         await this.checkPermission(api.manifest_permission);
@@ -4713,7 +4713,7 @@ class SidebarUI {
 
             apis.forEach(api => {
                 const isGemini = api.config_id === 'gemini';
-                const isChrome = api.config_id && api.config_id.startsWith('chrome:');
+                const isChrome = api.config_id && (api.config_id.startsWith('chrome:') || api.config_id.startsWith('chrome-ai:'));
                 const item = document.createElement('div');
                 item.className = 'api-item';
                 
@@ -4895,7 +4895,8 @@ class SidebarUI {
 
     _isApiSupportedOnPlatform(api) {
         // Non-Chrome APIs (Gemini, OpenAI, etc.) are always shown
-        if (!api.config_id || !api.config_id.startsWith('chrome:')) return true;
+        const isChromeApi = api.config_id && (api.config_id.startsWith('chrome:') || api.config_id.startsWith('chrome-ai:'));
+        if (!isChromeApi) return true;
         if (!this.currentPlatform) return true; // Platform not yet detected, show all
 
         // supported_platforms is stored as a JSON string in the DB

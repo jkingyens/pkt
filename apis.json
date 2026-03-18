@@ -718,5 +718,61 @@
     "manifest_permission": "webRequestBlocking",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webRequest#permissions",
     "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Prompt API",
+    "icon": "🧩",
+    "description": "Run on-device Gemini Nano prompts directly in the browser via the built-in AI Prompt API",
+    "config_id": "chrome-ai:prompt",
+    "documentation_url": "https://developer.chrome.com/docs/ai/prompt-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Summarizer API",
+    "icon": "📝",
+    "description": "Distill articles, documents, or conversations into concise summaries using on-device AI",
+    "config_id": "chrome-ai:summarizer",
+    "documentation_url": "https://developer.chrome.com/docs/ai/summarizer-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Writer API",
+    "icon": "✍️",
+    "description": "Generate new written content conforming to a specified writing task using on-device AI",
+    "config_id": "chrome-ai:writer",
+    "documentation_url": "https://developer.chrome.com/docs/ai/writer-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Rewriter API",
+    "icon": "🔄",
+    "description": "Revise and restructure existing text using on-device AI",
+    "config_id": "chrome-ai:rewriter",
+    "documentation_url": "https://developer.chrome.com/docs/ai/rewriter-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Translator API",
+    "icon": "🌐",
+    "description": "Translate content between languages on-device using the built-in AI Translator API",
+    "config_id": "chrome-ai:translator",
+    "documentation_url": "https://developer.chrome.com/docs/ai/translator-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Language Detector API",
+    "icon": "🔍",
+    "description": "Detect the language of text on-device using Chrome's built-in Language Detector API",
+    "config_id": "chrome-ai:languageDetector",
+    "documentation_url": "https://developer.chrome.com/docs/ai/language-detection",
+    "supported_platforms": ["chromebrowser", "chromeos"]
+  },
+  {
+    "name": "Chrome AI: Proofreader API",
+    "icon": "✅",
+    "description": "Improve content readability and grammar on-device using the built-in AI Proofreader API",
+    "config_id": "chrome-ai:proofreader",
+    "documentation_url": "https://developer.chrome.com/docs/ai/proofreader-api",
+    "supported_platforms": ["chromebrowser", "chromeos"]
   }
 ]
