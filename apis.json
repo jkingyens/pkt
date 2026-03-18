@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Gemini AI",
+    "icon": "✨",
+    "description": "Google DeepMind multimodal AI model",
+    "config_id": "gemini"
+  },
+  {
+    "name": "OpenAI (GPT-4)",
+    "icon": "🤖",
+    "description": "The original GPT-4 model from OpenAI",
+    "config_id": "openai"
+  },
+  {
+    "name": "Anthropic (Claude)",
+    "icon": "🧠",
+    "description": "Claude 3 model by Anthropic",
+    "config_id": "anthropic"
+  },
+  {
+    "name": "Mistral AI",
+    "icon": "🌪️",
+    "description": "Open-weight models from Mistral",
+    "config_id": "mistral"
+  },
+  {
+    "name": "Cohere",
+    "icon": "🌊",
+    "description": "Enterprise NLP and Rerank models",
+    "config_id": "cohere"
+  },
+  {
+    "name": "Local Llama",
+    "icon": "🦙",
+    "description": "Search and connect to local Ollama or LM Studio instances",
+    "config_id": "local"
+  },
+  {
+    "name": "Chrome: Tabs & Windows",
+    "icon": "🪟",
+    "description": "Manage browser tabs, windows, and tab groups",
+    "config_id": "chrome:tabs"
+  },
+  {
+    "name": "Chrome: Side Panel & UI",
+    "icon": "⌨️",
+    "description": "Control side panel, context menus, and notifications",
+    "config_id": "chrome:ui"
+  },
+  {
+    "name": "Chrome: Data & Storage",
+    "icon": "💾",
+    "description": "Access bookmarks, history, downloads, and storage",
+    "config_id": "chrome:data"
+  },
+  {
+    "name": "Chrome: Scripting",
+    "icon": "📜",
+    "description": "Inject scripts and manage network request rules",
+    "config_id": "chrome:scripting"
+  },
+  {
+    "name": "Chrome: Identity",
+    "icon": "👤",
+    "description": "Manage OAuth2 tokens and extension permissions",
+    "config_id": "chrome:identity"
+  },
+  {
+    "name": "Chrome: System",
+    "icon": "⚙️",
+    "description": "Handle alarms, runtime lifecycle, and idle state",
+    "config_id": "chrome:system"
+  },
+  {
+    "name": "Chrome: Media",
+    "icon": "🎤",
+    "description": "Record audio/video and use text-to-speech",
+    "config_id": "chrome:media"
+  },
+  {
+    "name": "Chrome: DevTools",
+    "icon": "🛠️",
+    "description": "Extend Chrome Developer Tools and debugger",
+    "config_id": "chrome:devtools"
+  }
+]
