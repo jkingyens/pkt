@@ -301,6 +301,8 @@ class SidebarUI {
         this.apiSearchInput = document.getElementById('apiSearchInput');
         this.searchDropdown = document.getElementById('searchDropdown');
         this.apiList = document.getElementById('apiList');
+        this.clearApisBtn = document.getElementById('clearApisBtn');
+        this.syncApisBtn = document.getElementById('syncApisBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeLightCard = document.getElementById('themeLight');
@@ -463,14 +465,14 @@ class SidebarUI {
         // Online status listeners
         window.addEventListener('online', () => this.updateOnlineStatus());
         window.addEventListener('offline', () => this.updateOnlineStatus());
-        
+
         // Theme listener
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
             if (this.theme === 'system') {
                 this.applyTheme();
             }
         });
-        
+
         // Polling fallback every 5s (sometimes extension side panels miss window events)
         // Initial polling for connectivity
         this.startConnectivityPolling(5000);
@@ -484,13 +486,16 @@ class SidebarUI {
 
         // Start periodic permission monitoring
         this.monitorPermissions();
+
+        this.clearApisBtn.onclick = () => this.handleClearApis();
+        this.syncApisBtn.onclick = () => this.handleSyncApis();
     }
 
     async init() {
         try {
             // 1. Core setup (Settings and theme)
             await this.loadSettings();
-            
+
             // 2. WebAuthn protection
             if (this.webAuthnEnabled && !this.isVerified) {
                 this.showLockScreen();
@@ -601,14 +606,14 @@ class SidebarUI {
                 this.activeUrl = message.packet.activeUrl || null;
                 this.activePacketGroupId = message.packet.groupId || null;
                 this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
-                
+
                 // If already showing THIS packet, just update highlights surgically
                 if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packet.id)) {
                     this.updateItemHighlights();
                 } else {
                     this.showPacketDetailView(message.packet);
                 }
-                
+
                 // Sync navigation index
                 this.lastNavigatedIndex = this.getActiveItemIndex();
                 this.updateClipperState();
@@ -636,7 +641,7 @@ class SidebarUI {
                 this.isTabVideoRecording = false;
                 this.updateRecordingUI();
                 if (this.activeRecordingTabId) {
-                    chrome.tabs.sendMessage(this.activeRecordingTabId, { type: 'SET_RECORDING_OVERLAY', active: false }).catch(() => {});
+                    chrome.tabs.sendMessage(this.activeRecordingTabId, { type: 'SET_RECORDING_OVERLAY', active: false }).catch(() => { });
                     this.activeRecordingTabId = null;
                 }
                 // Notify background to close permission tab
@@ -1058,7 +1063,7 @@ class SidebarUI {
             }
             const dbName = `packet_${packetId}`;
             await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packetId });
-            
+
             const sql = `INSERT INTO stacks (name) VALUES ('${name.replace(/'/g, "''")}'); SELECT last_insert_rowid();`;
             const insertResp = await this.sendMessage({
                 action: 'executeSQL',
@@ -1073,19 +1078,19 @@ class SidebarUI {
             const results = insertResp.result;
             const lastIdResult = results[results.length - 1];
             const stackId = lastIdResult.values[0][0];
-            
+
             console.log('[Sidebar] Created new stack with ID:', stackId);
 
             // Persist the new stack to the packet-specific database
             await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
 
-            const stackItem = { 
-                type: 'stack', 
-                stackId, 
-                name, 
-                packetId: this.currentPacket.id 
+            const stackItem = {
+                type: 'stack',
+                stackId,
+                name,
+                packetId: this.currentPacket.id
             };
-            
+
             this.currentPacket.urls.push(stackItem);
 
             const saveResp = await this.sendMessage({
@@ -1111,7 +1116,7 @@ class SidebarUI {
 
     async syncActiveTab() {
         if (!this.currentPacket) return;
-        
+
         // Small delay to let browser tab state settle
         await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -1140,30 +1145,30 @@ class SidebarUI {
      */
     updateItemHighlights() {
         if (!this.currentPacket) return;
-        
+
         const allCards = document.querySelectorAll('.packet-page-card, .packet-media-card');
-        
+
         // 1. Clear all highlights first
         allCards.forEach(card => card.classList.remove('active'));
 
         // 2. Focus Management: Clear focus from elements to prevent :focus styles
         // from persisting when moving between cards. 
-        if (document.activeElement && 
-           (document.activeElement.classList.contains('packet-page-card') || 
-            document.activeElement.classList.contains('packet-media-card'))) {
+        if (document.activeElement &&
+            (document.activeElement.classList.contains('packet-page-card') ||
+                document.activeElement.classList.contains('packet-media-card'))) {
             document.activeElement.blur();
         }
 
         // 3. Highlight the matching card
         const activeNorm = this.normalizeUrl(this.activeUrl);
-        
+
         allCards.forEach(card => {
             const index = parseInt(card.getAttribute('data-index'), 10);
             const item = this.currentPacket.urls[index];
             if (!item) return;
 
             const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
-            
+
             // Handle Page/Media/Local types based on activeUrl
             let itemUrl;
             if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
@@ -1175,7 +1180,7 @@ class SidebarUI {
                     itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
                 }
             }
-            
+
             if (itemUrl && activeNorm) {
                 const itemNorm = this.normalizeUrl(itemUrl);
                 if (itemNorm === activeNorm) {
@@ -1269,7 +1274,7 @@ class SidebarUI {
         // List view
         const createBtn = document.getElementById('createBtn');
         if (createBtn) createBtn.addEventListener('click', () => this.createCollection());
-        
+
         const importBtn = document.getElementById('importBtn');
         if (importBtn) importBtn.addEventListener('click', () => this.importDatabase());
         if (this.importPacketBtn) {
@@ -1340,10 +1345,10 @@ class SidebarUI {
         // Packet detail view
         const packetDetailBackBtn = document.getElementById('packetDetailBackBtn');
         if (packetDetailBackBtn) packetDetailBackBtn.addEventListener('click', () => this.handlePacketDetailBack());
-        
+
         const packetDetailCloseBtn = document.getElementById('packetDetailCloseBtn');
         if (packetDetailCloseBtn) packetDetailCloseBtn.addEventListener('click', () => this.closePacketGroup());
-        
+
         const packetDetailTitle = document.getElementById('packetDetailTitle');
         if (packetDetailTitle) packetDetailTitle.addEventListener('click', () => this.renameCurrentPacket());
         if (this.addMediaDetailBtn) {
@@ -1633,9 +1638,9 @@ class SidebarUI {
         const openPermission = confirm('Wildcard needs microphone permission to record. Open a new tab to grant it?');
         if (openPermission) {
             // Store the intent in the background script so it can resume after grant
-            chrome.runtime.sendMessage({ 
-                action: 'SET_PENDING_RECORDING', 
-                recordingType: isVideo ? 'video' : 'audio' 
+            chrome.runtime.sendMessage({
+                action: 'SET_PENDING_RECORDING',
+                recordingType: isVideo ? 'video' : 'audio'
             });
             chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/permission.html') });
         }
@@ -1686,7 +1691,7 @@ class SidebarUI {
 
             const displayType = mimeType || 'video/webm;codecs=vp8,opus';
             const name = displayType.startsWith('video') ? `Video ${new Date().toLocaleString()}.webm` : `Audio ${new Date().toLocaleString()}.webm`;
-            
+
             const newItem = {
                 type: 'media',
                 name: name,
@@ -1772,7 +1777,7 @@ class SidebarUI {
             // Only add visual dragging class if in edit mode or if we want generic feedback
             el.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'copyMove';
-            
+
             // Set full item data for external drops (e.g. into stack tab)
             const item = this.currentPacket.urls[index];
             const dragData = {
@@ -1880,7 +1885,7 @@ class SidebarUI {
         if (!this.statusIndicator) return;
 
         const isNetworkEnabled = this.networkEnabled !== false;
-        
+
         // Short-circuit 1: if network is simulated OFF, we don't even need to probe
         if (!isNetworkEnabled) {
             this.statusIndicator.classList.remove('offline');
@@ -1898,7 +1903,7 @@ class SidebarUI {
 
         // If simulated ON, check if actually online with probes
         const isActualOnline = await this.checkActualConnectivity();
-        
+
         if (isActualOnline) {
             const wasChecking = this.consecutiveFailures > 0;
             this.consecutiveFailures = 0;
@@ -1914,12 +1919,12 @@ class SidebarUI {
         } else {
             this.consecutiveFailures++;
             console.log(`[Status] Connectivity probe failed (${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES})`);
-            
+
             // Speed up polling if we are having trouble
             if (this.consecutiveFailures === 1) {
                 this.startConnectivityPolling(10000);
             }
-            
+
             if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
                 this.handleOfflineTransition();
             }
@@ -1929,17 +1934,17 @@ class SidebarUI {
     monitorPermissions() {
         // Initial check
         this.updatePermissionStatus();
-        
+
         // Watch for changes if API supported
         try {
             if (navigator.permissions && navigator.permissions.query) {
                 navigator.permissions.query({ name: 'microphone' }).then(res => {
                     res.onchange = () => this.updatePermissionStatus();
-                }).catch(() => {});
-                
+                }).catch(() => { });
+
                 navigator.permissions.query({ name: 'camera' }).then(res => {
                     res.onchange = () => this.updatePermissionStatus();
-                }).catch(() => {});
+                }).catch(() => { });
             }
         } catch (e) {
             console.warn('[Sidebar] Permissions API change tracking not fully supported');
@@ -1983,7 +1988,7 @@ class SidebarUI {
 
             this.permissionIndicator.classList.toggle('disabled', !isFullyGranted && !isAnyDenied);
             this.permissionIndicator.classList.toggle('denied', isAnyDenied);
-            
+
             if (isFullyGranted) {
                 this.permissionIndicator.title = 'Camera & Microphone Access Granted';
             } else if (isAnyDenied) {
@@ -2033,14 +2038,14 @@ class SidebarUI {
             try {
                 const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                 const packetGroupIds = new Set(Object.keys(activeGroups).map(id => parseInt(id, 10)));
-                
+
                 const tabs = await chrome.tabs.query({});
                 const tabsToClose = tabs.filter(t => {
                     if (!t.url || !packetGroupIds.has(t.groupId)) return false;
                     const isLocal = t.url.startsWith('chrome-extension://') || t.url.startsWith('file://');
                     return !isLocal;
                 });
-                
+
                 if (tabsToClose.length > 0) {
                     const tabIds = tabsToClose.map(t => t.id);
                     await chrome.tabs.remove(tabIds);
@@ -2064,14 +2069,14 @@ class SidebarUI {
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000); // Increased from 2s to 5s
-                
+
                 await fetch(probeUrl, {
                     method: 'HEAD',
                     mode: 'no-cors',
                     cache: 'no-store',
                     signal: controller.signal
                 });
-                
+
                 clearTimeout(timeoutId);
                 return true; // Any single success is enough to consider us "Online"
             } catch (e) {
@@ -2108,7 +2113,7 @@ class SidebarUI {
         await this.checkEmptyPacketGarbageCollector();
         this.currentCollection = collectionName;
         this.detailTitle.textContent = collectionName;
-        
+
         // Only the 'packets' database should have Add/Import buttons for now.
         // We leave placeholder space by using visibility: hidden.
         if (this.packetActions) {
@@ -2252,7 +2257,7 @@ class SidebarUI {
         if (!url) return '';
         try {
             const parsed = new URL(url);
-            
+
             // Handle chrome-extension:// URLs specially
             if (url.startsWith('chrome-extension://')) {
                 let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
@@ -2273,7 +2278,7 @@ class SidebarUI {
             // Standard web URLs
             // Remove hash and trailing slash, then lowercase
             let u = url.split('#')[0].replace(/\/$/, '').toLowerCase();
-            
+
             // Strip packetId from standard URLs if present
             if (parsed.searchParams.has('packetId')) {
                 const cleanSearch = new URLSearchParams(parsed.search);
@@ -2286,7 +2291,7 @@ class SidebarUI {
 
             // Remove protocol and www.
             return u.replace(/^https?:\/\//, '').replace(/^www\./, '');
-        } catch (e) { 
+        } catch (e) {
             // Fallback for malformed URLs
             return url.split('#')[0].replace(/\/$/, '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
         }
@@ -2480,7 +2485,7 @@ class SidebarUI {
                 const isImage = item.mimeType?.startsWith('image/');
                 const isVideo = item.mimeType?.startsWith('video/');
                 const isAudio = item.mimeType?.startsWith('audio/');
-                
+
                 let iconHtml = MEDIA_ICONS.generic;
                 if (isImage) iconHtml = MEDIA_ICONS.image;
                 else if (isVideo) iconHtml = MEDIA_ICONS.video;
@@ -3292,16 +3297,16 @@ class SidebarUI {
             const resp = await this.sendMessage({ action: 'getMediaBlob', id: mediaId });
             if (resp && resp.success) {
                 const rawData = resp.data;
-                const uint8Array = rawData instanceof Uint8Array ? rawData : 
-                                   (rawData && typeof rawData === 'object' ? new Uint8Array(Object.values(rawData)) : 
-                                   new Uint8Array(rawData));
+                const uint8Array = rawData instanceof Uint8Array ? rawData :
+                    (rawData && typeof rawData === 'object' ? new Uint8Array(Object.values(rawData)) :
+                        new Uint8Array(rawData));
                 const blob = new Blob([uint8Array], { type: resp.type });
                 const url = URL.createObjectURL(blob);
                 const container = document.getElementById(elementId);
                 if (container) {
                     // Clear placeholder icon
                     container.innerHTML = '';
-                    
+
                     if (resp.type.startsWith('video/')) {
                         const video = document.createElement('video');
                         video.src = url;
@@ -3331,7 +3336,7 @@ class SidebarUI {
         try {
             const arrayBuffer = await blob.arrayBuffer();
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
+
             // decodeAudioData can fail on some webm formats, but usually works for our recordings
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer).catch(err => {
                 console.warn('[Sidebar] decodeAudioData failed, trying fallback:', err);
@@ -3342,14 +3347,14 @@ class SidebarUI {
                 audioCtx.close();
                 return;
             }
-            
+
             const ctx = canvas.getContext('2d');
             const width = canvas.width = 96; // 2x for retina-like sharpness
             const height = canvas.height = 96;
             const data = audioBuffer.getChannelData(0);
             const step = Math.ceil(data.length / width);
             const amp = height / 2;
-            
+
             // Background
             ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-alt').trim() || '#f1f5f9';
             ctx.fillRect(0, 0, width, height);
@@ -3357,20 +3362,20 @@ class SidebarUI {
             // Waveform color
             ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--primary').trim() || '#4f46e5';
 
-            for(let i=0; i < width; i++) {
+            for (let i = 0; i < width; i++) {
                 let min = 1.0;
                 let max = -1.0;
-                for (let j=0; j < step; j++) {
+                for (let j = 0; j < step; j++) {
                     const datum = data[(i * step) + j];
                     if (datum < min) min = datum;
                     if (datum > max) max = datum;
                 }
-                
+
                 // Scale vertically (3x boost but clamp to -1, 1) to make it look less like a line
                 const scale = 3.0;
                 const scaledMin = Math.max(-1.0, min * scale);
                 const scaledMax = Math.min(1.0, max * scale);
-                
+
                 // Center the waveform vertically
                 ctx.fillRect(i, (1 + scaledMin) * amp, 1, Math.max(2, (scaledMax - scaledMin) * amp));
             }
@@ -3726,7 +3731,7 @@ class SidebarUI {
                 this.dragSrcIndex = index;
                 card.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'copyMove';
-                
+
                 const dragData = {
                     type: item.type || 'page',
                     item: item,
@@ -4232,9 +4237,100 @@ class SidebarUI {
         });
     }
 
+    async handleClearApis() {
+        if (!confirm('Are you sure you want to clear all configured APIs? This will remove all items from the API search.')) {
+            return;
+        }
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'exec',
+                payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+            });
+
+            if (resp && resp.success) {
+                this.showNotification('APIs cleared successfully', 'success');
+                this.apiSearchInput.value = '';
+                this.searchDropdown.classList.add('hidden');
+            } else {
+                this.showNotification('Failed to clear APIs: ' + (resp?.error || 'Unknown error'), 'error');
+            }
+        } catch (e) {
+            console.error('[Sidebar] Failed to clear APIs:', e);
+            this.showNotification('Error clearing APIs', 'error');
+        }
+    }
+
+    async handleSyncApis() {
+        this.showNotification('Syncing APIs...', 'info');
+        try {
+            // For now fetching from the local repository (relative to the extension)
+            // The user mentioned "syncing contacts github to fetch the apis.json file"
+            // Since I am an agent in the repo, I'll assume they want to fetch it from the repo's public location or relative path if possible.
+            // But usually in an extension, you fetch from a URL.
+            // I'll use the raw github content URL if I can infer it, or just use chrome.runtime.getURL for now if it's bundled.
+            // The prompt says "syncing contacts github", so I should probably use a github URL.
+            // Assuming the repo is jkingyens/pkt as per user_information
+            const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch apis.json from GitHub');
+
+            const apis = await response.json();
+
+            // Clear existing first
+            await this.sendMessage({
+                action: 'exec',
+                payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+            });
+
+            // Insert new ones
+            for (const api of apis) {
+                await this.sendMessage({
+                    action: 'exec',
+                    payload: {
+                        name: 'services',
+                        sql: 'INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
+                        bind: [api.name, api.icon, api.description, api.config_id]
+                    }
+                });
+            }
+
+            this.showNotification('APIs synced successfully', 'success');
+        } catch (e) {
+            console.error('[Sidebar] Failed to sync APIs:', e);
+            // Fallback to local file if GitHub fails (might be development mode)
+            try {
+                const localUrl = chrome.runtime.getURL('apis.json');
+                const localResp = await fetch(localUrl);
+                if (localResp.ok) {
+                    const apis = await localResp.json();
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: { name: 'services', sql: 'DELETE FROM services_fts' }
+                    });
+                    for (const api of apis) {
+                        await this.sendMessage({
+                            action: 'exec',
+                            payload: {
+                                name: 'services',
+                                sql: 'INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
+                                bind: [api.name, api.icon, api.description, api.config_id]
+                            }
+                        });
+                    }
+                    this.showNotification('APIs synced from local bundle', 'success');
+                    return;
+                }
+            } catch (localErr) {
+                console.error('[Sidebar] Local fallback also failed:', localErr);
+            }
+            this.showNotification('Failed to sync APIs', 'error');
+        }
+    }
+
     _normalizeRows(result) {
         if (!Array.isArray(result) || result.length === 0) return [];
-        
+
         // Check if result is in legacy format: [{columns: [...], values: [...]}]
         if (result[0] && Array.isArray(result[0].columns) && Array.isArray(result[0].values)) {
             const columns = result[0].columns;
@@ -4246,7 +4342,7 @@ class SidebarUI {
                 return row;
             });
         }
-        
+
         // Already array of objects (or empty)
         return result;
     }
@@ -4264,15 +4360,15 @@ class SidebarUI {
             const escapedQuery = query.replace(/"/g, '""');
             const sql = "SELECT name, icon, description FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
             const bind = [`"${escapedQuery}"*`];
-            
-            const resp = await this.sendMessage({ 
+
+            const resp = await this.sendMessage({
                 action: 'query', // Use query for automatic normalization
-                payload: { name: 'services', sql, bind } 
+                payload: { name: 'services', sql, bind }
             });
 
             if (resp && resp.success) {
                 const results = this._normalizeRows(resp.result);
-                
+
                 if (results && results.length > 0) {
                     this.searchDropdown.innerHTML = results.map(api => `
                         <div class="search-result-item" data-api-name="${api.name}">
@@ -4412,7 +4508,7 @@ class SidebarUI {
         } else {
             // Revert toggle immediately, it will be updated only after successful verification
             this.webAuthnToggle.checked = true;
-            
+
             if (confirm('Verify identity to disable biometric protection?')) {
                 this.pendingWebAuthnDisable = true;
                 this.verifyWebAuthn();
@@ -4433,7 +4529,7 @@ class SidebarUI {
 
     async handleAuthResult(result) {
         if (!result || !result.success) return;
-        
+
         // Cooldown check: only process recent results (last 10 seconds)
         if (Date.now() - result.timestamp > 10000) return;
 
@@ -4455,14 +4551,14 @@ class SidebarUI {
                 this.isVerified = true;
                 this.hideLockScreen();
                 this.showNotification('Identity verified', 'success');
-                
+
                 // NEW: Signal background to unlock tab groups
                 await this.sendMessage({ action: 'UNLOCK_TAB_GROUPS' });
-                
+
                 this.continueInit();
             }
         }
-        
+
         // Clear result so it's not re-processed
         await chrome.storage.local.remove('webAuthnResult');
     }
@@ -4856,7 +4952,7 @@ class SidebarUI {
             this.sendMessage({ type: 'UPDATE_BADGE', isReadyToClip: false, tabId: this.activeCaptureTabId }).catch(() => { });
             this.activeCaptureTabId = null;
         }
-        
+
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab) {
             chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active, islandOnly }).catch(() => { });
@@ -4916,14 +5012,14 @@ class SidebarUI {
                 // Video Clip path
                 this.pendingVideoRegion = region;
                 await this.setClipperActive(false);
-                
+
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                 if (!tab) throw new Error('No active tab');
 
                 const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-                
-                await this.sendMessage({ 
-                    action: 'START_TAB_VIDEO_RECORDING', 
+
+                await this.sendMessage({
+                    action: 'START_TAB_VIDEO_RECORDING',
                     streamId,
                     region: region
                 });
@@ -4934,8 +5030,8 @@ class SidebarUI {
                     type: 'SET_RECORDING_OVERLAY',
                     active: true,
                     region: region
-                }).catch(() => {});
-                
+                }).catch(() => { });
+
                 this.pendingVideoClip = false;
                 this.pendingVideoRegion = null;
                 return;
@@ -5030,7 +5126,7 @@ class SidebarUI {
     handleClipperCancelled() {
         if (this.isRecording) {
             console.log('[Sidebar] Clipper cancelled while recording. Stopping recording.');
-            this.sendMessage({ action: 'STOP_AUDIO_RECORDING' }).catch(() => {});
+            this.sendMessage({ action: 'STOP_AUDIO_RECORDING' }).catch(() => { });
         }
         this.isClipperManuallyCancelled = true;
         this.isClipperInvoked = false;
@@ -5180,7 +5276,7 @@ class SidebarUI {
             const remapIds = (obj) => {
                 if (!obj || typeof obj !== 'object') return obj;
                 if (Array.isArray(obj)) return obj.map(remapIds);
-                
+
                 const newObj = {};
                 for (const [key, value] of Object.entries(obj)) {
                     // Support both camelCase and underscore versions of media/resource IDs
@@ -5228,12 +5324,12 @@ class SidebarUI {
             if (!stackResp.success || !stackResp.result || stackResp.result.length === 0) {
                 throw new Error(stackResp.error || 'Failed to insert stack');
             }
-            
+
             // The result of SELECT last_insert_rowid() is in the last result object
             const lastResult = stackResp.result[stackResp.result.length - 1];
             const newStackId = lastResult.values[0][0];
             console.log('[Import] New Stack ID assigned:', newStackId);
-            
+
             if (!newStackId) throw new Error('Could not retrieve new stack ID');
             console.log('[Import] New Stack ID:', newStackId, 'Mode:', stack.mode, 'MediaID:', stack.mediaId);
 
@@ -5246,7 +5342,7 @@ class SidebarUI {
                 // Ensure metadata is stringified
                 const metaObj = typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {});
                 const escapedItemMeta = JSON.stringify(remapIds(metaObj)).replace(/'/g, "''");
-                
+
                 const insertItemSql = `INSERT INTO stack_items (stack_id, type, name, url, metadata, position) 
                                      VALUES (${newStackId}, '${itemType}', '${escapedItemName}', '${escapedItemUrl}', '${escapedItemMeta}', ${item.position || 0})`;
                 console.log('[Import] Inserting Item:', item.name || 'Slide', 'Type:', itemType, 'into stack:', newStackId);
@@ -5264,7 +5360,7 @@ class SidebarUI {
 
             // 7. Reconstruct packet-level URLs (including references to media and the stack)
             const packetUrls = [];
-            
+
             // A. Add the stack itself
             packetUrls.push({
                 type: 'stack',
@@ -5319,7 +5415,7 @@ class SidebarUI {
                     packetUrls.push(packetItem);
                     seenResourceIds.add(rid);
                 } else if (item.type === 'wasm') {
-                     packetUrls.push(packetItem);
+                    packetUrls.push(packetItem);
                 }
             }
 
@@ -5347,8 +5443,8 @@ class SidebarUI {
 
             // 10. Update UI
             this.showNotification('Packet imported successfully!', 'success');
-            await this.loadPackets(); 
-            
+            await this.loadPackets();
+
             // Auto-open the imported packet's detail view
             const finalPacket = { id: newPacketId, name: packetName, urls: packetUrls };
             this.showPacketDetailView(finalPacket);
@@ -5364,18 +5460,18 @@ class SidebarUI {
     async handleBackupData() {
         try {
             this.showProgress('Preparing backup...', 0);
-            
+
             const backup = await this.backupManager.exportFullBackup(({ checkpoint, percent }) => {
                 this.showProgress(checkpoint, percent);
             });
-            
+
             this.showProgress('Finalizing backup file...', 99);
             const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
-            
+
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             const filename = `wildcard-backup-${timestamp}.json`;
-            
+
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
@@ -5383,7 +5479,7 @@ class SidebarUI {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            
+
             this.showNotification('Backup downloaded successfully!', 'success');
         } catch (err) {
             console.error('[Backup] Failed:', err);
@@ -5406,20 +5502,20 @@ class SidebarUI {
             this.showProgress('Reading backup file...', 5);
             const text = await file.text();
             const backup = JSON.parse(text);
-            
+
             await this.backupManager.importFullBackup(backup, ({ checkpoint, percent }) => {
                 this.showProgress(checkpoint, percent);
             });
-            
+
             // 4. Reset migration flag so SW triggers a fresh migration from the restored checkpoints
             await chrome.storage.local.set({ opfsMigrationDone: false });
 
             // Notify background worker to flush its cache/state before reload
             await this.sendMessage({ action: 'RESET_STATE' });
-            
+
             this.showProgress('Restore successful! Reloading...', 100);
             this.showNotification('Restore successful! Reloading...', 'success');
-            
+
             // Ensure the modal is hidden before reload to prevent flicker on next load
             if (this.progressModal) {
                 setTimeout(() => {

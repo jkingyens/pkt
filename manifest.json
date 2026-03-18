@@ -70,7 +70,8 @@
                 "vendor/sqlite/sqlite3-worker1.mjs",
                 "src/island.html",
                 "src/island.js",
-                "sidebar/local-editor.js"
+                "sidebar/local-editor.js",
+                "apis.json"
             ],
             "matches": [
                 "<all_urls>"

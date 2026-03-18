@@ -147,7 +147,13 @@
   <!-- ===== USER VIEW ===== -->
   <div id="userView" class="view">
     <header class="detail-header">
-      <button id="userBackBtn" class="back-btn">← Back</button>
+      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+        <button id="userBackBtn" class="back-btn">← Back</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="clearApisBtn" class="btn-icon danger" title="Clear all APIs" style="font-size: 14px;">🗑️</button>
+          <button id="syncApisBtn" class="btn-icon" title="Sync APIs from repository" style="font-size: 14px;">🔄</button>
+        </div>
+      </div>
       <h2 class="detail-title">APIs</h2>
     </header>
     <div class="user-body">
