@@ -176,7 +176,7 @@
       <h2 id="apiDetailTitle" class="detail-title">API Settings</h2>
     </header>
     <div class="constructor-body">
-      <div id="geminiSettings" class="api-settings-group">
+      <div id="geminiSettings" class="api-settings-group hidden">
         <div class="form-group">
           <label style="display: flex; justify-content: space-between; align-items: center;">
             Gemini API Key
@@ -205,6 +205,17 @@
           </label>
           <textarea id="geminiSystemPromptInput" class="form-input"
             style="height: 120px; margin-top: 6px; font-family: monospace; font-size: 11px;"></textarea>
+        </div>
+      </div>
+
+      <div id="chromePermissionSettings" class="api-settings-group hidden">
+        <div class="form-group">
+          <label id="permissionStatusTitle">Permission Status</label>
+          <div class="permission-status-container" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; background: var(--bg-alt); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div id="chromePermissionStatusIndicator" class="status-indicator-circle red"></div>
+            <span id="chromePermissionLabel" class="status-label">Forbidden</span>
+          </div>
+          <p id="permissionHint" class="hint" style="margin-top: 10px;">This API requires the corresponding permission in your extension's manifest.</p>
         </div>
       </div>
     </div>

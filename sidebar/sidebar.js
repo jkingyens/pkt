@@ -321,6 +321,14 @@ class SidebarUI {
         this.progressBar = document.getElementById('progressBar');
         this.progressText = document.getElementById('progressText');
 
+        // API Settings Groups
+        this.geminiSettings = document.getElementById('geminiSettings');
+        this.chromePermissionSettings = document.getElementById('chromePermissionSettings');
+        this.chromePermissionStatusIndicator = document.getElementById('chromePermissionStatusIndicator');
+        this.chromePermissionLabel = document.getElementById('chromePermissionLabel');
+        this.permissionStatusTitle = document.getElementById('permissionStatusTitle');
+        this.permissionHint = document.getElementById('permissionHint');
+
         this.blobStorage = new BlobStorage();
         this.backupManager = new BackupManager(this.blobStorage);
 
@@ -489,6 +497,8 @@ class SidebarUI {
 
         this.clearApisBtn.onclick = () => this.handleClearApis();
         this.syncApisBtn.onclick = () => this.handleSyncApis();
+
+        this.renderApiList();
     }
 
     async init() {
@@ -4195,65 +4205,80 @@ class SidebarUI {
         this.renderApiList();
     }
 
-    showApiDetailView(apiId) {
+    async showApiDetailView(apiId) {
+        // Hide all settings groups first
+        this.geminiSettings.classList.add('hidden');
+        this.chromePermissionSettings.classList.add('hidden');
+
         if (apiId === 'gemini') {
             this.apiDetailTitle.textContent = 'Gemini AI';
+            this.geminiSettings.classList.remove('hidden');
             this.geminiApiKeyInput.value = this.geminiApiKey;
             this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
             this.renderModelSelect();
+        } else if (apiId && apiId.startsWith('chrome:')) {
+            const permission = apiId.split(':')[1];
+            const formattedName = permission
+                .replace(/([A-Z])/g, ' $1') // Add space before capital letters
+                .replace(/^./, str => str.toUpperCase()); // Capitalize first letter
+            
+            this.apiDetailTitle.textContent = 'Chrome: ' + formattedName;
+            this.chromePermissionSettings.classList.remove('hidden');
+            this.permissionStatusTitle.textContent = `${formattedName} Permission`;
+            this.permissionHint.textContent = `This API requires the "${permission}" permission in your extension's manifest.`;
+            await this.checkPermission(permission);
         }
         this.showView('apiDetailView');
     }
 
-    renderApiList() {
-        if (!this.apiList) return;
-        this.apiList.innerHTML = '';
-
-        const apis = [
-            { id: 'gemini', name: 'Gemini AI', icon: '✨', status: this.geminiApiKey ? 'Configured' : 'Needs Setup' },
-            { id: 'bookmarks', name: 'Chrome Bookmark API', icon: '🔖', status: 'System', configurable: false }
-        ];
-
-        apis.forEach(api => {
-            const item = document.createElement('div');
-            item.className = 'api-item';
-            item.innerHTML = `
-                <div class="api-item-info">
-                    <div class="api-item-icon">${api.icon}</div>
-                    <div class="api-item-text">
-                        <div class="api-item-name">${api.name}</div>
-                        <div class="api-item-status">${api.status}</div>
-                    </div>
-                </div>
-                ${api.configurable !== false ? '<div class="api-item-chevron">›</div>' : ''}
-            `;
-            if (api.configurable !== false) {
-                item.onclick = () => this.showApiDetailView(api.id);
-            } else {
-                item.style.cursor = 'default';
-                item.style.transform = 'none';
-            }
-            this.apiList.appendChild(item);
-        });
-    }
-
-    async handleClearApis() {
-        if (!confirm('Are you sure you want to clear all configured APIs? This will remove all items from the API search.')) {
+    async checkPermission(permission) {
+        if (!chrome.permissions) {
+            this.updatePermissionStatus(false, 'Unavailable');
             return;
         }
 
         try {
-            const resp = await this.sendMessage({
+            const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
+            this.updatePermissionStatus(hasPermission, hasPermission ? 'Granted' : 'Forbidden');
+        } catch (e) {
+            console.error(`[Sidebar] Error checking ${permission} permission:`, e);
+            this.updatePermissionStatus(false, 'Error');
+        }
+    }
+
+    updatePermissionStatus(granted, label) {
+        if (!this.chromePermissionStatusIndicator || !this.chromePermissionLabel) return;
+        
+        this.chromePermissionStatusIndicator.className = 'status-indicator-circle ' + (granted ? 'green' : 'red');
+        this.chromePermissionLabel.textContent = label;
+    }
+
+    async handleClearApis() {
+        if (!confirm('Are you sure you want to clear the API repository and all your added APIs?')) {
+            return;
+        }
+
+        try {
+            // Clear both the FS repository cache and the user-added configs
+            // We do these as separate calls because the service worker 'exec' handler
+            // expects a single operation per message.
+            await this.sendMessage({
                 action: 'exec',
                 payload: { name: 'services', sql: 'DELETE FROM services_fts' }
             });
 
+            const resp = await this.sendMessage({
+                action: 'exec',
+                payload: { name: 'services', sql: 'DELETE FROM configured_services' }
+            });
+
             if (resp && resp.success) {
-                this.showNotification('APIs cleared successfully', 'success');
+                this.showNotification('APIs and configs cleared', 'success');
                 this.apiSearchInput.value = '';
                 this.searchDropdown.classList.add('hidden');
+                await this.renderApiList(); // Refresh the list (should be empty now)
             } else {
-                this.showNotification('Failed to clear APIs: ' + (resp?.error || 'Unknown error'), 'error');
+                this.showNotification('Failed to clear: ' + (resp?.error || 'Unknown error'), 'error');
             }
         } catch (e) {
             console.error('[Sidebar] Failed to clear APIs:', e);
@@ -4264,26 +4289,19 @@ class SidebarUI {
     async handleSyncApis() {
         this.showNotification('Syncing APIs...', 'info');
         try {
-            // For now fetching from the local repository (relative to the extension)
-            // The user mentioned "syncing contacts github to fetch the apis.json file"
-            // Since I am an agent in the repo, I'll assume they want to fetch it from the repo's public location or relative path if possible.
-            // But usually in an extension, you fetch from a URL.
-            // I'll use the raw github content URL if I can infer it, or just use chrome.runtime.getURL for now if it's bundled.
-            // The prompt says "syncing contacts github", so I should probably use a github URL.
-            // Assuming the repo is jkingyens/pkt as per user_information
             const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
             const response = await fetch(url);
             if (!response.ok) throw new Error('Failed to fetch apis.json from GitHub');
 
             const apis = await response.json();
 
-            // Clear existing first
+            // Clear existing cache first (services_fts)
             await this.sendMessage({
                 action: 'exec',
                 payload: { name: 'services', sql: 'DELETE FROM services_fts' }
             });
 
-            // Insert new ones
+            // Insert new ones into cache
             for (const api of apis) {
                 await this.sendMessage({
                     action: 'exec',
@@ -4298,7 +4316,7 @@ class SidebarUI {
             this.showNotification('APIs synced successfully', 'success');
         } catch (e) {
             console.error('[Sidebar] Failed to sync APIs:', e);
-            // Fallback to local file if GitHub fails (might be development mode)
+            // Fallback to local file if GitHub fails
             try {
                 const localUrl = chrome.runtime.getURL('apis.json');
                 const localResp = await fetch(localUrl);
@@ -4325,6 +4343,87 @@ class SidebarUI {
                 console.error('[Sidebar] Local fallback also failed:', localErr);
             }
             this.showNotification('Failed to sync APIs', 'error');
+        }
+    }
+
+    async renderApiList() {
+        if (!this.apiList) return;
+        this.apiList.innerHTML = '';
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'query',
+                payload: { name: 'services', sql: 'SELECT * FROM configured_services ORDER BY created ASC' }
+            });
+
+            let apis = [];
+            if (resp && resp.success && resp.result) {
+                apis = this._normalizeRows(resp.result);
+            }
+
+            // If Gemini is not in the list, we probably want to ensure it's there as a default
+            // or if it IS there, we wire it to settings.
+            
+            if (apis.length === 0) {
+                this.apiList.innerHTML = '<div class="api-item-empty">No APIs configured yet. Search and add them above.</div>';
+                return;
+            }
+
+            apis.forEach(api => {
+                const isGemini = api.config_id === 'gemini';
+                const isChrome = api.config_id && api.config_id.startsWith('chrome:');
+                const item = document.createElement('div');
+                item.className = 'api-item';
+                
+                let status = 'Configured';
+                if (isGemini && !this.geminiApiKey) status = 'Needs Setup';
+                
+                item.innerHTML = `
+                    <div class="api-item-info">
+                        <div class="api-item-icon">${api.icon || '🔌'}</div>
+                        <div class="api-item-text">
+                            <div class="api-item-name">${api.name}</div>
+                            <div class="api-item-status">${status}</div>
+                        </div>
+                    </div>
+                    ${(isGemini || isChrome) ? '<div class="api-item-chevron">›</div>' : ''}
+                `;
+                
+                if (isGemini || isChrome) {
+                    item.onclick = () => this.showApiDetailView(api.config_id);
+                } else {
+                    item.style.cursor = 'default';
+                    item.style.transform = 'none';
+                }
+                this.apiList.appendChild(item);
+            });
+        } catch (e) {
+            console.error('[Sidebar] Failed to render API list:', e);
+        }
+    }
+
+    async handleAddConfiguredApi(name, icon, description, config_id) {
+        try {
+            const resp = await this.sendMessage({
+                action: 'exec',
+                payload: {
+                    name: 'services',
+                    sql: 'INSERT OR IGNORE INTO configured_services (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
+                    bind: [name, icon, description, config_id]
+                }
+            });
+
+            if (resp && resp.success) {
+                this.showNotification(`Added ${name} to configured APIs`, 'success');
+                this.renderApiList();
+                this.apiSearchInput.value = '';
+                this.searchDropdown.classList.add('hidden');
+            } else {
+                this.showNotification('Failed to add API: ' + (resp?.error || 'Unknown error'), 'error');
+            }
+        } catch (e) {
+            console.error('[Sidebar] Failed to add configured API:', e);
+            this.showNotification('Error adding API', 'error');
         }
     }
 
@@ -4355,14 +4454,12 @@ class SidebarUI {
         }
 
         try {
-            // Robust FTS5 query: wrap in quotes and escape quotes if present
-            // This treats the entire input as a prefix match
             const escapedQuery = query.replace(/"/g, '""');
-            const sql = "SELECT name, icon, description FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
+            const sql = "SELECT name, icon, description, config_id FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
             const bind = [`"${escapedQuery}"*`];
 
             const resp = await this.sendMessage({
-                action: 'query', // Use query for automatic normalization
+                action: 'query',
                 payload: { name: 'services', sql, bind }
             });
 
@@ -4371,15 +4468,25 @@ class SidebarUI {
 
                 if (results && results.length > 0) {
                     this.searchDropdown.innerHTML = results.map(api => `
-                        <div class="search-result-item" data-api-name="${api.name}">
+                        <div class="search-result-item" data-api-name="${api.name}" data-api-icon="${api.icon}" data-api-desc="${api.description}" data-api-cid="${api.config_id}">
                             <span class="icon">${api.icon || '🧩'}</span>
                             <div class="api-item-text">
                                 <div class="api-item-name">${api.name}</div>
                                 <div class="api-item-hint">${api.description || ''}</div>
                             </div>
+                            <button class="add-api-btn">Add</button>
                         </div>
                     `).join('');
                     this.searchDropdown.classList.remove('hidden');
+
+                    this.searchDropdown.querySelectorAll('.add-api-btn').forEach(btn => {
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            const item = btn.closest('.search-result-item');
+                            const { apiName, apiIcon, apiDesc, apiCid } = item.dataset;
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid);
+                        };
+                    });
                 } else {
                     this.searchDropdown.classList.add('hidden');
                 }

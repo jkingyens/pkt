@@ -47,7 +47,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
   icon, 
   description,
   config_id UNINDEXED
-);`;
+);
+CREATE TABLE IF NOT EXISTS configured_services (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  icon        TEXT,
+  description TEXT,
+  config_id   TEXT UNIQUE NOT NULL,
+  created     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
 
 class SQLiteManager {
   constructor() {

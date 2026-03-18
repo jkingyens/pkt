@@ -37,6 +37,7 @@ let isSessionVerified = false;
 const NETWORK_BLOCK_RULE_ID = 1;
 
 async function syncBookmarkCache() {
+    if (!chrome.bookmarks) return;
     try {
         bookmarkCache = await chrome.bookmarks.getTree();
         console.log('[BookmarksCache] Synced', bookmarkCache.length, 'root nodes:', JSON.stringify(bookmarkCache).substring(0, 100) + '...');
@@ -46,12 +47,14 @@ async function syncBookmarkCache() {
 }
 
 // Keep cache in sync
-chrome.bookmarks.onCreated.addListener(syncBookmarkCache);
-chrome.bookmarks.onRemoved.addListener(syncBookmarkCache);
-chrome.bookmarks.onChanged.addListener(syncBookmarkCache);
-chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
-chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
-chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
+if (chrome.bookmarks) {
+    chrome.bookmarks.onCreated.addListener(syncBookmarkCache);
+    chrome.bookmarks.onRemoved.addListener(syncBookmarkCache);
+    chrome.bookmarks.onChanged.addListener(syncBookmarkCache);
+    chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
+    chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
+    chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
+}
 
 // Terminal tab tracking
 chrome.tabs.onRemoved.addListener((tabId) => {
