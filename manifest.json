@@ -15,7 +15,8 @@
         "contextMenus",
         "scripting",
         "declarativeNetRequest",
-        "downloads.open"
+        "downloads.open",
+        "downloads"
     ],
     "host_permissions": [
         "<all_urls>"

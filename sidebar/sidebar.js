@@ -330,6 +330,7 @@ class SidebarUI {
         this.permissionHint = document.getElementById('permissionHint');
         this.apiDetailPermissionHelper = document.getElementById('apiDetailPermissionHelper');
         this.apiDetailCopyManifestBtn = document.getElementById('apiDetailCopyManifestBtn');
+        this.extensionReloadLink = document.getElementById('extensionReloadLink');
 
         this.blobStorage = new BlobStorage();
         this.backupManager = new BackupManager(this.blobStorage);
@@ -1313,6 +1314,14 @@ class SidebarUI {
                 if (this.currentDetailPermission) {
                     this.copyCorrectedManifest(this.currentDetailPermission);
                 }
+            });
+        }
+
+        if (this.extensionReloadLink) {
+            this.extensionReloadLink.addEventListener('click', () => {
+                // Open our specific extension's detail page on chrome://extensions
+                const extId = chrome.runtime.id;
+                chrome.tabs.create({ url: `chrome://extensions/?id=${extId}` });
             });
         }
 
@@ -4845,11 +4854,17 @@ class SidebarUI {
             const isChromeOS = info.os === 'cros';
             this.currentPlatform = isChromeOS ? 'chromeos' : 'chromebrowser';
             this.currentPlatformOs = info.os;
+
+            // Read Chrome version from the browser's user agent
+            const match = navigator.userAgent.match(/Chrome\/([\d.]+)/);
+            this.chromeVersion = match ? match[1].split('.')[0] : null; // major version only
+
             this.updatePlatformUI();
         } catch (e) {
             console.warn('[Sidebar] Could not detect platform:', e);
             this.currentPlatform = 'chromebrowser';
             this.currentPlatformOs = 'unknown';
+            this.chromeVersion = null;
             this.updatePlatformUI();
         }
     }
@@ -4863,15 +4878,16 @@ class SidebarUI {
         const isChromeOS = this.currentPlatform === 'chromeos';
         const osLabels = { cros: 'ChromeOS', mac: 'macOS', win: 'Windows', linux: 'Linux', android: 'Android', unknown: 'Unknown' };
         const osName = osLabels[this.currentPlatformOs] || this.currentPlatformOs;
+        const versionSuffix = this.chromeVersion ? ` ${this.chromeVersion}` : '';
 
         if (isChromeOS) {
-            nameEl.textContent = 'ChromeOS';
-            badgeEl.textContent = 'All APIs';
+            nameEl.textContent = `ChromeOS${versionSuffix}`;
+            badgeEl.textContent = 'ChromeOS';
             badgeEl.className = 'platform-badge platform-badge-chromeos';
             if (segmentEl) segmentEl.querySelector('.platform-info-icon').textContent = '🟢';
         } else {
-            nameEl.textContent = `Chrome Browser · ${osName}`;
-            badgeEl.textContent = 'Filtered';
+            nameEl.textContent = `Chrome${versionSuffix} · ${osName}`;
+            badgeEl.textContent = 'Chrome Browser';
             badgeEl.className = 'platform-badge platform-badge-browser';
             if (segmentEl) segmentEl.querySelector('.platform-info-icon').textContent = '💻';
         }

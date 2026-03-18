@@ -2755,6 +2755,130 @@ body:not(.dark-mode) .lock-screen {
   justify-content: center;
 }
 
+.permission-helper-soft {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+}
+
+.perm-desc-soft {
+  color: var(--text-muted);
+}
+
+.perm-desc-soft code {
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.extension-reload-link {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: var(--primary);
+  text-decoration: none;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+  padding: 2px 0;
+}
+
+.extension-reload-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.extension-reload-btn {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 11px;
+  width: 100%;
+}
+
+/* ===== 3-STEP PERMISSION GUIDE ===== */
+.permission-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.perm-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  position: relative;
+}
+
+.perm-step:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.perm-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.perm-step-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.perm-step-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.perm-step-title code {
+  background: var(--bg-alt);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.perm-step-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.perm-step-desc strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.perm-step-btn {
+  margin-top: 6px;
+  align-self: flex-start;
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
 .search-result-item:last-child {
   border-bottom: none;
 }

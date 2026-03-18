@@ -236,9 +236,30 @@
           </div>
           <p id="permissionHint" class="hint" style="margin-top: 10px;">This API requires the corresponding permission in your extension's manifest.</p>
           <div id="apiDetailPermissionHelper" class="hidden" style="margin-top: 16px;">
-            <div class="permission-helper">
-              <p class="perm-desc">⚠️ This API is not yet available because the permission is missing from your manifest.</p>
-              <button id="apiDetailCopyManifestBtn" class="btn btn-secondary btn-sm copy-manifest-btn">📋 Copy Corrected Manifest</button>
+            <div class="permission-steps">
+              <div class="perm-step">
+                <div class="perm-step-num">1</div>
+                <div class="perm-step-body">
+                  <p class="perm-step-title">Open your extension detail page</p>
+                  <p class="perm-step-desc">Note the source folder path shown under the extension name.</p>
+                  <button id="extensionReloadLink" class="btn btn-secondary btn-sm perm-step-btn">↗ Open Extension Page</button>
+                </div>
+              </div>
+              <div class="perm-step">
+                <div class="perm-step-num">2</div>
+                <div class="perm-step-body">
+                  <p class="perm-step-title">Replace your <code>manifest.json</code></p>
+                  <p class="perm-step-desc">Copy the updated manifest, then open and overwrite the file in your source folder.</p>
+                  <button id="apiDetailCopyManifestBtn" class="btn btn-secondary btn-sm perm-step-btn">📋 Copy Updated Manifest</button>
+                </div>
+              </div>
+              <div class="perm-step">
+                <div class="perm-step-num">3</div>
+                <div class="perm-step-body">
+                  <p class="perm-step-title">Reload the extension</p>
+                  <p class="perm-step-desc">Return to the extension detail page and click the reload <strong>↺</strong> button to apply changes.</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
