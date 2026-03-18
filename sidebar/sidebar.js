@@ -328,6 +328,8 @@ class SidebarUI {
         this.chromePermissionLabel = document.getElementById('chromePermissionLabel');
         this.permissionStatusTitle = document.getElementById('permissionStatusTitle');
         this.permissionHint = document.getElementById('permissionHint');
+        this.apiDetailPermissionHelper = document.getElementById('apiDetailPermissionHelper');
+        this.apiDetailCopyManifestBtn = document.getElementById('apiDetailCopyManifestBtn');
 
         this.blobStorage = new BlobStorage();
         this.backupManager = new BackupManager(this.blobStorage);
@@ -1302,12 +1304,33 @@ class SidebarUI {
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
         this.userBackBtn.addEventListener('click', () => this.showListView());
         this.apiDetailBackBtn.addEventListener('click', () => this.showUserView());
+        if (this.apiDetailCopyManifestBtn) {
+            this.apiDetailCopyManifestBtn.addEventListener('click', () => {
+                if (this.currentDetailPermission) {
+                    this.copyCorrectedManifest(this.currentDetailPermission);
+                }
+            });
+        }
 
         if (this.apiSearchInput) {
             this.apiSearchInput.addEventListener('input', () => this.handleApiSearch());
             this.apiSearchInput.addEventListener('focus', () => {
                 if (this.apiSearchInput.value.trim().length > 0) {
                     this.searchDropdown.classList.remove('hidden');
+                }
+            });
+            this.apiSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const firstResult = this.searchDropdown.querySelector('.search-result-item');
+                    if (firstResult && !this.searchDropdown.classList.contains('hidden')) {
+                        e.preventDefault();
+                        const { apiName, apiIcon, apiDesc, apiCid, apiPerm, apiConfigured } = firstResult.dataset;
+                        if (apiConfigured === 'true') {
+                            this.handleRemoveConfiguredApi(apiName, apiCid);
+                        } else {
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null);
+                        }
+                    }
                 }
             });
             // Close dropdown when clicking outside
@@ -4238,7 +4261,11 @@ class SidebarUI {
                         this.chromePermissionSettings.classList.remove('hidden');
                         this.permissionStatusTitle.textContent = `${api.name.replace('Chrome: ', '')} Permission`;
                         this.permissionHint.textContent = `This API requires the "${api.manifest_permission}" permission in your extension's manifest.`;
+                        this.currentDetailPermission = api.manifest_permission;
                         await this.checkPermission(api.manifest_permission);
+                    } else {
+                        this.currentDetailPermission = null;
+                        if (this.apiDetailPermissionHelper) this.apiDetailPermissionHelper.classList.add('hidden');
                     }
                 }
             }
@@ -4249,12 +4276,16 @@ class SidebarUI {
     async checkPermission(permission) {
         if (!chrome.permissions) {
             this.updateChromePermissionStatus(false, 'Unavailable');
+            if (this.apiDetailPermissionHelper) this.apiDetailPermissionHelper.classList.add('hidden');
             return;
         }
 
         try {
             const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
             this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Available' : 'Unavailable');
+            if (this.apiDetailPermissionHelper) {
+                this.apiDetailPermissionHelper.classList.toggle('hidden', hasPermission);
+            }
         } catch (e) {
             console.error(`[Sidebar] Error checking ${permission} permission:`, e);
             this.updateChromePermissionStatus(false, 'Error');
@@ -4585,6 +4616,60 @@ class SidebarUI {
         }
     }
 
+    async handleRemoveConfiguredApi(name, config_id) {
+        if (!confirm(`Are you sure you want to remove ${name} from your configured APIs?`)) {
+            return;
+        }
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'exec',
+                payload: {
+                    name: 'services',
+                    sql: 'DELETE FROM configured_services WHERE config_id = ?',
+                    bind: [config_id]
+                }
+            });
+
+            if (resp && resp.success) {
+                this.showNotification(`Removed ${name} from configured APIs`, 'success');
+                this.renderApiList();
+                this.apiSearchInput.value = '';
+                this.searchDropdown.classList.add('hidden');
+            } else {
+                this.showNotification('Failed to remove API: ' + (resp?.error || 'Unknown error'), 'error');
+            }
+        } catch (e) {
+            console.error('[Sidebar] Failed to remove configured API:', e);
+            this.showNotification('Error removing API', 'error');
+        }
+    }
+
+    async copyCorrectedManifest(missingPermission) {
+        try {
+            const resp = await fetch(chrome.runtime.getURL('manifest.json'));
+            if (!resp.ok) throw new Error('Failed to fetch manifest.json');
+            
+            const manifest = await resp.json();
+            
+            // Clean up manifest object as it might contain internal fields if not careful
+            // (Standard chrome.runtime.getManifest() returns a copy, but we fetched the raw file)
+            
+            if (!manifest.permissions) manifest.permissions = [];
+            if (!manifest.permissions.includes(missingPermission)) {
+                manifest.permissions.push(missingPermission);
+            }
+            
+            const formatted = JSON.stringify(manifest, null, 4);
+            await navigator.clipboard.writeText(formatted);
+            
+            this.showNotification(`Manifest with "${missingPermission}" copied!`, 'success');
+        } catch (e) {
+            console.error('[Sidebar] Failed to copy corrected manifest:', e);
+            this.showNotification('Error copying manifest', 'error');
+        }
+    }
+
     _normalizeRows(result) {
         if (!Array.isArray(result) || result.length === 0) return [];
 
@@ -4613,7 +4698,14 @@ class SidebarUI {
 
         try {
             const escapedQuery = query.replace(/"/g, '""');
-            const sql = "SELECT name, icon, description, config_id, manifest_permission FROM services_fts WHERE services_fts MATCH ? ORDER BY rank";
+            const sql = `
+                SELECT 
+                    name, icon, description, config_id, manifest_permission,
+                    (SELECT 1 FROM configured_services WHERE configured_services.config_id = services_fts.config_id) as is_configured
+                FROM services_fts 
+                WHERE services_fts MATCH ? 
+                ORDER BY rank
+            `;
             const bind = [`"${escapedQuery}"*`];
 
             const resp = await this.sendMessage({
@@ -4625,21 +4717,29 @@ class SidebarUI {
                 const results = this._normalizeRows(resp.result);
 
                 if (results && results.length > 0) {
-                    this.searchDropdown.innerHTML = results.map(api => `
+                    this.searchDropdown.innerHTML = results.map(api => {
+                        return `
                         <div class="search-result-item" 
                              data-api-name="${api.name}" 
                              data-api-icon="${api.icon}" 
                              data-api-desc="${api.description}" 
                              data-api-cid="${api.config_id}"
-                             data-api-perm="${api.manifest_permission || ''}">
-                            <span class="icon">${api.icon || '🧩'}</span>
-                            <div class="api-item-text">
-                                <div class="api-item-name">${api.name}</div>
-                                <div class="api-item-hint">${api.description || ''}</div>
+                             data-api-perm="${api.manifest_permission || ''}"
+                             data-api-configured="${api.is_configured ? 'true' : 'false'}">
+                            <div class="search-result-main">
+                                <span class="icon">${api.icon || '🧩'}</span>
+                                <div class="api-item-text">
+                                    <div class="api-item-name">${api.name}</div>
+                                    <div class="api-item-hint">${api.description || ''}</div>
+                                </div>
+                                ${api.is_configured 
+                                    ? '<button class="remove-api-btn btn-danger btn-sm">Remove</button>' 
+                                    : '<button class="add-api-btn">Add</button>'
+                                }
                             </div>
-                            <button class="add-api-btn">Add</button>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
                     this.searchDropdown.classList.remove('hidden');
 
                     this.searchDropdown.querySelectorAll('.add-api-btn').forEach(btn => {
@@ -4648,6 +4748,15 @@ class SidebarUI {
                             const item = btn.closest('.search-result-item');
                             const { apiName, apiIcon, apiDesc, apiCid, apiPerm } = item.dataset;
                             this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null);
+                        };
+                    });
+
+                    this.searchDropdown.querySelectorAll('.remove-api-btn').forEach(btn => {
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            const item = btn.closest('.search-result-item');
+                            const { apiName, apiCid } = item.dataset;
+                            this.handleRemoveConfiguredApi(apiName, apiCid);
                         };
                     });
                 } else {

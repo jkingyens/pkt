@@ -216,6 +216,12 @@
             <span id="chromePermissionLabel" class="status-label">Forbidden</span>
           </div>
           <p id="permissionHint" class="hint" style="margin-top: 10px;">This API requires the corresponding permission in your extension's manifest.</p>
+          <div id="apiDetailPermissionHelper" class="hidden" style="margin-top: 16px;">
+            <div class="permission-helper">
+              <p class="perm-desc">⚠️ This API is not yet available because the permission is missing from your manifest.</p>
+              <button id="apiDetailCopyManifestBtn" class="btn btn-secondary btn-sm copy-manifest-btn">📋 Copy Corrected Manifest</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -2707,12 +2707,52 @@ body:not(.dark-mode) .lock-screen {
 /* API Search Results */
 .search-result-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 10px 12px;
   cursor: pointer;
   transition: background 0.2s;
   border-bottom: 1px solid var(--border);
+}
+
+.search-result-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.permission-helper {
+  background: var(--error-bg);
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  margin: 2px 0 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.perm-desc {
+  font-size: 11px;
+  color: var(--danger);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.perm-desc code {
+  background: rgba(239, 68, 68, 0.1);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.copy-manifest-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .search-result-item:last-child {
