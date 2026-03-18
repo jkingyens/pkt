@@ -4847,6 +4847,73 @@ class SidebarUI {
         return result;
     }
 
+    /**
+     * Fetches (and caches per-version) the versioned Chromium source tree base URL
+     * for the Chrome version currently running.
+     * @returns {Promise<string|null>}
+     */
+    async getChromiumSourceBaseUrl() {
+        // Prefer Client Hints API — gives the real full 4-part version (e.g. "146.0.7680.153")
+        // navigator.userAgent for dev/canary builds often reports "146.0.0.0" (placeholder),
+        // which has no matching source tag.
+        let version;
+        try {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                const hints = await navigator.userAgentData.getHighEntropyValues(['uaFullVersion']);
+                version = hints.uaFullVersion; // e.g. "146.0.7680.153"
+            }
+        } catch (_) { /* Client Hints not available */ }
+
+        // Fallback to parsing the classic user-agent string
+        if (!version) {
+            const match = navigator.userAgent.match(/Chrome\/([\d.]+)/);
+            if (!match) return null;
+            version = match[1];
+        }
+
+        const majorVersion = version.split('.')[0]; // e.g. "146"
+
+        // Check cache first
+        const cacheKey = `chromiumSourceBaseUrl_${version}`;
+        try {
+            const cached = await chrome.storage.local.get(cacheKey);
+            if (cached[cacheKey]) return cached[cacheKey];
+        } catch (_) { /* ignore storage errors */ }
+
+        let baseUrl;
+        try {
+            const response = await fetch(
+                `https://chromiumdash.appspot.com/fetch_releases?num=1&offset=0&version=${encodeURIComponent(version)}`
+            );
+            const data = await response.json();
+            if (data && data.length > 0) {
+                const release = data[0];
+                const hash = release.chromium_main_branch_hash
+                    || (release.hashes && release.hashes.chromium)
+                    || release.commit;
+                if (hash) {
+                    baseUrl = `https://chromium.googlesource.com/chromium/src/+/${hash}`;
+                }
+            }
+        } catch (e) {
+            console.warn('[Sidebar] ChromiumDash lookup failed, using branch fallback:', e);
+        }
+
+        // Fallback: use the version tag (e.g. refs/tags/146.0.7680.153) which is valid for
+        // stable/beta/dev releases. For very early canary builds without a tag yet, fall
+        // back to the milestone branch-heads ref.
+        if (!baseUrl) {
+            baseUrl = `https://chromium.googlesource.com/chromium/src/+/refs/tags/${version}`;
+        }
+
+        // Cache result
+        try {
+            await chrome.storage.local.set({ [cacheKey]: baseUrl });
+        } catch (_) { /* ignore storage errors */ }
+
+        return baseUrl;
+    }
+
     async detectPlatform() {
         try {
             const info = await chrome.runtime.getPlatformInfo();
@@ -4860,11 +4927,16 @@ class SidebarUI {
             this.chromeVersion = match ? match[1].split('.')[0] : null; // major version only
 
             this.updatePlatformUI();
+
+            // Resolve and cache the versioned Chromium source tree base URL
+            this.chromiumSourceBaseUrl = await this.getChromiumSourceBaseUrl();
+            this.updatePlatformUI(); // re-render with the source link now available
         } catch (e) {
             console.warn('[Sidebar] Could not detect platform:', e);
             this.currentPlatform = 'chromebrowser';
             this.currentPlatformOs = 'unknown';
             this.chromeVersion = null;
+            this.chromiumSourceBaseUrl = null;
             this.updatePlatformUI();
         }
     }
@@ -4873,6 +4945,7 @@ class SidebarUI {
         const nameEl = document.getElementById('platformInfoName');
         const badgeEl = document.getElementById('platformInfoBadge');
         const segmentEl = document.getElementById('platformInfoSegment');
+        const sourceLinkEl = document.getElementById('chromiumSourceLink');
         if (!nameEl || !badgeEl) return;
 
         const isChromeOS = this.currentPlatform === 'chromeos';
@@ -4890,6 +4963,17 @@ class SidebarUI {
             badgeEl.textContent = 'Chrome Browser';
             badgeEl.className = 'platform-badge platform-badge-browser';
             if (segmentEl) segmentEl.querySelector('.platform-info-icon').textContent = '💻';
+        }
+
+        // Render (or update) the versioned Chromium source link
+        if (sourceLinkEl) {
+            if (this.chromiumSourceBaseUrl) {
+                sourceLinkEl.href = this.chromiumSourceBaseUrl;
+                sourceLinkEl.textContent = '🔗 Source';
+                sourceLinkEl.classList.remove('hidden');
+            } else {
+                sourceLinkEl.classList.add('hidden');
+            }
         }
     }
 
