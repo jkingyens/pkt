@@ -4216,37 +4216,50 @@ class SidebarUI {
             this.geminiApiKeyInput.value = this.geminiApiKey;
             this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
             this.renderModelSelect();
-        } else if (apiId && apiId.startsWith('chrome:')) {
-            const permission = apiId.split(':')[1];
-            const formattedName = permission
-                .replace(/([A-Z])/g, ' $1') // Add space before capital letters
-                .replace(/^./, str => str.toUpperCase()); // Capitalize first letter
-            
-            this.apiDetailTitle.textContent = 'Chrome: ' + formattedName;
-            this.chromePermissionSettings.classList.remove('hidden');
-            this.permissionStatusTitle.textContent = `${formattedName} Permission`;
-            this.permissionHint.textContent = `This API requires the "${permission}" permission in your extension's manifest.`;
-            await this.checkPermission(permission);
+        } else {
+            // Data-driven view for all other APIs
+            const resp = await this.sendMessage({
+                action: 'query',
+                payload: {
+                    name: 'services',
+                    sql: 'SELECT * FROM configured_services WHERE config_id = ?',
+                    bind: [apiId]
+                }
+            });
+
+            if (resp && resp.success && resp.result) {
+                const api = this._normalizeRows(resp.result)[0];
+                if (api) {
+                    this.apiDetailTitle.textContent = api.name;
+                    
+                    if (api.manifest_permission) {
+                        this.chromePermissionSettings.classList.remove('hidden');
+                        this.permissionStatusTitle.textContent = `${api.name.replace('Chrome: ', '')} Permission`;
+                        this.permissionHint.textContent = `This API requires the "${api.manifest_permission}" permission in your extension's manifest.`;
+                        await this.checkPermission(api.manifest_permission);
+                    }
+                }
+            }
         }
         this.showView('apiDetailView');
     }
 
     async checkPermission(permission) {
         if (!chrome.permissions) {
-            this.updatePermissionStatus(false, 'Unavailable');
+            this.updateChromePermissionStatus(false, 'Unavailable');
             return;
         }
 
         try {
             const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
-            this.updatePermissionStatus(hasPermission, hasPermission ? 'Granted' : 'Forbidden');
+            this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Granted' : 'Forbidden');
         } catch (e) {
             console.error(`[Sidebar] Error checking ${permission} permission:`, e);
-            this.updatePermissionStatus(false, 'Error');
+            this.updateChromePermissionStatus(false, 'Error');
         }
     }
 
-    updatePermissionStatus(granted, label) {
+    updateChromePermissionStatus(granted, label) {
         if (!this.chromePermissionStatusIndicator || !this.chromePermissionLabel) return;
         
         this.chromePermissionStatusIndicator.className = 'status-indicator-circle ' + (granted ? 'green' : 'red');
@@ -4307,8 +4320,8 @@ class SidebarUI {
                     action: 'exec',
                     payload: {
                         name: 'services',
-                        sql: 'INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
-                        bind: [api.name, api.icon, api.description, api.config_id]
+                        sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
+                        bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
                     }
                 });
             }
@@ -4331,8 +4344,8 @@ class SidebarUI {
                             action: 'exec',
                             payload: {
                                 name: 'services',
-                                sql: 'INSERT INTO services_fts (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
-                                bind: [api.name, api.icon, api.description, api.config_id]
+                                sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
+                                bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
                             }
                         });
                     }
@@ -4402,14 +4415,14 @@ class SidebarUI {
         }
     }
 
-    async handleAddConfiguredApi(name, icon, description, config_id) {
+    async handleAddConfiguredApi(name, icon, description, config_id, manifest_permission = null) {
         try {
             const resp = await this.sendMessage({
                 action: 'exec',
                 payload: {
                     name: 'services',
-                    sql: 'INSERT OR IGNORE INTO configured_services (name, icon, description, config_id) VALUES (?, ?, ?, ?)',
-                    bind: [name, icon, description, config_id]
+                    sql: 'INSERT OR IGNORE INTO configured_services (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
+                    bind: [name, icon, description, config_id, manifest_permission]
                 }
             });
 
@@ -4468,7 +4481,12 @@ class SidebarUI {
 
                 if (results && results.length > 0) {
                     this.searchDropdown.innerHTML = results.map(api => `
-                        <div class="search-result-item" data-api-name="${api.name}" data-api-icon="${api.icon}" data-api-desc="${api.description}" data-api-cid="${api.config_id}">
+                        <div class="search-result-item" 
+                             data-api-name="${api.name}" 
+                             data-api-icon="${api.icon}" 
+                             data-api-desc="${api.description}" 
+                             data-api-cid="${api.config_id}"
+                             data-api-perm="${api.manifest_permission || ''}">
                             <span class="icon">${api.icon || '🧩'}</span>
                             <div class="api-item-text">
                                 <div class="api-item-name">${api.name}</div>
@@ -4483,8 +4501,8 @@ class SidebarUI {
                         btn.onclick = (e) => {
                             e.stopPropagation();
                             const item = btn.closest('.search-result-item');
-                            const { apiName, apiIcon, apiDesc, apiCid } = item.dataset;
-                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid);
+                            const { apiName, apiIcon, apiDesc, apiCid, apiPerm } = item.dataset;
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null);
                         };
                     });
                 } else {
