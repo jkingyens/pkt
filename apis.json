@@ -22,545 +22,623 @@
     "icon": "♿",
     "description": "Modify the browser's accessibility features",
     "config_id": "chrome:accessibilityFeatures.modify",
-    "manifest_permission": "accessibilityFeatures.modify"
+    "manifest_permission": "accessibilityFeatures.modify",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/accessibilityFeatures"
   },
   {
     "name": "Chrome: Accessibility Features (Read)",
     "icon": "👁️",
     "description": "Read the browser's accessibility features",
     "config_id": "chrome:accessibilityFeatures.read",
-    "manifest_permission": "accessibilityFeatures.read"
+    "manifest_permission": "accessibilityFeatures.read",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/accessibilityFeatures"
   },
   {
     "name": "Chrome: Active Tab",
     "icon": "🎯",
     "description": "Temporary access to the currently active tab",
     "config_id": "chrome:activeTab",
-    "manifest_permission": "activeTab"
+    "manifest_permission": "activeTab",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/develop/concepts/activeTab"
   },
   {
     "name": "Chrome: Alarms",
     "icon": "⏰",
     "description": "Schedule code to run periodically or at a specific time",
     "config_id": "chrome:alarms",
-    "manifest_permission": "alarms"
+    "manifest_permission": "alarms",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/alarms"
   },
   {
     "name": "Chrome: Audio",
     "icon": "🔊",
     "description": "Information about audio devices and control",
     "config_id": "chrome:audio",
-    "manifest_permission": "audio"
+    "manifest_permission": "audio",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/audio"
   },
   {
     "name": "Chrome: Background",
     "icon": "🔄",
     "description": "Run the extension in the background",
     "config_id": "chrome:background",
-    "manifest_permission": "background"
+    "manifest_permission": "background",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/develop/concepts/service-workers"
   },
   {
     "name": "Chrome: Bookmarks",
     "icon": "🔖",
     "description": "Read and search browser bookmarks",
     "config_id": "chrome:bookmarks",
-    "manifest_permission": "bookmarks"
+    "manifest_permission": "bookmarks",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/bookmarks"
   },
   {
     "name": "Chrome: Browsing Data",
     "icon": "🧹",
     "description": "Clear browser data, history, and cache",
     "config_id": "chrome:browsingData",
-    "manifest_permission": "browsingData"
+    "manifest_permission": "browsingData",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/browsingData"
   },
   {
     "name": "Chrome: Certificate Provider",
     "icon": "📜",
     "description": "Provide certificates to the browser's network layer",
     "config_id": "chrome:certificateProvider",
-    "manifest_permission": "certificateProvider"
+    "manifest_permission": "certificateProvider",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/certificateProvider"
   },
   {
     "name": "Chrome: Clipboard Read",
     "icon": "📋",
     "description": "Read from the system clipboard",
     "config_id": "chrome:clipboardRead",
-    "manifest_permission": "clipboardRead"
+    "manifest_permission": "clipboardRead",
+    "documentation_url": "https://developer.mozilla.org/docs/Web/API/Clipboard_API"
   },
   {
     "name": "Chrome: Clipboard Write",
     "icon": "🖊️",
     "description": "Write to the system clipboard",
     "config_id": "chrome:clipboardWrite",
-    "manifest_permission": "clipboardWrite"
+    "manifest_permission": "clipboardWrite",
+    "documentation_url": "https://developer.mozilla.org/docs/Web/API/Clipboard_API"
   },
   {
     "name": "Chrome: Content Settings",
     "icon": "⚙️",
     "description": "Change settings for content on websites",
     "config_id": "chrome:contentSettings",
-    "manifest_permission": "contentSettings"
+    "manifest_permission": "contentSettings",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/contentSettings"
   },
   {
     "name": "Chrome: Context Menus",
     "icon": "🖱️",
     "description": "Add items to the browser's right-click menu",
     "config_id": "chrome:contextMenus",
-    "manifest_permission": "contextMenus"
+    "manifest_permission": "contextMenus",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/contextMenus"
   },
   {
     "name": "Chrome: Cookies",
     "icon": "🍪",
     "description": "Query and modify browser cookies",
     "config_id": "chrome:cookies",
-    "manifest_permission": "cookies"
+    "manifest_permission": "cookies",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/cookies"
   },
   {
     "name": "Chrome: Debugger",
     "icon": "🐛",
     "description": "Instrument browser tabs for debugging",
     "config_id": "chrome:debugger",
-    "manifest_permission": "debugger"
+    "manifest_permission": "debugger",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/debugger"
   },
   {
     "name": "Chrome: Declarative Content",
     "icon": "🎭",
     "description": "Take actions based on page content",
     "config_id": "chrome:declarativeContent",
-    "manifest_permission": "declarativeContent"
+    "manifest_permission": "declarativeContent",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeContent"
   },
   {
     "name": "Chrome: Declarative Net Request",
     "icon": "🛡️",
     "description": "Block or modify network requests",
     "config_id": "chrome:declarativeNetRequest",
-    "manifest_permission": "declarativeNetRequest"
+    "manifest_permission": "declarativeNetRequest",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest"
   },
   {
     "name": "Chrome: Declarative Net Request (Host Access)",
     "icon": "🌐",
     "description": "DNR with full host access",
     "config_id": "chrome:declarativeNetRequestWithHostAccess",
-    "manifest_permission": "declarativeNetRequestWithHostAccess"
+    "manifest_permission": "declarativeNetRequestWithHostAccess",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest"
   },
   {
     "name": "Chrome: Declarative Net Request (Feedback)",
     "icon": "💬",
     "description": "Read feedback for DNR rules",
     "config_id": "chrome:declarativeNetRequestFeedback",
-    "manifest_permission": "declarativeNetRequestFeedback"
+    "manifest_permission": "declarativeNetRequestFeedback",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest"
   },
   {
     "name": "Chrome: DNS",
     "icon": "🗺️",
     "description": "Access to the browser's DNS resolution",
     "config_id": "chrome:dns",
-    "manifest_permission": "dns"
+    "manifest_permission": "dns",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/dns"
   },
   {
     "name": "Chrome: Desktop Capture",
     "icon": "🖥️",
     "description": "Capture the desktop or windows",
     "config_id": "chrome:desktopCapture",
-    "manifest_permission": "desktopCapture"
+    "manifest_permission": "desktopCapture",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/desktopCapture"
   },
   {
     "name": "Chrome: Document Scan",
     "icon": "📄",
     "description": "Interface with scanners for document scanning",
     "config_id": "chrome:documentScan",
-    "manifest_permission": "documentScan"
+    "manifest_permission": "documentScan",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/documentScan"
   },
   {
     "name": "Chrome: Downloads",
     "icon": "📥",
     "description": "Manage and monitor browser downloads",
     "config_id": "chrome:downloads",
-    "manifest_permission": "downloads"
+    "manifest_permission": "downloads",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads"
   },
   {
     "name": "Chrome: Downloads (Open)",
     "icon": "📂",
     "description": "Open downloaded files",
     "config_id": "chrome:downloads.open",
-    "manifest_permission": "downloads.open"
+    "manifest_permission": "downloads.open",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads#method-open"
   },
   {
     "name": "Chrome: Downloads (UI)",
     "icon": "🛠️",
     "description": "Modify the downloads UI",
     "config_id": "chrome:downloads.ui",
-    "manifest_permission": "downloads.ui"
+    "manifest_permission": "downloads.ui",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads#method-setUiOptions"
   },
   {
     "name": "Chrome: Enterprise Device Attributes",
     "icon": "🆔",
     "description": "Access device-level identifiers",
     "config_id": "chrome:enterprise.deviceAttributes",
-    "manifest_permission": "enterprise.deviceAttributes"
+    "manifest_permission": "enterprise.deviceAttributes",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/deviceAttributes"
   },
   {
     "name": "Chrome: Enterprise Hardware Platform",
     "icon": "🏗️",
     "description": "Access hardware platform information",
     "config_id": "chrome:enterprise.hardwarePlatform",
-    "manifest_permission": "enterprise.hardwarePlatform"
+    "manifest_permission": "enterprise.hardwarePlatform",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/hardwarePlatform"
   },
   {
     "name": "Chrome: Enterprise Networking Attributes",
     "icon": "📡",
     "description": "Access network state information",
     "config_id": "chrome:enterprise.networkingAttributes",
-    "manifest_permission": "enterprise.networkingAttributes"
+    "manifest_permission": "enterprise.networkingAttributes",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/networkingAttributes"
   },
   {
     "name": "Chrome: Enterprise Platform Keys",
     "icon": "🔑",
     "description": "Access hardware platform keys",
     "config_id": "chrome:enterprise.platformKeys",
-    "manifest_permission": "enterprise.platformKeys"
+    "manifest_permission": "enterprise.platformKeys",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys"
   },
   {
     "name": "Chrome: Favicon",
     "icon": "🖼️",
     "description": "Access website favicons",
     "config_id": "chrome:favicon",
-    "manifest_permission": "favicon"
+    "manifest_permission": "favicon",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/how-to/ui/favicons"
   },
   {
     "name": "Chrome: File Browser Handler",
     "icon": "📂",
     "description": "Extend the ChromeOS file browser",
     "config_id": "chrome:fileBrowserHandler",
-    "manifest_permission": "fileBrowserHandler"
+    "manifest_permission": "fileBrowserHandler",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fileBrowserHandler"
   },
   {
     "name": "Chrome: File System Provider",
     "icon": "💾",
     "description": "Expose new filesystems to ChromeOS",
     "config_id": "chrome:fileSystemProvider",
-    "manifest_permission": "fileSystemProvider"
+    "manifest_permission": "fileSystemProvider",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fileSystemProvider"
   },
   {
     "name": "Chrome: Font Settings",
     "icon": "🔤",
     "description": "Manage the browser's font settings",
     "config_id": "chrome:fontSettings",
-    "manifest_permission": "fontSettings"
+    "manifest_permission": "fontSettings",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fontSettings"
   },
   {
     "name": "Chrome: GCM",
     "icon": "☁️",
     "description": "Google Cloud Messaging for push notifications",
     "config_id": "chrome:gcm",
-    "manifest_permission": "gcm"
+    "manifest_permission": "gcm",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/gcm"
   },
   {
     "name": "Chrome: Geolocation",
     "icon": "📍",
     "description": "Access the user's location",
     "config_id": "chrome:geolocation",
-    "manifest_permission": "geolocation"
+    "manifest_permission": "geolocation",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/geolocation"
   },
   {
     "name": "Chrome: History",
     "icon": "📜",
     "description": "Search and manage browser history",
     "config_id": "chrome:history",
-    "manifest_permission": "history"
+    "manifest_permission": "history",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/history"
   },
   {
     "name": "Chrome: Identity",
     "icon": "👤",
     "description": "OAuth2 flow and user identity management",
     "config_id": "chrome:identity",
-    "manifest_permission": "identity"
+    "manifest_permission": "identity",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/identity"
   },
   {
     "name": "Chrome: Identity (Email)",
     "icon": "📧",
     "description": "Access the user's email address",
     "config_id": "chrome:identity.email",
-    "manifest_permission": "identity.email"
+    "manifest_permission": "identity.email",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/identity"
   },
   {
     "name": "Chrome: Idle",
     "icon": "💤",
     "description": "Detect when the machine's idle state changes",
     "config_id": "chrome:idle",
-    "manifest_permission": "idle"
+    "manifest_permission": "idle",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/idle"
   },
   {
     "name": "Chrome: Login State",
     "icon": "🔓",
     "description": "Query the profile's login state",
     "config_id": "chrome:loginState",
-    "manifest_permission": "loginState"
+    "manifest_permission": "loginState",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/loginState"
   },
   {
     "name": "Chrome: Management",
     "icon": "🏢",
     "description": "Manage installed extensions and apps",
     "config_id": "chrome:management",
-    "manifest_permission": "management"
+    "manifest_permission": "management",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/management"
   },
   {
     "name": "Chrome: Native Messaging",
     "icon": "💬",
     "description": "Communicate with a native application",
     "config_id": "chrome:nativeMessaging",
-    "manifest_permission": "nativeMessaging"
+    "manifest_permission": "nativeMessaging",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging"
   },
   {
     "name": "Chrome: Notifications",
     "icon": "🔔",
     "description": "Display rich notifications to the user",
     "config_id": "chrome:notifications",
-    "manifest_permission": "notifications"
+    "manifest_permission": "notifications",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/notifications"
   },
   {
     "name": "Chrome: Offscreen",
     "icon": "📄",
     "description": "Run scripts in a hidden offscreen document",
     "config_id": "chrome:offscreen",
-    "manifest_permission": "offscreen"
+    "manifest_permission": "offscreen",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/offscreen"
   },
   {
     "name": "Chrome: Page Capture",
     "icon": "📸",
     "description": "Save a page as an MHTML archive",
     "config_id": "chrome:pageCapture",
-    "manifest_permission": "pageCapture"
+    "manifest_permission": "pageCapture",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/pageCapture"
   },
   {
     "name": "Chrome: Platform Keys",
     "icon": "🔐",
     "description": "Access client certificates on the platform",
     "config_id": "chrome:platformKeys",
-    "manifest_permission": "platformKeys"
+    "manifest_permission": "platformKeys",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/platformKeys"
   },
   {
     "name": "Chrome: Power",
     "icon": "🔋",
     "description": "Override the system's power management",
     "config_id": "chrome:power",
-    "manifest_permission": "power"
+    "manifest_permission": "power",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/power"
   },
   {
     "name": "Chrome: Printer Provider",
     "icon": "🖨️",
     "description": "Expose printers using the printing API",
     "config_id": "chrome:printerProvider",
-    "manifest_permission": "printerProvider"
+    "manifest_permission": "printerProvider",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printerProvider"
   },
   {
     "name": "Chrome: Printing",
     "icon": "📄",
     "description": "Send print jobs to installed printers",
     "config_id": "chrome:printing",
-    "manifest_permission": "printing"
+    "manifest_permission": "printing",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printing"
   },
   {
     "name": "Chrome: Printing Metrics",
     "icon": "📊",
     "description": "Enumerate printing logs",
     "config_id": "chrome:printingMetrics",
-    "manifest_permission": "printingMetrics"
+    "manifest_permission": "printingMetrics",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printingMetrics"
   },
   {
     "name": "Chrome: Privacy",
     "icon": "🔒",
     "description": "Control browser privacy settings",
     "config_id": "chrome:privacy",
-    "manifest_permission": "privacy"
+    "manifest_permission": "privacy",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/privacy"
   },
   {
     "name": "Chrome: Processes",
     "icon": "⚙️",
     "description": "Access information about browser processes",
     "config_id": "chrome:processes",
-    "manifest_permission": "processes"
+    "manifest_permission": "processes",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/processes"
   },
   {
     "name": "Chrome: Proxy",
     "icon": "🌐",
     "description": "Manage the browser's proxy settings",
     "config_id": "chrome:proxy",
-    "manifest_permission": "proxy"
+    "manifest_permission": "proxy",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/proxy"
   },
   {
     "name": "Chrome: Reading List",
     "icon": "📖",
     "description": "Manage the browser's reading list",
     "config_id": "chrome:readingList",
-    "manifest_permission": "readingList"
+    "manifest_permission": "readingList",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/readingList"
   },
   {
     "name": "Chrome: Runtime",
     "icon": "⚙️",
     "description": "Extension lifecycle and messaging",
     "config_id": "chrome:runtime",
-    "manifest_permission": "runtime"
+    "manifest_permission": "runtime",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/runtime"
   },
   {
     "name": "Chrome: Scripting",
     "icon": "📜",
     "description": "Inject JavaScript and CSS into websites",
     "config_id": "chrome:scripting",
-    "manifest_permission": "scripting"
+    "manifest_permission": "scripting",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/scripting"
   },
   {
     "name": "Chrome: Search",
     "icon": "🔍",
     "description": "Search the browser or specific engine",
     "config_id": "chrome:search",
-    "manifest_permission": "search"
+    "manifest_permission": "search",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/search"
   },
   {
     "name": "Chrome: Sessions",
     "icon": "⏱️",
     "description": "Query and restore recently closed tabs",
     "config_id": "chrome:sessions",
-    "manifest_permission": "sessions"
+    "manifest_permission": "sessions",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/sessions"
   },
   {
     "name": "Chrome: Side Panel",
     "icon": "⌨️",
     "description": "Control the extension's side panel behavior",
     "config_id": "chrome:sidePanel",
-    "manifest_permission": "sidePanel"
+    "manifest_permission": "sidePanel",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/sidePanel"
   },
   {
     "name": "Chrome: Storage",
     "icon": "💾",
     "description": "Persistent key-value storage for the extension",
     "config_id": "chrome:storage",
-    "manifest_permission": "storage"
+    "manifest_permission": "storage",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/storage"
   },
   {
     "name": "Chrome: System CPU",
     "icon": "📠",
     "description": "Access information about the system's CPU",
     "config_id": "chrome:system.cpu",
-    "manifest_permission": "system.cpu"
+    "manifest_permission": "system.cpu",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/cpu"
   },
   {
     "name": "Chrome: System Display",
     "icon": "📺",
     "description": "Access information about system displays",
     "config_id": "chrome:system.display",
-    "manifest_permission": "system.display"
+    "manifest_permission": "system.display",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/display"
   },
   {
     "name": "Chrome: System Memory",
     "icon": "🧠",
     "description": "Access information about system memory",
     "config_id": "chrome:system.memory",
-    "manifest_permission": "system.memory"
+    "manifest_permission": "system.memory",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/memory"
   },
   {
     "name": "Chrome: System Storage",
     "icon": "📦",
     "description": "Access information about system storage",
     "config_id": "chrome:system.storage",
-    "manifest_permission": "system.storage"
+    "manifest_permission": "system.storage",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/storage"
   },
   {
     "name": "Chrome: Tab Capture",
     "icon": "📼",
     "description": "Capture the audio and video of a tab",
     "config_id": "chrome:tabCapture",
-    "manifest_permission": "tabCapture"
+    "manifest_permission": "tabCapture",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabCapture"
   },
   {
     "name": "Chrome: Tab Groups",
     "icon": "📁",
     "description": "Manage browser tab groups",
     "config_id": "chrome:tabGroups",
-    "manifest_permission": "tabGroups"
+    "manifest_permission": "tabGroups",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabGroups"
   },
   {
     "name": "Chrome: Tabs",
     "icon": "📑",
     "description": "Query, create, and modify browser tabs",
     "config_id": "chrome:tabs",
-    "manifest_permission": "tabs"
+    "manifest_permission": "tabs",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabs"
   },
   {
     "name": "Chrome: Top Sites",
     "icon": "🌟",
     "description": "Access the user's most visited websites",
     "config_id": "chrome:topSites",
-    "manifest_permission": "topSites"
+    "manifest_permission": "topSites",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/topSites"
   },
   {
     "name": "Chrome: TTS",
     "icon": "🗣️",
     "description": "Text-to-speech synthesis",
     "config_id": "chrome:tts",
-    "manifest_permission": "tts"
+    "manifest_permission": "tts",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tts"
   },
   {
     "name": "Chrome: TTS Engine",
     "icon": "🎙️",
     "description": "Implement a TTS engine using an extension",
     "config_id": "chrome:ttsEngine",
-    "manifest_permission": "ttsEngine"
+    "manifest_permission": "ttsEngine",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/ttsEngine"
   },
   {
     "name": "Chrome: Unlimited Storage",
     "icon": "♾️",
     "description": "Unlimited storage for persistent data",
     "config_id": "chrome:unlimitedStorage",
-    "manifest_permission": "unlimitedStorage"
+    "manifest_permission": "unlimitedStorage",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies"
   },
   {
     "name": "Chrome: User Scripts",
     "icon": "👤",
     "description": "Manage user-defined scripts",
     "config_id": "chrome:userScripts",
-    "manifest_permission": "userScripts"
+    "manifest_permission": "userScripts",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/userScripts"
   },
   {
     "name": "Chrome: VPN Provider",
     "icon": "🔐",
     "description": "Implement a VPN client using an extension",
     "config_id": "chrome:vpnProvider",
-    "manifest_permission": "vpnProvider"
+    "manifest_permission": "vpnProvider",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/vpnProvider"
   },
   {
     "name": "Chrome: Wallpaper",
     "icon": "🖼️",
     "description": "Change the ChromeOS wallpaper",
     "config_id": "chrome:wallpaper",
-    "manifest_permission": "wallpaper"
+    "manifest_permission": "wallpaper",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/wallpaper"
   },
   {
     "name": "Chrome: Web Authentication Proxy",
     "icon": "🛂",
     "description": "Proxy WebAuthn requests",
     "config_id": "chrome:webAuthenticationProxy",
-    "manifest_permission": "webAuthenticationProxy"
+    "manifest_permission": "webAuthenticationProxy",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webAuthenticationProxy"
   },
   {
     "name": "Chrome: Web Navigation",
     "icon": "🌐",
     "description": "Monitor the status of navigation requests",
     "config_id": "chrome:webNavigation",
-    "manifest_permission": "webNavigation"
+    "manifest_permission": "webNavigation",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webNavigation"
   },
   {
     "name": "Chrome: Web Request",
     "icon": "📡",
     "description": "Observe and analyze network traffic",
     "config_id": "chrome:webRequest",
-    "manifest_permission": "webRequest"
+    "manifest_permission": "webRequest",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webRequest"
   },
   {
     "name": "Chrome: Web Request Blocking",
     "icon": "🛑",
     "description": "Modify or block network requests",
     "config_id": "chrome:webRequestBlocking",
-    "manifest_permission": "webRequestBlocking"
+    "manifest_permission": "webRequestBlocking",
+    "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webRequest#permissions"
   }
 ]
