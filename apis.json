@@ -24,7 +24,8 @@
     "config_id": "chrome:accessibilityFeatures.modify",
     "manifest_permission": "accessibilityFeatures.modify",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/accessibilityFeatures",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/accessibility_features.json"
   },
   {
     "name": "Chrome: Accessibility Features (Read)",
@@ -33,7 +34,8 @@
     "config_id": "chrome:accessibilityFeatures.read",
     "manifest_permission": "accessibilityFeatures.read",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/accessibilityFeatures",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/accessibility_features.json"
   },
   {
     "name": "Chrome: Active Tab",
@@ -51,7 +53,8 @@
     "config_id": "chrome:alarms",
     "manifest_permission": "alarms",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/alarms",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/alarms.webidl"
   },
   {
     "name": "Chrome: Audio",
@@ -60,7 +63,8 @@
     "config_id": "chrome:audio",
     "manifest_permission": "audio",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/audio",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "extensions/common/api/audio.webidl"
   },
   {
     "name": "Chrome: Background",
@@ -78,7 +82,8 @@
     "config_id": "chrome:bookmarks",
     "manifest_permission": "bookmarks",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/bookmarks",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/bookmarks.json"
   },
   {
     "name": "Chrome: Browsing Data",
@@ -87,7 +92,8 @@
     "config_id": "chrome:browsingData",
     "manifest_permission": "browsingData",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/browsingData",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/browsing_data.json"
   },
   {
     "name": "Chrome: Certificate Provider",
@@ -96,7 +102,8 @@
     "config_id": "chrome:certificateProvider",
     "manifest_permission": "certificateProvider",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/certificateProvider",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/certificate_provider.idl"
   },
   {
     "name": "Chrome: Clipboard Read",
@@ -123,7 +130,8 @@
     "config_id": "chrome:contentSettings",
     "manifest_permission": "contentSettings",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/contentSettings",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/content_settings.json"
   },
   {
     "name": "Chrome: Context Menus",
@@ -132,7 +140,8 @@
     "config_id": "chrome:contextMenus",
     "manifest_permission": "contextMenus",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/contextMenus",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/context_menus.json"
   },
   {
     "name": "Chrome: Cookies",
@@ -141,7 +150,8 @@
     "config_id": "chrome:cookies",
     "manifest_permission": "cookies",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/cookies",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/cookies.json"
   },
   {
     "name": "Chrome: Debugger",
@@ -150,7 +160,8 @@
     "config_id": "chrome:debugger",
     "manifest_permission": "debugger",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/debugger",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/debugger.json"
   },
   {
     "name": "Chrome: Declarative Content",
@@ -159,7 +170,8 @@
     "config_id": "chrome:declarativeContent",
     "manifest_permission": "declarativeContent",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeContent",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/declarative_content.json"
   },
   {
     "name": "Chrome: Declarative Net Request",
@@ -168,7 +180,8 @@
     "config_id": "chrome:declarativeNetRequest",
     "manifest_permission": "declarativeNetRequest",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/declarative_net_request.webidl"
   },
   {
     "name": "Chrome: Declarative Net Request (Host Access)",
@@ -177,7 +190,8 @@
     "config_id": "chrome:declarativeNetRequestWithHostAccess",
     "manifest_permission": "declarativeNetRequestWithHostAccess",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/declarative_net_request.webidl"
   },
   {
     "name": "Chrome: Declarative Net Request (Feedback)",
@@ -186,7 +200,8 @@
     "config_id": "chrome:declarativeNetRequestFeedback",
     "manifest_permission": "declarativeNetRequestFeedback",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/declarative_net_request.webidl"
   },
   {
     "name": "Chrome: DNS",
@@ -195,7 +210,8 @@
     "config_id": "chrome:dns",
     "manifest_permission": "dns",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/dns",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/dns.webidl"
   },
   {
     "name": "Chrome: Desktop Capture",
@@ -204,7 +220,8 @@
     "config_id": "chrome:desktopCapture",
     "manifest_permission": "desktopCapture",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/desktopCapture",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/desktop_capture.json"
   },
   {
     "name": "Chrome: Document Scan",
@@ -213,7 +230,8 @@
     "config_id": "chrome:documentScan",
     "manifest_permission": "documentScan",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/documentScan",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/document_scan.idl"
   },
   {
     "name": "Chrome: Downloads",
@@ -222,7 +240,8 @@
     "config_id": "chrome:downloads",
     "manifest_permission": "downloads",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/downloads.idl"
   },
   {
     "name": "Chrome: Downloads (Open)",
@@ -231,7 +250,8 @@
     "config_id": "chrome:downloads.open",
     "manifest_permission": "downloads.open",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads#method-open",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/downloads.idl"
   },
   {
     "name": "Chrome: Downloads (UI)",
@@ -240,7 +260,8 @@
     "config_id": "chrome:downloads.ui",
     "manifest_permission": "downloads.ui",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/downloads#method-setUiOptions",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/downloads.idl"
   },
   {
     "name": "Chrome: Enterprise Device Attributes",
@@ -249,7 +270,8 @@
     "config_id": "chrome:enterprise.deviceAttributes",
     "manifest_permission": "enterprise.deviceAttributes",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/deviceAttributes",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/enterprise_device_attributes.idl"
   },
   {
     "name": "Chrome: Enterprise Hardware Platform",
@@ -258,7 +280,8 @@
     "config_id": "chrome:enterprise.hardwarePlatform",
     "manifest_permission": "enterprise.hardwarePlatform",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/hardwarePlatform",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/enterprise_hardware_platform.idl"
   },
   {
     "name": "Chrome: Enterprise Networking Attributes",
@@ -267,7 +290,8 @@
     "config_id": "chrome:enterprise.networkingAttributes",
     "manifest_permission": "enterprise.networkingAttributes",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/networkingAttributes",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/enterprise_networking_attributes.idl"
   },
   {
     "name": "Chrome: Enterprise Platform Keys",
@@ -276,7 +300,8 @@
     "config_id": "chrome:enterprise.platformKeys",
     "manifest_permission": "enterprise.platformKeys",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/enterprise_platform_keys.idl"
   },
   {
     "name": "Chrome: Favicon",
@@ -294,7 +319,8 @@
     "config_id": "chrome:fileBrowserHandler",
     "manifest_permission": "fileBrowserHandler",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fileBrowserHandler",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/file_browser_handler.json"
   },
   {
     "name": "Chrome: File System Provider",
@@ -303,7 +329,8 @@
     "config_id": "chrome:fileSystemProvider",
     "manifest_permission": "fileSystemProvider",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fileSystemProvider",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/file_system_provider.idl"
   },
   {
     "name": "Chrome: Font Settings",
@@ -312,7 +339,8 @@
     "config_id": "chrome:fontSettings",
     "manifest_permission": "fontSettings",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/fontSettings",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/font_settings.json"
   },
   {
     "name": "Chrome: GCM",
@@ -321,7 +349,8 @@
     "config_id": "chrome:gcm",
     "manifest_permission": "gcm",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/gcm",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/gcm.json"
   },
   {
     "name": "Chrome: Geolocation",
@@ -339,7 +368,8 @@
     "config_id": "chrome:history",
     "manifest_permission": "history",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/history",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/history.json"
   },
   {
     "name": "Chrome: Identity",
@@ -348,7 +378,8 @@
     "config_id": "chrome:identity",
     "manifest_permission": "identity",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/identity",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/identity.idl"
   },
   {
     "name": "Chrome: Identity (Email)",
@@ -357,7 +388,8 @@
     "config_id": "chrome:identity.email",
     "manifest_permission": "identity.email",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/identity",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/identity.idl"
   },
   {
     "name": "Chrome: Idle",
@@ -366,7 +398,8 @@
     "config_id": "chrome:idle",
     "manifest_permission": "idle",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/idle",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/idle.json"
   },
   {
     "name": "Chrome: Login State",
@@ -375,7 +408,8 @@
     "config_id": "chrome:loginState",
     "manifest_permission": "loginState",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/loginState",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/login_state.idl"
   },
   {
     "name": "Chrome: Management",
@@ -384,7 +418,8 @@
     "config_id": "chrome:management",
     "manifest_permission": "management",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/management",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/management.json"
   },
   {
     "name": "Chrome: Native Messaging",
@@ -402,7 +437,8 @@
     "config_id": "chrome:notifications",
     "manifest_permission": "notifications",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/notifications",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/notifications.idl"
   },
   {
     "name": "Chrome: Offscreen",
@@ -411,7 +447,8 @@
     "config_id": "chrome:offscreen",
     "manifest_permission": "offscreen",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/offscreen",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/offscreen.webidl"
   },
   {
     "name": "Chrome: Page Capture",
@@ -420,7 +457,8 @@
     "config_id": "chrome:pageCapture",
     "manifest_permission": "pageCapture",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/pageCapture",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/page_capture.json"
   },
   {
     "name": "Chrome: Platform Keys",
@@ -429,7 +467,8 @@
     "config_id": "chrome:platformKeys",
     "manifest_permission": "platformKeys",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/platformKeys",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/platform_keys.idl"
   },
   {
     "name": "Chrome: Power",
@@ -438,7 +477,8 @@
     "config_id": "chrome:power",
     "manifest_permission": "power",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/power",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/power.webidl"
   },
   {
     "name": "Chrome: Printer Provider",
@@ -447,7 +487,8 @@
     "config_id": "chrome:printerProvider",
     "manifest_permission": "printerProvider",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printerProvider",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/printer_provider.webidl"
   },
   {
     "name": "Chrome: Printing",
@@ -456,7 +497,8 @@
     "config_id": "chrome:printing",
     "manifest_permission": "printing",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printing",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/printing.idl"
   },
   {
     "name": "Chrome: Printing Metrics",
@@ -465,7 +507,8 @@
     "config_id": "chrome:printingMetrics",
     "manifest_permission": "printingMetrics",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/printingMetrics",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/printing_metrics.idl"
   },
   {
     "name": "Chrome: Privacy",
@@ -474,7 +517,8 @@
     "config_id": "chrome:privacy",
     "manifest_permission": "privacy",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/privacy",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/privacy.json"
   },
   {
     "name": "Chrome: Processes",
@@ -483,7 +527,8 @@
     "config_id": "chrome:processes",
     "manifest_permission": "processes",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/processes",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/processes.idl"
   },
   {
     "name": "Chrome: Proxy",
@@ -492,7 +537,8 @@
     "config_id": "chrome:proxy",
     "manifest_permission": "proxy",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/proxy",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/proxy.json"
   },
   {
     "name": "Chrome: Reading List",
@@ -501,7 +547,8 @@
     "config_id": "chrome:readingList",
     "manifest_permission": "readingList",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/readingList",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/reading_list.webidl"
   },
   {
     "name": "Chrome: Runtime",
@@ -510,7 +557,8 @@
     "config_id": "chrome:runtime",
     "manifest_permission": "runtime",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/runtime",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/runtime.json"
   },
   {
     "name": "Chrome: Scripting",
@@ -519,7 +567,8 @@
     "config_id": "chrome:scripting",
     "manifest_permission": "scripting",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/scripting",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/scripting.idl"
   },
   {
     "name": "Chrome: Search",
@@ -528,7 +577,8 @@
     "config_id": "chrome:search",
     "manifest_permission": "search",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/search",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/search.idl"
   },
   {
     "name": "Chrome: Sessions",
@@ -537,7 +587,8 @@
     "config_id": "chrome:sessions",
     "manifest_permission": "sessions",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/sessions",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/sessions.json"
   },
   {
     "name": "Chrome: Side Panel",
@@ -546,7 +597,8 @@
     "config_id": "chrome:sidePanel",
     "manifest_permission": "sidePanel",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/sidePanel",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/side_panel.idl"
   },
   {
     "name": "Chrome: Storage",
@@ -555,7 +607,8 @@
     "config_id": "chrome:storage",
     "manifest_permission": "storage",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/storage",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/storage.json"
   },
   {
     "name": "Chrome: System CPU",
@@ -564,7 +617,8 @@
     "config_id": "chrome:system.cpu",
     "manifest_permission": "system.cpu",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/cpu",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/system_cpu.webidl"
   },
   {
     "name": "Chrome: System Display",
@@ -573,7 +627,8 @@
     "config_id": "chrome:system.display",
     "manifest_permission": "system.display",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/display",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/system_display.webidl"
   },
   {
     "name": "Chrome: System Memory",
@@ -582,7 +637,8 @@
     "config_id": "chrome:system.memory",
     "manifest_permission": "system.memory",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/memory",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/system_memory.webidl"
   },
   {
     "name": "Chrome: System Storage",
@@ -591,7 +647,8 @@
     "config_id": "chrome:system.storage",
     "manifest_permission": "system.storage",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/system/storage",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/system_storage.webidl"
   },
   {
     "name": "Chrome: Tab Capture",
@@ -600,7 +657,8 @@
     "config_id": "chrome:tabCapture",
     "manifest_permission": "tabCapture",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabCapture",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/tab_capture.idl"
   },
   {
     "name": "Chrome: Tab Groups",
@@ -609,7 +667,8 @@
     "config_id": "chrome:tabGroups",
     "manifest_permission": "tabGroups",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabGroups",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/tab_groups.json"
   },
   {
     "name": "Chrome: Tabs",
@@ -618,7 +677,8 @@
     "config_id": "chrome:tabs",
     "manifest_permission": "tabs",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tabs",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/tabs.json"
   },
   {
     "name": "Chrome: Top Sites",
@@ -627,7 +687,8 @@
     "config_id": "chrome:topSites",
     "manifest_permission": "topSites",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/topSites",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/top_sites.json"
   },
   {
     "name": "Chrome: TTS",
@@ -636,7 +697,8 @@
     "config_id": "chrome:tts",
     "manifest_permission": "tts",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/tts",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/tts.json"
   },
   {
     "name": "Chrome: TTS Engine",
@@ -645,7 +707,8 @@
     "config_id": "chrome:ttsEngine",
     "manifest_permission": "ttsEngine",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/ttsEngine",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/tts_engine.json"
   },
   {
     "name": "Chrome: Unlimited Storage",
@@ -663,7 +726,8 @@
     "config_id": "chrome:userScripts",
     "manifest_permission": "userScripts",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/userScripts",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/user_scripts.webidl"
   },
   {
     "name": "Chrome: VPN Provider",
@@ -672,7 +736,8 @@
     "config_id": "chrome:vpnProvider",
     "manifest_permission": "vpnProvider",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/vpnProvider",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/vpn_provider.idl"
   },
   {
     "name": "Chrome: Wallpaper",
@@ -681,7 +746,8 @@
     "config_id": "chrome:wallpaper",
     "manifest_permission": "wallpaper",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/wallpaper",
-    "supported_platforms": ["chromeos"]
+    "supported_platforms": ["chromeos"],
+    "schema_path": "chrome/common/extensions/api/wallpaper.json"
   },
   {
     "name": "Chrome: Web Authentication Proxy",
@@ -690,7 +756,8 @@
     "config_id": "chrome:webAuthenticationProxy",
     "manifest_permission": "webAuthenticationProxy",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webAuthenticationProxy",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/web_authentication_proxy.webidl"
   },
   {
     "name": "Chrome: Web Navigation",
@@ -699,7 +766,8 @@
     "config_id": "chrome:webNavigation",
     "manifest_permission": "webNavigation",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webNavigation",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "chrome/common/extensions/api/web_navigation.json"
   },
   {
     "name": "Chrome: Web Request",
@@ -708,7 +776,8 @@
     "config_id": "chrome:webRequest",
     "manifest_permission": "webRequest",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webRequest",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/web_request.json"
   },
   {
     "name": "Chrome: Web Request Blocking",
@@ -717,7 +786,8 @@
     "config_id": "chrome:webRequestBlocking",
     "manifest_permission": "webRequestBlocking",
     "documentation_url": "https://developer.chrome.com/docs/extensions/reference/api/webRequest#permissions",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "extensions/common/api/web_request.json"
   },
   {
     "name": "Chrome AI: Prompt API",
@@ -725,7 +795,8 @@
     "description": "Run on-device Gemini Nano prompts directly in the browser via the built-in AI Prompt API",
     "config_id": "chrome-ai:prompt",
     "documentation_url": "https://developer.chrome.com/docs/ai/prompt-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/language_model.idl"
   },
   {
     "name": "Chrome AI: Summarizer API",
@@ -733,7 +804,8 @@
     "description": "Distill articles, documents, or conversations into concise summaries using on-device AI",
     "config_id": "chrome-ai:summarizer",
     "documentation_url": "https://developer.chrome.com/docs/ai/summarizer-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/summarizer.idl"
   },
   {
     "name": "Chrome AI: Writer API",
@@ -741,7 +813,8 @@
     "description": "Generate new written content conforming to a specified writing task using on-device AI",
     "config_id": "chrome-ai:writer",
     "documentation_url": "https://developer.chrome.com/docs/ai/writer-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/writer.idl"
   },
   {
     "name": "Chrome AI: Rewriter API",
@@ -749,7 +822,8 @@
     "description": "Revise and restructure existing text using on-device AI",
     "config_id": "chrome-ai:rewriter",
     "documentation_url": "https://developer.chrome.com/docs/ai/rewriter-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/rewriter.idl"
   },
   {
     "name": "Chrome AI: Translator API",
@@ -757,7 +831,8 @@
     "description": "Translate content between languages on-device using the built-in AI Translator API",
     "config_id": "chrome-ai:translator",
     "documentation_url": "https://developer.chrome.com/docs/ai/translator-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/on_device_translation/translator.idl"
   },
   {
     "name": "Chrome AI: Language Detector API",
@@ -765,7 +840,8 @@
     "description": "Detect the language of text on-device using Chrome's built-in Language Detector API",
     "config_id": "chrome-ai:languageDetector",
     "documentation_url": "https://developer.chrome.com/docs/ai/language-detection",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/on_device_translation/language_detector.idl"
   },
   {
     "name": "Chrome AI: Proofreader API",
@@ -773,6 +849,7 @@
     "description": "Improve content readability and grammar on-device using the built-in AI Proofreader API",
     "config_id": "chrome-ai:proofreader",
     "documentation_url": "https://developer.chrome.com/docs/ai/proofreader-api",
-    "supported_platforms": ["chromebrowser", "chromeos"]
+    "supported_platforms": ["chromebrowser", "chromeos"],
+    "schema_path": "third_party/blink/renderer/modules/ai/proofreader.idl"
   }
 ]

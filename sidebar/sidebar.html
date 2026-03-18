@@ -62,86 +62,86 @@
       <h2 class="detail-title">Settings</h2>
     </header>
 
-      <div class="settings-group" style="margin-top: 16px;">
-        <div class="settings-row">
-          <div class="settings-info">
-            <span class="settings-label">Network Access</span>
-            <p class="settings-hint">Temporarily disable all network requests for the entire extension.</p>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="networkAccessToggle" checked>
-            <span class="slider round"></span>
-          </label>
+    <div class="settings-group" style="margin-top: 16px;">
+      <div class="settings-row">
+        <div class="settings-info">
+          <span class="settings-label">Network Access</span>
+          <p class="settings-hint">Temporarily disable all network requests for the entire extension.</p>
         </div>
-        <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
-          <div class="settings-info">
-            <span class="settings-label">Biometric Access</span>
-            <p class="settings-hint">Require TouchID / Fingerprint to access the extension.</p>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="webAuthnToggle">
-            <span class="slider round"></span>
-          </label>
-        </div>
-        <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
-          <div class="settings-info">
-            <span class="settings-label">Full Backup</span>
-            <p class="settings-hint">Export or restore the entire extension state (DBs, media, and settings).</p>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button id="backupDataBtn" class="btn btn-secondary btn-sm">Backup</button>
-            <button id="restoreDataBtn" class="btn btn-secondary btn-sm">Restore</button>
-            <input type="file" id="restoreFileInput" accept=".json" style="display: none;">
-          </div>
-        </div>
+        <label class="switch">
+          <input type="checkbox" id="networkAccessToggle" checked>
+          <span class="slider round"></span>
+        </label>
       </div>
-      <div class="settings-group" style="margin-top: 12px;">
-        <div class="theme-selector">
-          <div class="theme-card" data-theme="light" id="themeLight">
-            <div class="theme-preview light">
-              <div class="faux-header"></div>
-              <div class="faux-content">
-                <div class="faux-line"></div>
-                <div class="faux-line short"></div>
-                <div class="faux-box"></div>
-              </div>
-            </div>
-            <span class="theme-label">Light</span>
-          </div>
-          <div class="theme-card" data-theme="system" id="themeSystem">
-            <div class="theme-preview system">
-              <div class="preview-half light">
-                <div class="faux-header"></div>
-                <div class="faux-content">
-                  <div class="faux-line"></div>
-                  <div class="faux-line short"></div>
-                </div>
-              </div>
-              <div class="preview-half dark">
-                <div class="faux-header"></div>
-                <div class="faux-content">
-                  <div class="faux-line"></div>
-                  <div class="faux-line short"></div>
-                </div>
-              </div>
-              <div class="faux-box-floating"></div>
-            </div>
-            <span class="theme-label">Auto</span>
-          </div>
-          <div class="theme-card" data-theme="dark" id="themeDark">
-            <div class="theme-preview dark">
-              <div class="faux-header"></div>
-              <div class="faux-content">
-                <div class="faux-line"></div>
-                <div class="faux-line short"></div>
-                <div class="faux-box"></div>
-              </div>
-            </div>
-            <span class="theme-label">Dark</span>
-          </div>
+      <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+        <div class="settings-info">
+          <span class="settings-label">Biometric Access</span>
+          <p class="settings-hint">Require TouchID / Fingerprint to access the extension.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="webAuthnToggle">
+          <span class="slider round"></span>
+        </label>
+      </div>
+      <div class="settings-row" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+        <div class="settings-info">
+          <span class="settings-label">Full Backup</span>
+          <p class="settings-hint">Export or restore the entire extension state (DBs, media, and settings).</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="backupDataBtn" class="btn btn-secondary btn-sm">Backup</button>
+          <button id="restoreDataBtn" class="btn btn-secondary btn-sm">Restore</button>
+          <input type="file" id="restoreFileInput" accept=".json" style="display: none;">
         </div>
       </div>
     </div>
+    <div class="settings-group" style="margin-top: 12px;">
+      <div class="theme-selector">
+        <div class="theme-card" data-theme="light" id="themeLight">
+          <div class="theme-preview light">
+            <div class="faux-header"></div>
+            <div class="faux-content">
+              <div class="faux-line"></div>
+              <div class="faux-line short"></div>
+              <div class="faux-box"></div>
+            </div>
+          </div>
+          <span class="theme-label">Light</span>
+        </div>
+        <div class="theme-card" data-theme="system" id="themeSystem">
+          <div class="theme-preview system">
+            <div class="preview-half light">
+              <div class="faux-header"></div>
+              <div class="faux-content">
+                <div class="faux-line"></div>
+                <div class="faux-line short"></div>
+              </div>
+            </div>
+            <div class="preview-half dark">
+              <div class="faux-header"></div>
+              <div class="faux-content">
+                <div class="faux-line"></div>
+                <div class="faux-line short"></div>
+              </div>
+            </div>
+            <div class="faux-box-floating"></div>
+          </div>
+          <span class="theme-label">Auto</span>
+        </div>
+        <div class="theme-card" data-theme="dark" id="themeDark">
+          <div class="theme-preview dark">
+            <div class="faux-header"></div>
+            <div class="faux-content">
+              <div class="faux-line"></div>
+              <div class="faux-line short"></div>
+              <div class="faux-box"></div>
+            </div>
+          </div>
+          <span class="theme-label">Dark</span>
+        </div>
+      </div>
+    </div>
+  </div>
   </div>
 
   <!-- ===== USER VIEW ===== -->
@@ -151,7 +151,8 @@
         <button id="userBackBtn" class="back-btn">← Back</button>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button id="clearApisBtn" class="btn-icon danger" title="Clear all APIs" style="font-size: 14px;">🗑️</button>
-          <button id="syncApisBtn" class="btn-icon" title="Sync APIs from repository" style="font-size: 14px;">🔄</button>
+          <button id="syncApisBtn" class="btn-icon" title="Sync APIs from repository"
+            style="font-size: 14px;">🔄</button>
         </div>
       </div>
       <h2 class="detail-title">APIs</h2>
@@ -162,15 +163,17 @@
         <div class="platform-info-text">
           <span class="platform-info-label">Platform</span>
           <span id="platformInfoName" class="platform-info-value">Detecting...</span>
-          <a id="chromiumSourceLink" class="chromium-source-link hidden" target="_blank" href="#" title="Browse Chromium source for this Chrome version"></a>
+          <a id="chromiumSourceLink" class="chromium-source-link hidden" target="_blank" href="#"
+            title="Browse Chromium source for this Chrome version"></a>
         </div>
         <div id="platformInfoBadge" class="platform-badge platform-badge-browser">All APIs</div>
       </div>
       <div class="search-container">
-        <input type="text" id="apiSearchInput" class="form-input" placeholder="Search for APIs..." autocomplete="off">
+        <input type="text" id="apiSearchInput" class="form-input" placeholder="Search repository for APIs..."
+          autocomplete="off">
         <div id="searchDropdown" class="search-dropdown hidden"></div>
       </div>
-      
+
       <div class="section-label">Configured APIs</div>
       <div id="apiList" class="api-list">
         <!-- API items will be rendered here -->
@@ -231,11 +234,13 @@
       <div id="chromePermissionSettings" class="api-settings-group hidden">
         <div class="form-group">
           <label id="permissionStatusTitle">Permission Status</label>
-          <div class="permission-status-container" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; background: var(--bg-alt); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+          <div class="permission-status-container"
+            style="display: flex; align-items: center; gap: 8px; margin-top: 8px; background: var(--bg-alt); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
             <div id="chromePermissionStatusIndicator" class="status-indicator-circle red"></div>
             <span id="chromePermissionLabel" class="status-label">Forbidden</span>
           </div>
-          <p id="permissionHint" class="hint" style="margin-top: 10px;">This API requires the corresponding permission in your extension's manifest.</p>
+          <p id="permissionHint" class="hint" style="margin-top: 10px;">This API requires the corresponding permission
+            in your extension's manifest.</p>
           <div id="apiDetailPermissionHelper" class="hidden" style="margin-top: 16px;">
             <div class="permission-steps">
               <div class="perm-step">
@@ -243,22 +248,26 @@
                 <div class="perm-step-body">
                   <p class="perm-step-title">Open your extension detail page</p>
                   <p class="perm-step-desc">Note the source folder path shown under the extension name.</p>
-                  <button id="extensionReloadLink" class="btn btn-secondary btn-sm perm-step-btn">↗ Open Extension Page</button>
+                  <button id="extensionReloadLink" class="btn btn-secondary btn-sm perm-step-btn">↗ Open Extension
+                    Page</button>
                 </div>
               </div>
               <div class="perm-step">
                 <div class="perm-step-num">2</div>
                 <div class="perm-step-body">
                   <p class="perm-step-title">Replace your <code>manifest.json</code></p>
-                  <p class="perm-step-desc">Copy the updated manifest, then open and overwrite the file in your source folder.</p>
-                  <button id="apiDetailCopyManifestBtn" class="btn btn-secondary btn-sm perm-step-btn">📋 Copy Updated Manifest</button>
+                  <p class="perm-step-desc">Copy the updated manifest, then open and overwrite the file in your source
+                    folder.</p>
+                  <button id="apiDetailCopyManifestBtn" class="btn btn-secondary btn-sm perm-step-btn">📋 Copy Updated
+                    Manifest</button>
                 </div>
               </div>
               <div class="perm-step">
                 <div class="perm-step-num">3</div>
                 <div class="perm-step-body">
                   <p class="perm-step-title">Reload the extension</p>
-                  <p class="perm-step-desc">Return to the extension detail page and click the reload <strong>↺</strong> button to apply changes.</p>
+                  <p class="perm-step-desc">Return to the extension detail page and click the reload <strong>↺</strong>
+                    button to apply changes.</p>
                 </div>
               </div>
             </div>
@@ -278,7 +287,8 @@
         </div>
         <div class="header-actions">
           <button id="detailExportBtn" class="btn-icon" title="Export Database" style="font-size: 14px;">📤</button>
-          <button id="detailDeleteBtn" class="btn-icon danger" title="Delete Database" style="font-size: 14px;">🗑️</button>
+          <button id="detailDeleteBtn" class="btn-icon danger" title="Delete Database"
+            style="font-size: 14px;">🗑️</button>
         </div>
       </div>
     </header>
