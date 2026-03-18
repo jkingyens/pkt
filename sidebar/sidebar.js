@@ -540,6 +540,9 @@ class SidebarUI {
 
             // 5. Sync terminal state
             await this.syncTerminalState();
+
+            // 6. Maintenance: Ensure API schema is up to date and populated
+            await this.ensureApiSchema();
         } catch (e) {
             console.error('[SidebarUI] continueInit failed:', e);
         }
@@ -1328,7 +1331,7 @@ class SidebarUI {
                         if (apiConfigured === 'true') {
                             this.handleRemoveConfiguredApi(apiName, apiCid);
                         } else {
-                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null);
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null, firstResult.dataset.apiDoc || null);
                         }
                     }
                 }
@@ -4257,6 +4260,55 @@ class SidebarUI {
                 if (api) {
                     this.apiDetailTitle.textContent = api.name;
                     
+                    // Documentation link logic
+                    let docUrl = api.documentation_url;
+                    
+                    // Fallback to services_fts if missing (e.g. legacy configured api)
+                    if (!docUrl) {
+                        try {
+                            const ftsResp = await this.sendMessage({
+                                action: 'query',
+                                payload: { 
+                                    name: 'services', 
+                                    sql: 'SELECT documentation_url FROM services_fts WHERE config_id = ?',
+                                    bind: [apiId]
+                                }
+                            });
+                            const ftsRows = this._normalizeRows(ftsResp.result);
+                            if (ftsRows && ftsRows[0] && ftsRows[0].documentation_url) {
+                                docUrl = ftsRows[0].documentation_url;
+                                // Proactively update configured_services so we don't have to keep falling back
+                                await this.sendMessage({
+                                    action: 'exec',
+                                    payload: {
+                                        name: 'services',
+                                        sql: 'UPDATE configured_services SET documentation_url = ? WHERE config_id = ?',
+                                        bind: [docUrl, apiId]
+                                    }
+                                });
+                            }
+                        } catch (ftsErr) {
+                            console.warn('[Sidebar] Failed to fetch doc fallback:', ftsErr);
+                        }
+                    }
+
+                    const docLinkContainer = document.getElementById('apiDocumentationContainer');
+                    if (docLinkContainer) {
+                        if (docUrl) {
+                            docLinkContainer.classList.remove('hidden');
+                            const docLink = document.getElementById('apiDocumentationLink');
+                            if (docLink) {
+                                docLink.href = docUrl;
+                                docLink.onclick = (e) => {
+                                    e.preventDefault();
+                                    window.open(docUrl, '_blank');
+                                };
+                            }
+                        } else {
+                            docLinkContainer.classList.add('hidden');
+                        }
+                    }
+                    
                     if (api.manifest_permission) {
                         this.chromePermissionSettings.classList.remove('hidden');
                         this.permissionStatusTitle.textContent = `${api.name.replace('Chrome: ', '')} Permission`;
@@ -4280,6 +4332,14 @@ class SidebarUI {
             return;
         }
 
+        // Built-in permissions that are always granted or not requestable via chrome.permissions.contains
+        const nonRequestable = ['runtime', 'activeTab', 'favicon'];
+        if (nonRequestable.includes(permission)) {
+            this.updateChromePermissionStatus(true, 'Always Available');
+            if (this.apiDetailPermissionHelper) this.apiDetailPermissionHelper.classList.add('hidden');
+            return;
+        }
+
         try {
             const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
             this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Available' : 'Unavailable');
@@ -4289,6 +4349,7 @@ class SidebarUI {
         } catch (e) {
             console.error(`[Sidebar] Error checking ${permission} permission:`, e);
             this.updateChromePermissionStatus(false, 'Error');
+            if (this.apiDetailPermissionHelper) this.apiDetailPermissionHelper.classList.add('hidden');
         }
     }
 
@@ -4329,14 +4390,66 @@ class SidebarUI {
         }
     }
 
-    async handleSyncApis() {
+    async ensureApiSchema() {
+        try {
+            const info = await this.sendMessage({
+                action: 'query',
+                payload: { name: 'services', sql: 'PRAGMA table_info(services_fts)' }
+            });
+            const rows = this._normalizeRows(info.result);
+            const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
+            
+            if (!hasDocCol) {
+                console.log('[Sidebar] services_fts is missing documentation_url, triggering auto-sync...');
+                await this.handleSyncApis(true); // Force local sync
+            }
+        } catch (e) {
+            // If table doesn't exist, handleSyncApis will create it
+            if (e.message.includes('no such table')) {
+                await this.handleSyncApis(true);
+            } else {
+                console.warn('[Sidebar] schema check failed:', e);
+            }
+        }
+    }
+
+    async handleSyncApis(forceLocal = false) {
         this.showNotification('Syncing APIs...', 'info');
         try {
-            const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to fetch apis.json from GitHub');
+            let apis = null;
+            
+            // Prefer local file if forceLocal is true or during development
+            // This ensures workspace changes to apis.json are reflected immediately
+            if (forceLocal) {
+                const localUrl = chrome.runtime.getURL('apis.json');
+                const localResp = await fetch(localUrl);
+                if (localResp.ok) {
+                    apis = await localResp.json();
+                    console.log('[Sidebar] Syncing from local apis.json');
+                }
+            }
 
-            const apis = await response.json();
+            if (!apis) {
+                try {
+                    const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        apis = await response.json();
+                        console.log('[Sidebar] Syncing from GitHub apis.json');
+                    }
+                } catch (remoteErr) {
+                    console.warn('[Sidebar] GitHub sync failed, falling back to local:', remoteErr);
+                }
+            }
+
+            // Final fallback to local if still nothing
+            if (!apis) {
+                const localUrl = chrome.runtime.getURL('apis.json');
+                const localResp = await fetch(localUrl);
+                if (!localResp.ok) throw new Error('Failed to fetch local apis.json');
+                apis = await localResp.json();
+                console.log('[Sidebar] Syncing from local apis.json (fallback)');
+            }
             
             // Ensure configured_services exists with modern schema
             await this.sendMessage({
@@ -4350,6 +4463,7 @@ class SidebarUI {
                             description TEXT,
                             config_id   TEXT UNIQUE NOT NULL,
                             manifest_permission TEXT,
+                            documentation_url   TEXT,
                             created     TEXT NOT NULL DEFAULT (datetime('now'))
                           )` 
                 }
@@ -4368,6 +4482,14 @@ class SidebarUI {
                     await this.sendMessage({
                         action: 'exec',
                         payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
+                    });
+                }
+
+                const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
+                if (!hasDocCol) {
+                    await this.sendMessage({
+                        action: 'exec',
+                        payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN documentation_url TEXT' }
                     });
                 }
             } catch (e) {
@@ -4392,7 +4514,8 @@ class SidebarUI {
                             icon, 
                             description,
                             config_id UNINDEXED,
-                            manifest_permission UNINDEXED
+                            manifest_permission UNINDEXED,
+                            documentation_url UNINDEXED
                           )` 
                 }
             });
@@ -4404,8 +4527,8 @@ class SidebarUI {
                         action: 'exec',
                         payload: {
                             name: 'services',
-                            sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
-                            bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
+                            sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url) VALUES (?, ?, ?, ?, ?, ?)',
+                            bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null]
                         }
                     });
                 } catch (err) {
@@ -4422,6 +4545,11 @@ class SidebarUI {
                     sql: `UPDATE configured_services 
                           SET manifest_permission = (
                               SELECT manifest_permission 
+                              FROM services_fts 
+                              WHERE services_fts.config_id = configured_services.config_id
+                          ),
+                          documentation_url = (
+                              SELECT documentation_url 
                               FROM services_fts 
                               WHERE services_fts.config_id = configured_services.config_id
                           )
@@ -4451,6 +4579,7 @@ class SidebarUI {
                                     description TEXT,
                                     config_id   TEXT UNIQUE NOT NULL,
                                     manifest_permission TEXT,
+                                    documentation_url   TEXT,
                                     created     TEXT NOT NULL DEFAULT (datetime('now'))
                                   )` 
                         }
@@ -4469,6 +4598,14 @@ class SidebarUI {
                             await this.sendMessage({
                                 action: 'exec',
                                 payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
+                            });
+                        }
+
+                        const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
+                        if (!hasDocCol) {
+                            await this.sendMessage({
+                                action: 'exec',
+                                payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN documentation_url TEXT' }
                             });
                         }
                     } catch (e) {
@@ -4492,7 +4629,8 @@ class SidebarUI {
                                     icon, 
                                     description,
                                     config_id UNINDEXED,
-                                    manifest_permission UNINDEXED
+                                    manifest_permission UNINDEXED,
+                                    documentation_url UNINDEXED
                                   )` 
                         }
                     });
@@ -4502,8 +4640,8 @@ class SidebarUI {
                                 action: 'exec',
                                 payload: {
                                     name: 'services',
-                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
-                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null]
+                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url) VALUES (?, ?, ?, ?, ?, ?)',
+                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null]
                                 }
                             });
                         } catch (err) {
@@ -4520,6 +4658,11 @@ class SidebarUI {
                             sql: `UPDATE configured_services 
                                   SET manifest_permission = (
                                       SELECT manifest_permission 
+                                      FROM services_fts 
+                                      WHERE services_fts.config_id = configured_services.config_id
+                                  ),
+                                  documentation_url = (
+                                      SELECT documentation_url 
                                       FROM services_fts 
                                       WHERE services_fts.config_id = configured_services.config_id
                                   )
@@ -4591,14 +4734,14 @@ class SidebarUI {
         }
     }
 
-    async handleAddConfiguredApi(name, icon, description, config_id, manifest_permission = null) {
+    async handleAddConfiguredApi(name, icon, description, config_id, manifest_permission = null, documentation_url = null) {
         try {
             const resp = await this.sendMessage({
                 action: 'exec',
                 payload: {
                     name: 'services',
-                    sql: 'INSERT OR IGNORE INTO configured_services (name, icon, description, config_id, manifest_permission) VALUES (?, ?, ?, ?, ?)',
-                    bind: [name, icon, description, config_id, manifest_permission]
+                    sql: 'INSERT OR IGNORE INTO configured_services (name, icon, description, config_id, manifest_permission, documentation_url) VALUES (?, ?, ?, ?, ?, ?)',
+                    bind: [name, icon, description, config_id, manifest_permission, documentation_url]
                 }
             });
 
@@ -4700,7 +4843,7 @@ class SidebarUI {
             const escapedQuery = query.replace(/"/g, '""');
             const sql = `
                 SELECT 
-                    name, icon, description, config_id, manifest_permission,
+                    name, icon, description, config_id, manifest_permission, documentation_url,
                     (SELECT 1 FROM configured_services WHERE configured_services.config_id = services_fts.config_id) as is_configured
                 FROM services_fts 
                 WHERE services_fts MATCH ? 
@@ -4725,6 +4868,7 @@ class SidebarUI {
                              data-api-desc="${api.description}" 
                              data-api-cid="${api.config_id}"
                              data-api-perm="${api.manifest_permission || ''}"
+                             data-api-doc="${api.documentation_url || ''}"
                              data-api-configured="${api.is_configured ? 'true' : 'false'}">
                             <div class="search-result-main">
                                 <span class="icon">${api.icon || '🧩'}</span>
@@ -4746,8 +4890,8 @@ class SidebarUI {
                         btn.onclick = (e) => {
                             e.stopPropagation();
                             const item = btn.closest('.search-result-item');
-                            const { apiName, apiIcon, apiDesc, apiCid, apiPerm } = item.dataset;
-                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null);
+                            const { apiName, apiIcon, apiDesc, apiCid, apiPerm, apiDoc } = item.dataset;
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null, apiDoc || null);
                         };
                     });
 

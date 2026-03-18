@@ -2845,3 +2845,31 @@ body:not(.dark-mode) .lock-screen {
   font-weight: 500;
   color: var(--text);
 }
+
+.documentation-link-container {
+  margin-top: 8px;
+  background: var(--bg-alt);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.documentation-link-container:hover {
+  border-color: var(--primary);
+  background: var(--surface-hover);
+}
+
+.documentation-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.documentation-link span {
+  font-size: 16px;
+}
