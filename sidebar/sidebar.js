@@ -4800,62 +4800,67 @@ class SidebarUI {
                 payload: { name: 'services', sql: 'PRAGMA table_info(services_fts)' }
             });
             const rows = this._normalizeRows(info.result);
+            console.log('[Sidebar] PRAGMA table_info(services_fts):', rows);
+
             const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
             const hasPlatformCol = rows && rows.some(r => r.name === 'supported_platforms');
+
+            // Also check if table has any data
+            let rowCount = 0;
+            try {
+                const countResp = await this.sendMessage({
+                    action: 'query',
+                    payload: { name: 'services', sql: 'SELECT COUNT(*) as count FROM services_fts' }
+                });
+                const countRows = this._normalizeRows(countResp.result);
+                rowCount = countRows?.[0]?.count || 0;
+            } catch (e) {
+                console.warn('[Sidebar] could not check row count, assuming 0:', e.message);
+            }
+
+            console.log('[Sidebar] ensureApiSchema check:', { hasDocCol, hasPlatformCol, rowCount });
             
-            if (!hasDocCol || !hasPlatformCol) {
-                console.log('[Sidebar] services_fts schema outdated, triggering auto-sync...');
-                await this.handleSyncApis(true); // Force local sync
+            if (!hasDocCol || !hasPlatformCol || rowCount === 0) {
+                console.log(`[Sidebar] services_fts schema outdated or empty (rows=${rowCount}). AUTO-SYNC DISABLED per user request.`);
+                // await this.handleSyncApis(true); 
             }
         } catch (e) {
-            // If table doesn't exist, handleSyncApis will create it
-            if (e.message.includes('no such table')) {
-                await this.handleSyncApis(true);
-            } else {
-                console.warn('[Sidebar] schema check failed:', e);
-            }
+            console.warn('[Sidebar] ensureApiSchema check error:', e.message);
         }
     }
 
-    async handleSyncApis(forceLocal = false) {
-        this.showNotification('Syncing APIs...', 'info');
+    async handleSyncApis(silent = false) {
+        if (!silent) {
+            this.showNotification('Syncing APIs...', 'info');
+        }
+        console.log('[Sidebar] handleSyncApis execution started');
         try {
             let apis = null;
             
-            // Prefer local file if forceLocal is true or during development
-            // This ensures workspace changes to apis.json are reflected immediately
-            if (forceLocal) {
-                const localUrl = chrome.runtime.getURL('apis.json');
-                const localResp = await fetch(localUrl);
-                if (localResp.ok) {
-                    apis = await localResp.json();
-                    console.log('[Sidebar] Syncing from local apis.json');
+            try {
+                const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
+                console.log('[Sidebar] Attempting to fetch APIs from GitHub:', url);
+                const response = await fetch(url);
+                if (response.ok) {
+                    apis = await response.json();
+                    console.log(`[Sidebar] Successfully fetched ${apis?.length} APIs from GitHub`);
+                } else {
+                    console.warn('[Sidebar] GitHub fetch failed:', response.status, response.statusText);
+                    throw new Error(`GitHub fetch failed: ${response.status} ${response.statusText}`);
                 }
-            }
-
-            if (!apis) {
-                try {
-                    const url = 'https://raw.githubusercontent.com/jkingyens/wildcard/main/apis.json';
-                    const response = await fetch(url);
-                    if (response.ok) {
-                        apis = await response.json();
-                        console.log('[Sidebar] Syncing from GitHub apis.json');
-                    }
-                } catch (remoteErr) {
-                    console.warn('[Sidebar] GitHub sync failed, falling back to local:', remoteErr);
-                }
-            }
-
-            // Final fallback to local if still nothing
-            if (!apis) {
-                const localUrl = chrome.runtime.getURL('apis.json');
-                const localResp = await fetch(localUrl);
-                if (!localResp.ok) throw new Error('Failed to fetch local apis.json');
-                apis = await localResp.json();
-                console.log('[Sidebar] Syncing from local apis.json (fallback)');
+            } catch (remoteErr) {
+                console.error('[Sidebar] GitHub sync failed:', remoteErr);
+                throw remoteErr;
             }
             
+            if (!apis || !Array.isArray(apis)) {
+                throw new Error('No API data found to sync');
+            }
+
+            console.log('[Sidebar] Syncing database with', apis.length, 'APIs');
+
             // Ensure configured_services exists with modern schema
+            console.log('[Sidebar] Ensuring configured_services table exists...');
             await this.sendMessage({
                 action: 'exec',
                 payload: { 
@@ -4872,6 +4877,7 @@ class SidebarUI {
                           )` 
                 }
             });
+            console.log('[Sidebar] configured_services table ensured.');
 
             // Migration: Add manifest_permission to configured_services if it exists but is old
             try {
@@ -4883,18 +4889,22 @@ class SidebarUI {
                 const hasCol = rows && rows.some(r => r.name === 'manifest_permission');
                 
                 if (!hasCol) {
+                    console.log('[Sidebar] Adding manifest_permission column to configured_services...');
                     await this.sendMessage({
                         action: 'exec',
                         payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
                     });
+                    console.log('[Sidebar] manifest_permission column added.');
                 }
 
                 const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
                 if (!hasDocCol) {
+                    console.log('[Sidebar] Adding documentation_url column to configured_services...');
                     await this.sendMessage({
                         action: 'exec',
                         payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN documentation_url TEXT' }
                     });
+                    console.log('[Sidebar] documentation_url column added.');
                 }
             } catch (e) {
                 // Ignore errors now that sendMessage rejects correctly
@@ -4905,10 +4915,14 @@ class SidebarUI {
 
             // Virtual tables like FTS5 do NOT support ALTER TABLE ADD COLUMN.
             // We must drop and recreate them to change the schema.
+            console.log('[Sidebar] Dropping services_fts table if it exists...');
             await this.sendMessage({
                 action: 'exec',
                 payload: { name: 'services', sql: 'DROP TABLE IF EXISTS services_fts' }
             });
+            console.log('[Sidebar] services_fts table dropped.');
+
+            console.log('[Sidebar] Creating services_fts virtual table...');
             await this.sendMessage({
                 action: 'exec',
                 payload: { 
@@ -4924,8 +4938,11 @@ class SidebarUI {
                           )` 
                 }
             });
+            console.log('[Sidebar] services_fts virtual table created.');
 
             // Insert new ones into cache
+            console.log(`[Sidebar] Inserting ${apis.length} APIs into services_fts...`);
+            let insertCount = 0;
             for (const api of apis) {
                 try {
                     const platforms = api.supported_platforms ? JSON.stringify(api.supported_platforms) : null;
@@ -4937,11 +4954,14 @@ class SidebarUI {
                             bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null, platforms]
                         }
                     });
+                    insertCount++;
+                    if (insertCount % 100 === 0) console.log(`[Sidebar] Inserted ${insertCount}/${apis.length} APIs...`);
                 } catch (err) {
-                    console.warn(`[Sidebar] Failed to insert ${api.name} into FTS cache, stopping sync:`, err);
-                    throw err; // Re-throw to trigger fallback or error notification
+                    console.warn(`[Sidebar] Failed to insert API ${api.config_id} into FTS cache:`, err.message);
+                    // Do not re-throw to allow partial inserts
                 }
             }
+            console.log(`[Sidebar] Successfully inserted ${insertCount} APIs into services_fts.`);
 
             // Backfill manifest_permission for existing configured services
             await this.sendMessage({
@@ -4963,132 +4983,18 @@ class SidebarUI {
                 }
             });
 
-            this.showNotification('APIs synced successfully', 'success');
+            if (!silent) {
+                this.showNotification('APIs synced successfully', 'success');
+            }
         } catch (e) {
             console.error('[Sidebar] Failed to sync APIs:', e);
-            // Fallback to local file if GitHub fails
-            try {
-                const localUrl = chrome.runtime.getURL('apis.json');
-                const localResp = await fetch(localUrl);
-                if (localResp.ok) {
-                    const apis = await localResp.json();
-                    
-                    // Ensure configured_services exists with modern schema
-                    await this.sendMessage({
-                        action: 'exec',
-                        payload: { 
-                            name: 'services', 
-                            sql: `CREATE TABLE IF NOT EXISTS configured_services (
-                                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    name        TEXT NOT NULL,
-                                    icon        TEXT,
-                                    description TEXT,
-                                    config_id   TEXT UNIQUE NOT NULL,
-                                    manifest_permission TEXT,
-                                    documentation_url   TEXT,
-                                    created     TEXT NOT NULL DEFAULT (datetime('now'))
-                                  )` 
-                        }
-                    });
-
-                    // Schema Migration: Add manifest_permission to configured_services if it exists but is old
-                    try {
-                        const info = await this.sendMessage({
-                            action: 'query',
-                            payload: { name: 'services', sql: 'PRAGMA table_info(configured_services)' }
-                        });
-                        const rows = this._normalizeRows(info.result);
-                        const hasCol = rows && rows.some(r => r.name === 'manifest_permission');
-                        
-                        if (!hasCol) {
-                            await this.sendMessage({
-                                action: 'exec',
-                                payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN manifest_permission TEXT' }
-                            });
-                        }
-
-                        const hasDocCol = rows && rows.some(r => r.name === 'documentation_url');
-                        if (!hasDocCol) {
-                            await this.sendMessage({
-                                action: 'exec',
-                                payload: { name: 'services', sql: 'ALTER TABLE configured_services ADD COLUMN documentation_url TEXT' }
-                            });
-                        }
-                    } catch (e) {
-                        // Ignore if column already exists
-                        if (!e.message.includes('duplicate column')) {
-                            console.warn('[Sidebar] Fallback migration warning:', e.message);
-                        }
-                    }
-
-                    // Drop and recreate services_fts for schema update
-                    await this.sendMessage({
-                        action: 'exec',
-                        payload: { name: 'services', sql: 'DROP TABLE IF EXISTS services_fts' }
-                    });
-                    await this.sendMessage({
-                        action: 'exec',
-                        payload: { 
-                            name: 'services', 
-                            sql: `CREATE VIRTUAL TABLE services_fts USING fts5(
-                                    name, 
-                                    icon, 
-                                    description,
-                                    config_id UNINDEXED,
-                                    manifest_permission UNINDEXED,
-                                    documentation_url UNINDEXED,
-                                    supported_platforms UNINDEXED
-                                  )` 
-                        }
-                    });
-                    for (const api of apis) {
-                        try {
-                            const platforms = api.supported_platforms ? JSON.stringify(api.supported_platforms) : null;
-                            await this.sendMessage({
-                                action: 'exec',
-                                payload: {
-                                    name: 'services',
-                                    sql: 'INSERT INTO services_fts (name, icon, description, config_id, manifest_permission, documentation_url, supported_platforms) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                                    bind: [api.name, api.icon, api.description, api.config_id, api.manifest_permission || null, api.documentation_url || null, platforms]
-                                }
-                            });
-                        } catch (err) {
-                            console.warn(`[Sidebar] Local insert failed for ${api.name}:`, err);
-                            throw err;
-                        }
-                    }
-
-                    // Backfill manifest_permission for existing configured services (fallback path)
-                    await this.sendMessage({
-                        action: 'exec',
-                        payload: {
-                            name: 'services',
-                            sql: `UPDATE configured_services 
-                                  SET manifest_permission = (
-                                      SELECT manifest_permission 
-                                      FROM services_fts 
-                                      WHERE services_fts.config_id = configured_services.config_id
-                                  ),
-                                  documentation_url = (
-                                      SELECT documentation_url 
-                                      FROM services_fts 
-                                      WHERE services_fts.config_id = configured_services.config_id
-                                  )
-                                  WHERE config_id IN (SELECT config_id FROM services_fts)`
-                        }
-                    });
-                    this.showNotification('APIs synced from local bundle', 'success');
-                    return;
-                }
-            } catch (localErr) {
-                console.error('[Sidebar] Local fallback also failed:', localErr);
-            }
-            this.showNotification('Failed to sync APIs', 'error');
+            this.showNotification('Failed to sync APIs: ' + e.message, 'error');
         }
     }
 
     async renderApiList() {
         if (!this.apiList) return;
+        console.log('[Sidebar] renderApiList called');
         this.apiList.innerHTML = '';
 
         try {
@@ -5098,6 +5004,7 @@ class SidebarUI {
             });
 
             const apis = this._normalizeRows(resp.result);
+            console.log('[Sidebar] renderApiList: found', apis.length, 'configured APIs:', apis.map(a => a.config_id));
 
             if (apis.length === 0) {
                 this.apiList.innerHTML = '<div class="api-item-empty">No APIs configured yet. Search and add them above.</div>';
@@ -5384,6 +5291,7 @@ class SidebarUI {
                     ? JSON.parse(api.supported_platforms)
                     : api.supported_platforms;
             } catch (e) {
+                console.warn('[Sidebar] Failed to parse supported_platforms:', e.message);
                 return true; // If we can't parse, show it
             }
         }
@@ -5393,13 +5301,14 @@ class SidebarUI {
 
     async handleApiSearch() {
         const query = this.apiSearchInput.value.trim();
-        if (query.length === 0) {
+        console.log('[Sidebar] handleApiSearch query:', query);
+        if (!query) {
             this.searchDropdown.classList.add('hidden');
             return;
         }
 
         try {
-            const escapedQuery = query.replace(/"/g, '""');
+            // const escapedQuery = query.replace(/"/g, '""'); // No longer needed with direct bind
             const sql = `
                 SELECT 
                     services_fts.name, 
@@ -5409,24 +5318,33 @@ class SidebarUI {
                     services_fts.manifest_permission, 
                     services_fts.documentation_url, 
                     services_fts.supported_platforms,
-                    services.mock_prompt,
-                    (SELECT 1 FROM configured_services WHERE configured_services.config_id = services_fts.config_id) as is_configured
+                    (CASE WHEN configured_services.config_id IS NOT NULL THEN 1 ELSE 0 END) as is_configured
                 FROM services_fts 
-                LEFT JOIN services ON services.config_id = services_fts.config_id
+                LEFT JOIN configured_services ON configured_services.config_id = services_fts.config_id
                 WHERE services_fts MATCH ? 
                 ORDER BY rank
             `;
-            const bind = [`"${escapedQuery}"*`];
-
+            // const bind = [`"${escapedQuery}"*`]; // No longer needed with direct bind
             const resp = await this.sendMessage({
                 action: 'query',
-                payload: { name: 'services', sql, bind }
+                payload: { name: 'services', sql, bind: [query + '*'] }
             });
+
+            console.log('[Sidebar] Search response:', resp);
 
             if (resp && resp.success) {
                 const allResults = this._normalizeRows(resp.result);
+                console.log('[Sidebar] Search results (raw):', allResults.length);
+                
                 // Filter by current platform
-                const results = allResults.filter(api => this._isApiSupportedOnPlatform(api));
+                const results = allResults.filter(api => {
+                    const supported = this._isApiSupportedOnPlatform(api);
+                    if (!supported) {
+                        console.log(`[Sidebar] Filtering out ${api.config_id} (not supported on ${this.currentPlatform})`);
+                    }
+                    return supported;
+                });
+                console.log('[Sidebar] Search results (filtered):', results.length);
 
                 if (results && results.length > 0) {
                     this.searchDropdown.innerHTML = results.map(api => {

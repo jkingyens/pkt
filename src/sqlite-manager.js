@@ -48,7 +48,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
   icon, 
   description,
   config_id UNINDEXED,
-  manifest_permission UNINDEXED
+  manifest_permission UNINDEXED,
+  documentation_url UNINDEXED,
+  supported_platforms UNINDEXED
 );
 CREATE TABLE IF NOT EXISTS configured_services (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,12 +217,18 @@ class SQLiteManager {
    * Helper: Normalize legacy result format [{columns, values}] to array of objects
    */
   _normalizeRows(result) {
-    if (!Array.isArray(result) || result.length === 0) return [];
+    // Handle proxy response object if present
+    let data = result;
+    if (result && result.result !== undefined && !Array.isArray(result)) {
+        data = result.result;
+    }
+
+    if (!Array.isArray(data) || data.length === 0) return [];
     
     // Check if result is in legacy format: [{columns: [...], values: [...]}]
-    if (result[0] && Array.isArray(result[0].columns) && Array.isArray(result[0].values)) {
-        const columns = result[0].columns;
-        return result[0].values.map(values => {
+    if (data[0] && Array.isArray(data[0].columns) && Array.isArray(data[0].values)) {
+        const columns = data[0].columns;
+        return data[0].values.map(values => {
             const row = {};
             columns.forEach((col, idx) => {
                 row[col] = values[idx];
@@ -230,7 +238,7 @@ class SQLiteManager {
     }
     
     // Already array of objects (or empty)
-    return result;
+    return data;
   }
 
   /**

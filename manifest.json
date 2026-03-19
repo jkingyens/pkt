@@ -15,8 +15,6 @@
         "contextMenus",
         "scripting",
         "declarativeNetRequest",
-        "downloads.open",
-        "downloads",
         "privacy",
         "favicon"
     ],
