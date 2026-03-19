@@ -859,6 +859,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Message handler for sidebar communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Ignore internal proxy requests and offscreen logs to avoid recursion or interference
+    if (request.type === 'SQLITE_PROXY_REQUEST' || request.type === 'OFFSCREEN_LOG' || request.type === 'SQLITE_PROXY_RESPONSE') {
+        return false;
+    }
+
     (async () => {
         try {
             await initializeSQLite();
