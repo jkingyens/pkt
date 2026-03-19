@@ -2092,14 +2092,12 @@ class SidebarUI {
         if (isActualOnline) {
             const wasChecking = this.consecutiveFailures > 0;
             this.consecutiveFailures = 0;
-            if (this.lastStateWasOnline === false || wasChecking) {
+            if (this.lastStateWasOnline !== true || wasChecking) {
                 this.statusIndicator.classList.remove('offline', 'simulated-offline');
-                if (this.lastStateWasOnline === false) {
-                    console.log('[Status] Back Online');
-                    this.enforceOfflineState(false);
-                    // Slow down polling when online
-                    this.startConnectivityPolling(30000);
-                }
+                console.log('[Status] Back Online (isActualOnline: true)');
+                this.enforceOfflineState(false);
+                // Slow down polling when online
+                this.startConnectivityPolling(30000);
             }
         } else {
             this.consecutiveFailures++;
@@ -2603,7 +2601,7 @@ class SidebarUI {
                 let hostname;
                 try { hostname = new URL(url).hostname; } catch (e) { hostname = 'Unknown'; }
 
-                const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+                const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
                     <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2ZyB+'>
@@ -5549,6 +5547,10 @@ class SidebarUI {
         this.networkEnabled = data.networkEnabled !== false; // Default to true
         this.webAuthnEnabled = data.webAuthnEnabled || false;
         this.webAuthnCredentialId = data.webAuthnCredentialId || null;
+
+        // Initialize lastStateWasOnline from current network status AND storage
+        const { isNetworkOffline } = await chrome.storage.local.get('isNetworkOffline');
+        this.lastStateWasOnline = !isNetworkOffline;
 
         // Populate UI
         this.geminiApiKeyInput.value = this.geminiApiKey;

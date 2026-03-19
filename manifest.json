@@ -17,7 +17,8 @@
         "declarativeNetRequest",
         "downloads.open",
         "downloads",
-        "privacy"
+        "privacy",
+        "favicon"
     ],
     "host_permissions": [
         "<all_urls>"

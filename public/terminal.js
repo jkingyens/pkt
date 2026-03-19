@@ -83,7 +83,7 @@ async function initTerminal() {
         controlSAB = new SharedArrayBuffer(16); // [writeIndex, readIndex, ...]
         
         mockControlSAB = new SharedArrayBuffer(64); // [state, resultType, resultLength, ...]
-        mockDataSAB = new SharedArrayBuffer(16384); // 16KB for args/results
+        mockDataSAB = new SharedArrayBuffer(1024 * 1024); // 1MB for large results (e.g. bookmarks)
         
         console.log('Terminal: SharedArrayBuffers initialized');
     } catch (e) {
@@ -203,7 +203,45 @@ async function initTerminal() {
         }
     });
 
+    const isProduction = urlParams.get('production') === 'true';
+    console.log('Terminal: isProduction:', isProduction);
+
+    async function callRealApi(configId, methodName, args) {
+        // Map WIT-style configId (chrome:bookmarks/bookmarks) to Chrome API (chrome.bookmarks)
+        // and kebab-case methodName (get-tree) to camelCase (getTree)
+        if (!configId.startsWith('chrome:')) {
+            throw new Error(`Real API forwarding only supported for chrome:* APIs (got ${configId})`);
+        }
+
+        const apiPath = configId.split(':')[1].split('/')[0];
+        const parts = apiPath.split('.');
+        let obj = chrome;
+        for (const p of parts) {
+            if (!obj || !obj[p]) throw new Error(`Chrome API chrome.${apiPath} not found`);
+            obj = obj[p];
+        }
+
+        const camelMethodName = methodName.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+        const realMethod = obj[camelMethodName] || obj[methodName];
+
+        if (typeof realMethod !== 'function') {
+            throw new Error(`Method ${camelMethodName} (or ${methodName}) not found on chrome.${apiPath}`);
+        }
+
+        console.log(`Terminal: [Production] Calling real API chrome.${apiPath}.${camelMethodName}`, args);
+
+        const res = realMethod.apply(obj, args);
+        return res instanceof Promise ? res : Promise.resolve(res);
+    }
+
     const initMockInSandbox = (configId, code) => {
+        if (isProduction) {
+            // In Production Mode, we bypass the sandbox but still need to satisfy the "all mocks ready" check
+            setTimeout(() => {
+                window.postMessage({ type: 'mock-initialized', configId }, '*');
+            }, 0);
+            return;
+        }
         const msg = { type: 'init-mock', configId, code };
         if (sandboxReady) {
             sandboxIframe.contentWindow.postMessage(msg, '*');
@@ -213,7 +251,7 @@ async function initTerminal() {
     };
 
     // Worker monitor for synchronous calls
-    const checkMockCalls = () => {
+    const checkMockCalls = async () => {
         if (Atomics.load(mockControlData, 0) === 1) { // state: pending
             Atomics.store(mockControlData, 0, 4); // state: forwarding/processing
             Atomics.notify(mockControlData, 0);
@@ -222,12 +260,34 @@ async function initTerminal() {
             const bytes = new Uint8Array(len);
             bytes.set(mockData.subarray(0, len));
             const json = new TextDecoder().decode(bytes);
+            
             try {
                 const { configId, methodName, args } = JSON.parse(json);
-                console.log(`Terminal: Forwarding mock call ${configId}.${methodName} to sandbox`);
-                sandboxIframe.contentWindow.postMessage({ type: 'call-mock', configId, methodName, args }, '*');
+                
+                if (isProduction && configId.startsWith('chrome:')) {
+                    try {
+                        const val = await callRealApi(configId, methodName, args || []);
+                        const resultJson = JSON.stringify({ val });
+                        const resultBytes = new TextEncoder().encode(resultJson);
+                        mockData.set(resultBytes);
+                        Atomics.store(mockControlData, 1, resultBytes.length);
+                        Atomics.store(mockControlData, 0, 2); // state: result_ready
+                        Atomics.notify(mockControlData, 0);
+                    } catch (err) {
+                        console.error(`Terminal: Real API call failed:`, err);
+                        const errorJson = JSON.stringify({ error: err.message });
+                        const errorBytes = new TextEncoder().encode(errorJson);
+                        mockData.set(errorBytes);
+                        Atomics.store(mockControlData, 1, errorBytes.length);
+                        Atomics.store(mockControlData, 0, 3); // state: error
+                        Atomics.notify(mockControlData, 0);
+                    }
+                } else {
+                    console.log(`Terminal: Forwarding mock call ${configId}.${methodName} to sandbox`);
+                    sandboxIframe.contentWindow.postMessage({ type: 'call-mock', configId, methodName, args }, '*');
+                }
             } catch (err) {
-                console.error('Terminal: Failed to parse mock call:', err);
+                console.error('Terminal: Failed to parse or process mock call:', err);
                 Atomics.store(mockControlData, 0, 3); // error
                 Atomics.notify(mockControlData, 0);
             }

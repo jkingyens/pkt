@@ -385,10 +385,23 @@ It will run in a host environment with these WIT interfaces available:
         }
     };
 
+    const productionModeCheckbox = document.getElementById('production-mode-checkbox');
+
     // Run Logic
     runBtn.onclick = () => {
+        const isProduction = productionModeCheckbox?.checked;
+        if (isProduction) {
+            const confirmed = confirm("⚠️ WARNING: Production Mode\n\nThis will allow the function to call REAL Chrome APIs and modify your browser data. Are you sure you want to proceed?");
+            if (!confirmed) return;
+        }
+
         const execName = currentItem.name || 'Function';
-        terminalIframe.src = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(execName)}&embedded=true&track=false`);
+        let terminalUrl = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(execName)}&embedded=true&track=false`);
+        if (isProduction) {
+            terminalUrl += '&production=true';
+        }
+
+        terminalIframe.src = terminalUrl;
         terminalOverlay.classList.add('active');
     };
 
