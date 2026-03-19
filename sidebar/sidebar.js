@@ -2611,10 +2611,6 @@ class SidebarUI {
                 const sid = item.stackId || item.id;
                 const stackUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}`);
                 console.log('[Render] Stack Card:', item.name, 'URL:', stackUrl, 'Match:', this.urlsMatch(this.activeUrl, stackUrl));
-                // Don't show the current stack in its own editor's sidebar
-                if (this.urlsMatch(this.activeUrl, stackUrl)) {
-                    return;
-                }
                 stackCount++;
                 const card = document.createElement('div');
                 card.setAttribute('tabindex', '0');
