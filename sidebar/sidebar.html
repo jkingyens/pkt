@@ -596,6 +596,11 @@
         placeholder="e.g. A function that calculates the total size of all bookmarks..." spellcheck="false"
         style="height: 120px; margin-bottom: 12px;"></textarea>
 
+      <div id="aiApiSelection" class="ai-api-selection hidden" style="margin-bottom: 12px;">
+        <p class="modal-hint" style="margin-bottom: 8px;">Select APIs to use as interfaces:</p>
+        <div id="aiApiList" class="ai-api-list" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 100px; overflow-y: auto;"></div>
+      </div>
+
       <div id="aiStatus" class="ai-status hidden">
         <div class="spinner"></div>
         <span id="aiStatusText">Generating...</span>

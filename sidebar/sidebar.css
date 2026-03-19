@@ -656,6 +656,57 @@ h1 {
   margin-bottom: 0;
 }
 
+.mock-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--primary);
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.mock-btn:hover {
+  opacity: 1;
+  background: var(--bg-alt);
+  transform: scale(1.1);
+}
+
+.ai-api-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-alt);
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.ai-api-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+}
+
+.ai-api-item.selected {
+  background: var(--primary);
+  color: white !important;
+  border-color: var(--primary);
+}
+
+.ai-api-item-icon {
+  font-size: 12px;
+}
+
 /* ===== MODAL ===== */
 .modal-overlay {
   position: fixed;

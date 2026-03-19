@@ -374,11 +374,23 @@ function normalizeUrl(url) {
             let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
             const search = new URLSearchParams(parsed.search);
             // Strip non-essential parameters for matching identity
-            // CRITICAL: stack.html MUST keep packetId for identity isolation
-            if (!path.endsWith('/stack.html')) {
-                search.delete('packetId');
+            search.delete('packetId');
+            search.delete('name');
+            search.delete('index'); // For code-viewer or other lists
+            
+            // For code-viewer, we might want to keep some context? 
+            // Actually, name was already deleted above, but for code-viewer, 
+            // the name IS the identity if there's no ID.
+            // Wait! If the user says "packetId" is the problem, I'll just strip that specifically.
+            
+            // Let's be more precise:
+            const pathLower = path.toLowerCase();
+            if (pathLower.endsWith('/code-viewer.html')) {
+                // Keep name if it's there (it's the function name)
+                const funcName = parsed.searchParams.get('name');
+                if (funcName) search.set('name', funcName);
             }
-            search.delete('name'); // Descriptive only
+
             search.sort();
             const searchString = search.toString();
             return `extension:${path}${searchString ? '?' + searchString : ''}`;
@@ -1402,7 +1414,7 @@ async function handleMessage(request, sender, sendResponse, manager) {
                     const arrayBuffer = await blob.arrayBuffer();
                     sendResponse({
                         success: true,
-                        data: new Uint8Array(arrayBuffer),
+                        data: Array.from(new Uint8Array(arrayBuffer)),
                         type: blob.type
                     });
                 } catch (err) {
@@ -1572,6 +1584,7 @@ async function handleMessage(request, sender, sendResponse, manager) {
                                 await chrome.tabs.update(existing.id, { active: true });
                             }
                             await setTabMapping(existing.id, url, packetId);
+                            sendResponse({ success: true, groupId: targetGroupId });
                         } else {
                             const newTab = await chrome.tabs.create({ url, active: true });
                             // ALWAYS use the unified helper to create/join group and save the mapping
@@ -1606,7 +1619,7 @@ async function handleMessage(request, sender, sendResponse, manager) {
 
             case 'runWasmPacketItem': {
                 try {
-                    const result = await executeWasm(request.item || request);
+                    const result = await executeWasm(request.item || request, request.packetId);
                     sendResponse(result);
                 } catch (err) {
                     console.error('WASM error:', err);
@@ -1768,11 +1781,12 @@ async function ensurePacketDatabase(packetId, manager) {
             description TEXT,
             config_id TEXT UNIQUE NOT NULL,
             manifest_permission TEXT,
+            mock_prompt TEXT,
+            mock_js TEXT,
             created TEXT DEFAULT (datetime('now'))
         );
     `);
 
-    // Migration: ensure columns exist in existing stacks table
     try {
         const columns = await db.query("PRAGMA table_info(stacks)");
         if (columns && columns.length) {
@@ -1787,8 +1801,19 @@ async function ensurePacketDatabase(packetId, manager) {
                 await db.exec("ALTER TABLE stacks ADD COLUMN markers TEXT DEFAULT '[]'");
             }
         }
+
+        const serviceCols = await db.query("PRAGMA table_info(services)");
+        if (serviceCols && serviceCols.length) {
+            const colNames = serviceCols.map(c => c.name);
+            if (!colNames.includes('mock_prompt')) {
+                await db.exec("ALTER TABLE services ADD COLUMN mock_prompt TEXT");
+            }
+            if (!colNames.includes('mock_js')) {
+                await db.exec("ALTER TABLE services ADD COLUMN mock_js TEXT");
+            }
+        }
     } catch (e) {
-        console.error('[SW] Migration failed for stacks table:', e);
+        console.error('[SW] Migration failed:', e);
     }
 
     return db;
@@ -1822,7 +1847,14 @@ async function cleanupPlaybackTabs() {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
         await updateBadge({ tabId });
-        const tab = await chrome.tabs.get(tabId);
+        let tab;
+        try {
+            tab = await chrome.tabs.get(tabId);
+        } catch (e) {
+            console.log(`[SW] onActivated: Tab ${tabId} not found, likely closed.`);
+            return;
+        }
+        
         const { activeGroups: initialActiveGroups = {} } = await chrome.storage.local.get('activeGroups');
         let activeGroups = initialActiveGroups;
         const groupId = tab.groupId;
@@ -2593,9 +2625,42 @@ async function performStartupLock() {
         console.error('[StartupLock] Error during locking:', e);
     }
 }
-                async function executeWasm(item) {
+                async function executeWasm(item, packetId) {
                     const runtime = new WasmRuntime();
                     const executionLogs = [];
+
+                    const mocks = {};
+                    if (packetId) {
+                        try {
+                            const db = sqliteManager.getDatabase('packets');
+                            const result = await db.query(`SELECT urls FROM packets WHERE id = ${packetId}`);
+                            if (result && result.length) {
+                                const urls = safeParseUrls(result[0].urls);
+                                urls.filter(u => u.type === 'api' && u.mock_js).forEach(u => {
+                                    try {
+                                        // Evaluate the mock JS
+                                        mocks[u.config_id] = new Function('sqlite', `return ${u.mock_js}`)({
+                                            query: async (sql, bind) => {
+                                                const dbName = `mock_${u.config_id.replace(/:/g, '_')}_${packetId}`;
+                                                const db = sqliteManager.getDatabase(dbName) || await sqliteManager.initDatabase(dbName);
+                                                return await db.query(sql, bind);
+                                            },
+                                            exec: async (sql, bind) => {
+                                                const dbName = `mock_${u.config_id.replace(/:/g, '_')}_${packetId}`;
+                                                const db = sqliteManager.getDatabase(dbName) || await sqliteManager.initDatabase(dbName);
+                                                return await db.exec(sql, bind);
+                                            }
+                                        });
+                                        console.log(`[WASM-Host] Registered mock for ${u.config_id}`);
+                                    } catch (e) {
+                                        console.error(`[WASM-Host] Failed to initialize mock for ${u.config_id}:`, e);
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            console.error('[WASM-Host] Failed to load mocks:', e);
+                        }
+                    }
 
                     const data = item.bytes || item.data;
                     if (!data) throw new Error("No WASM data provided");
@@ -2641,6 +2706,14 @@ async function performStartupLock() {
                         }
                     };
 
+                    const getMock = (configId, methodName) => {
+                        const mock = mocks[configId];
+                        if (mock && typeof mock[methodName] === 'function') {
+                            return mock[methodName];
+                        }
+                        return null;
+                    };
+
                     const importObject = {
                         env: {
                             log: (ptr, len) => {
@@ -2651,8 +2724,19 @@ async function performStartupLock() {
                         "chrome:bookmarks/bookmarks": {
                             "get-tree": () => {
                                 try {
-                                    if (!bookmarkCache) throw new Error("Cache not ready");
-                                    const encoded = runtime.encodeBookmarkList(bookmarkCache);
+                                    let data = bookmarkCache;
+                                    const mockFn = getMock("chrome:bookmarks", "getTree") || getMock("chrome:bookmarks/bookmarks", "get-tree");
+                                    if (mockFn) {
+                                        const result = mockFn();
+                                        if (result && !(result instanceof Promise)) {
+                                            data = result;
+                                        } else if (result instanceof Promise) {
+                                            console.warn("[WASM-Host] Mock get-tree returned a Promise. Using cache instead.");
+                                        }
+                                    }
+
+                                    if (!data) throw new Error("Cache not ready and no mock available");
+                                    const encoded = runtime.encodeBookmarkList(data);
                                     const resultPtr = runtime.alloc(12, 4);
                                     const view = runtime.getView();
                                     view.setUint32(resultPtr, 0, true);
@@ -2673,6 +2757,23 @@ async function performStartupLock() {
                             "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                             "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                             "create": (titlePtr, titleLen, urlPtr, urlLen) => {
+                                const title = runtime.readString(titlePtr, titleLen);
+                                const url = runtime.readString(urlPtr, urlLen);
+
+                                const mockFn = getMock("chrome:bookmarks", "create") || getMock("chrome:bookmarks/bookmarks", "create");
+                                if (mockFn) {
+                                    const result = mockFn({ title, url });
+                                    if (result instanceof Promise) {
+                                        console.log("[WASM-Host] Mock create initiated (async).");
+                                    }
+                                    const okPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(okPtr, 0, true);
+                                    // We don't return the new node as it's async in reality too usually, 
+                                    // but WIT expected result might vary.
+                                    return okPtr;
+                                }
+
                                 const errStr = runtime.writeString("Async 'create' requires JSPI.");
                                 const resultPtr = runtime.alloc(12, 4);
                                 const view = runtime.getView();

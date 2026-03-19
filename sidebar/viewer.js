@@ -20,15 +20,21 @@
         try {
             // Clone the document to strip transient states before saving
             const docClone = iframe.contentDocument.cloneNode(true);
-            const btn = docClone.getElementById('edit-toggle-btn');
-            const content = docClone.getElementById('editable-content');
-            const icon = docClone.getElementById('btn-icon');
-            const text = docClone.getElementById('btn-text');
+            
+            // Cleanup any UI state before saving (be generic)
+            const body = docClone.body;
+            if (body) {
+                body.classList.remove('dark-mode');
+            }
 
-            if (btn) btn.classList.remove('active');
-            if (content) content.contentEditable = 'false';
-            if (icon) icon.textContent = '✏️';
-            if (text) text.textContent = 'Edit Page';
+            const formatToggle = docClone.getElementById('format-toggle');
+            if (formatToggle) {
+                // We keep the toggle, but maybe reset its hover state if any classes were added
+            }
+
+            // Remove any selection ranges
+            const selection = iframe.contentWindow.getSelection();
+            if (selection) selection.removeAllRanges();
 
             const htmlContent = '<!DOCTYPE html>\n' + docClone.documentElement.outerHTML;
             const encoder = new TextEncoder();
@@ -65,16 +71,13 @@
         const htmlContent = new TextDecoder().decode(uint8Array);
         
         document.title = `${name} - Wildcard`;
-        iframe.srcdoc = htmlContent;
-        
         iframe.onload = () => {
+            console.log('[Viewer] iframe loaded');
             loading.classList.add('hidden');
             iframe.classList.remove('hidden');
 
             // Setup MutationObserver for auto-save
             const observer = new MutationObserver((mutations) => {
-                // Ignore changes to the edit button or scripts themselves 
-                // if they happen, but usually edits are inside #editable-content
                 scheduleSave();
             });
 
@@ -85,6 +88,8 @@
                 attributes: true
             });
         };
+
+        iframe.srcdoc = htmlContent;
 
         // Final save on close
         window.addEventListener('beforeunload', () => {
@@ -117,5 +122,21 @@
             });
         }
     });
+
+    // Bridge theme changes from extension to srcdoc iframe
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && changes.theme) {
+                const newTheme = changes.theme.newValue;
+                console.log('[Viewer] Theme changed, bridging to iframe:', newTheme);
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                        type: 'THEME_CHANGE',
+                        theme: newTheme
+                    }, '*');
+                }
+            }
+        });
+    }
 
 })();

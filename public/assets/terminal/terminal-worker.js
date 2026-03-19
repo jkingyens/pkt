@@ -78,7 +78,7 @@ function restoreDir(data, parent = null) {
 const storage = new FSStorage();
 
 self.onmessage = async (e) => {
-    const { type, packetData, inputSAB, controlSAB } = e.data;
+    const { type, packetId, packetData, inputSAB, controlSAB, mockControlSAB, mockDataSAB } = e.data;
 
     if (type === 'init') {
         const extDirContents = new Map();
@@ -154,17 +154,66 @@ self.onmessage = async (e) => {
                 let name = item.name || item.title || `wasm_${index}`;
                 name = name.replace(/[\/\\?%*:|"<>]/g, '_');
                 try {
-                    const binaryString = atob(item.data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                    const binaryString = Atomics.load(new Int32Array(new SharedArrayBuffer(4)), 0) === 0 ? atob(item.data) : atob(item.data); // dummy to ensure no optimize? no need
+                    const binStr = atob(item.data);
+                    const bytes = new Uint8Array(binStr.length);
+                    for (let i = 0; i < binStr.length; i++) {
+                        bytes[i] = binStr.charCodeAt(i);
                     }
                     binMap.set(name, new File(bytes));
-                } catch (e) {
-                    console.error(`Worker: Failed to decode WASM for ${name}:`, e);
+                } catch (ex) {
+                    console.error(`Worker: Failed to decode WASM for ${name}:`, ex);
                 }
             }
         });
+
+        // Mocks are now initialized in the sandbox via terminal.js
+
+        const getMockSync = (configId, methodName, args = []) => {
+            if (!mockControlSAB || !mockDataSAB) return null;
+            
+            const mockControlData = new Int32Array(mockControlSAB);
+            const mockData = new Uint8Array(mockDataSAB);
+            
+            const call = { configId, methodName, args };
+            const json = JSON.stringify(call);
+            const bytes = new TextEncoder().encode(json);
+            
+            mockData.set(bytes);
+            Atomics.store(mockControlData, 1, bytes.length);
+            Atomics.store(mockControlData, 0, 1); // state: pending
+            Atomics.notify(mockControlData, 0); // Wake up main thread if it's waiting (though it's polling)
+            
+            // WAIT for main thread to process and signal result (2: success, 3: error)
+            while (true) {
+                const state = Atomics.load(mockControlData, 0);
+                if (state === 2 || state === 3) break; 
+                Atomics.wait(mockControlData, 0, state);
+            }
+            
+            const state = Atomics.load(mockControlData, 0);
+            if (state === 2) { // state: result_ready
+                const resLen = Atomics.load(mockControlData, 1);
+                // Copy from SharedArrayBuffer to non-shared buffer for TextDecoder
+                const resBytes = new Uint8Array(resLen);
+                resBytes.set(mockData.subarray(0, resLen));
+                const resJson = new TextDecoder().decode(resBytes);
+                const res = JSON.parse(resJson);
+                Atomics.store(mockControlData, 0, 0); // back to idle
+                return res.val;
+            } else {
+                console.error(`[Worker] Mock call failed for ${configId}.${methodName}. State: ${state}`);
+                const resLen = Atomics.load(mockControlData, 1);
+                if (resLen > 0) {
+                    const resBytes = new Uint8Array(resLen);
+                    resBytes.set(mockData.subarray(0, resLen));
+                    const resJson = new TextDecoder().decode(resBytes);
+                    console.error(`[Worker] Error details:`, resJson);
+                }
+                Atomics.store(mockControlData, 0, 0); // back to idle
+                return null;
+            }
+        };
 
         const stdin = new SABStdin(inputSAB, controlSAB);
         const stdout = new ConsoleStdout((buf) => self.postMessage({ type: 'stdout', data: buf }));
@@ -205,18 +254,26 @@ self.onmessage = async (e) => {
                 }
             },
             "chrome:bookmarks/bookmarks": {
-                "get-tree": () => 0,
-                "get_tree": () => 0,
-                "get-all-bookmarks": () => 0,
-                "get_all_bookmarks": () => 0,
-                "create": () => 0
+                "get-tree": () => {
+                    console.log("[Worker-Host] Calling mock get-tree (Sync SAB)");
+                    const res = getMockSync("chrome:bookmarks", "getTree") || getMockSync("chrome:bookmarks/bookmarks", "get-tree");
+                    return typeof res === 'number' ? res : 0;
+                },
+                "get_tree": (...args) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](...args),
+                "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "create": (details) => {
+                    console.log("[Worker-Host] Calling mock create (Sync SAB)");
+                    getMockSync("chrome:bookmarks", "create", [details]) || getMockSync("chrome:bookmarks/bookmarks", "create", [details]);
+                    return 0;
+                }
             },
             "chrome:bookmarks": {
-                "get-tree": () => 0,
-                "get_tree": () => 0,
-                "get-all-bookmarks": () => 0,
-                "get_all_bookmarks": () => 0,
-                "create": () => 0
+                "get-tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "get_tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "create": (...args) => importObject["chrome:bookmarks/bookmarks"]["create"](...args)
             },
             "user:sqlite/sqlite": {
                 "execute": () => 0,

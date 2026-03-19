@@ -253,8 +253,14 @@
                 let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
                 const search = new URLSearchParams(parsed.search);
                 // Strip non-essential parameters for matching identity
-                search.delete('packetId');
-                search.delete('name'); // Descriptive only
+                if (!path.endsWith('/stack.html')) {
+                    search.delete('packetId');
+                }
+                if (path.endsWith('/code-viewer.html')) {
+                    search.delete('index');
+                } else {
+                    search.delete('name'); // Descriptive only for others
+                }
                 search.sort();
                 const searchString = search.toString();
                 return `extension:${path}${searchString ? '?' + searchString : ''}`;
@@ -1041,11 +1047,9 @@
         if (type === 'page' || type === 'link') {
             return item.url || meta.url;
         } else if (type === 'local' || type === 'wasm') {
-            if (type === 'wasm' && !resourceId) {
-                // If no resourceId, this might be an AI-generated function or raw wasm data in metadata
-                // We can construct a terminal URL to execute it
+            if (type === 'wasm') {
                 const name = item.name || meta.name || 'Function';
-                return chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(name)}&track=false`);
+                return chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${packetId}&name=${encodeURIComponent(name)}`);
             }
             if (!resourceId) return null;
             return chrome.runtime.getURL(`sidebar/viewer.html?id=${resourceId}&name=${encodeURIComponent(itemName)}&packetId=${packetId}`);

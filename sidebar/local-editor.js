@@ -6,31 +6,46 @@
     
     if (!toggleBtn || !container) return;
 
-    // Toggle Layout Logic
+    // Toggle Layout Logic with smooth transitions
     toggleBtn.onclick = () => {
         const isTitle = container.classList.contains('layout-title');
         if (isTitle) {
             container.classList.remove('layout-title');
             container.classList.add('layout-content');
-            formatText.textContent = 'Switch to Title';
+            if (formatText) formatText.textContent = 'Switch to Title';
         } else {
             container.classList.remove('layout-content');
             container.classList.add('layout-title');
-            formatText.textContent = 'Switch to Content';
+            if (formatText) formatText.textContent = 'Switch to Content';
         }
     };
 
-    // Smart Bullet Handling
+    // Ensure list items are easy to create and edit
     if (slideList) {
         slideList.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                // Let the browser handle creating the new LI, 
-                // but we can add logic here if we need specific bullet behavior.
-                // MutationObserver in viewer.js will pick up the change.
+                // If the list is empty, browsers sometimes create DIVs or Ps
+                // instead of LIs. We want LIs.
+                const selection = window.getSelection();
+                const range = selection.getRangeAt(0);
+                const li = range.commonAncestorContainer.closest ? range.commonAncestorContainer.closest('li') : null;
+                
+                if (!li && slideList.children.length === 0) {
+                   e.preventDefault();
+                   const newLi = document.createElement('li');
+                   newLi.innerHTML = 'New item';
+                   slideList.appendChild(newLi);
+                   
+                   // Move cursor to new LI
+                   const newRange = document.createRange();
+                   newRange.selectNodeContents(newLi);
+                   newRange.collapse(false);
+                   selection.removeAllRanges();
+                   selection.addRange(newRange);
+                }
             }
         });
     }
 
-    // Interactive edit feedback (optional)
     console.log('Slide editor initialized');
 })();

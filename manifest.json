@@ -61,7 +61,13 @@
         "512": "icons/icon512.png"
     },
     "content_security_policy": {
-        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+        "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'; object-src 'self'"
+    },
+    "sandbox": {
+        "pages": [
+            "sandbox.html"
+        ]
     },
     "web_accessible_resources": [
         {
@@ -74,6 +80,7 @@
                 "src/island.html",
                 "src/island.js",
                 "sidebar/local-editor.js",
+                "sidebar/theme-init.js",
                 "apis.json"
             ],
             "matches": [

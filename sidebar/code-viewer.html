@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Code Viewer - Wildcard</title>
+    <script src="theme-init.js"></script>
+    <link rel="stylesheet" href="sidebar.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .viewer-header {
+            padding: 12px 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .viewer-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .viewer-title h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .viewer-title .badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: var(--primary);
+            color: white;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-run {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--success);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-run:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .code-container {
+            flex: 1;
+            padding: 20px;
+            overflow: auto;
+            background: var(--bg-alt);
+            position: relative;
+        }
+
+        #code-block {
+            margin: 0;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            tab-size: 4;
+            white-space: pre;
+        }
+
+        /* Syntax Highlighting - Adaptive Colors */
+        .token.keyword { color: #d946ef; font-weight: 600; }
+        .token.function { color: #2563eb; }
+        .token.string { color: #059669; }
+        .token.comment { color: #64748b; font-style: italic; }
+        .token.number { color: #d97706; }
+        .token.type { color: #4f46e5; }
+        .token.operator { color: #64748b; }
+
+        /* Dark Mode Overrides */
+        body.dark-mode .token.keyword { color: #f472b6; }
+        body.dark-mode .token.function { color: #60a5fa; }
+        body.dark-mode .token.string { color: #34d399; }
+        body.dark-mode .token.comment { color: #94a3b8; }
+        body.dark-mode .token.number { color: #fbbf24; }
+        body.dark-mode        .token.operator { color: #94a3b8; }
+        body.dark-mode .token.operator { color: #94a3b8; }
+
+        /* Terminal Overlay */
+        #terminal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        #terminal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .terminal-modal {
+            width: 90%;
+            height: 80%;
+            background: #0f172a;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+
+        .terminal-header {
+            padding: 10px 16px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .terminal-header h3 {
+            margin: 0;
+            font-size: 14px;
+            color: #94a3b8;
+            font-family: inherit;
+        }
+
+        .close-terminal-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            border-radius: 4px;
+        }
+
+        .close-terminal-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        #terminal-iframe {
+            flex: 1;
+            border: none;
+            background: #0f172a;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+        }
+
+        /* API Tags */
+        .api-tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .api-tag {
+            font-size: 10px;
+            padding: 2px 8px;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .api-tag-remove {
+            cursor: pointer;
+            font-weight: bold;
+            color: var(--danger);
+            margin-left: 2px;
+        }
+
+        .btn-edit {
+            background: transparent;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            opacity: 0.6;
+            transition: all 0.2s;
+        }
+
+        .btn-edit:hover {
+            opacity: 1;
+            background: var(--bg-alt);
+        }
+
+        /* Search Dropdown */
+        .search-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            margin-top: 4px;
+        }
+
+        .search-result {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .search-result:last-child { border-bottom: none; }
+        .search-result:hover { background: var(--bg-alt); }
+        .search-result-name { font-weight: 600; font-size: 13px; }
+        .search-result-id { font-size: 11px; color: var(--text-muted); }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: block;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <header class="viewer-header">
+        <div class="viewer-title">
+            <div id="header-prompt-container">
+                <h2 id="header-text">Function Prompt</h2>
+                <div id="header-api-tags" class="api-tag-container"></div>
+            </div>
+            <button id="edit-btn" class="btn-edit" title="Edit Prompt and APIs">✏️</button>
+        </div>
+        <div class="controls">
+            <button id="run-btn" class="btn-run">
+                <span>▶️</span> Run Function
+            </button>
+        </div>
+    </header>
+
+    <main class="code-container">
+        <pre id="code-block"></pre>
+    </main>
+
+    <div id="terminal-overlay">
+        <div class="terminal-modal">
+            <div class="terminal-header">
+                <h3>Execution Terminal</h3>
+                <button id="close-terminal" class="close-terminal-btn">×</button>
+            </div>
+            <iframe id="terminal-iframe"></iframe>
+        </div>
+    </div>
+
+    <!-- Edit Function Modal -->
+    <div id="edit-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>✨ Edit Function</h3>
+                <button id="close-edit-modal" class="btn-icon">✕</button>
+            </div>
+            <div class="form-group">
+                <label>Prompt</label>
+                <textarea id="edit-prompt-input" class="form-input" style="height: 100px; margin-top: 8px;"></textarea>
+            </div>
+            
+            <div class="form-group" style="margin-top: 16px;">
+                <label>Connected APIs (Interfaces)</label>
+                <div id="edit-api-list" class="api-tag-container editor"></div>
+                
+                <div class="api-search-container" style="margin-top: 8px; position: relative;">
+                    <input type="text" id="api-search-input" class="form-input" placeholder="Search APIs to add..." autocomplete="off">
+                    <div id="api-search-results" class="search-dropdown hidden"></div>
+                </div>
+            </div>
+
+            <div id="regen-status" class="ai-status hidden" style="margin-top: 16px;">
+                <div class="spinner"></div>
+                <span id="regen-status-text">Regenerating...</span>
+            </div>
+
+            <div class="modal-actions" style="margin-top: 24px;">
+                <button id="cancel-edit-btn" class="btn btn-secondary">Cancel</button>
+                <button id="regenerate-btn" class="btn btn-primary">Regenerate & Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="code-viewer.js"></script>
+</body>
+</html>

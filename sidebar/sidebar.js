@@ -294,6 +294,12 @@ class SidebarUI {
         this.geminiModelSelect = document.getElementById('geminiModelSelect');
         this.fetchModelsBtn = document.getElementById('fetchModelsBtn');
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
+
+        // AI Generation State
+        this.aiPromptContext = 'wasm'; // 'wasm' or 'mock'
+        this.pendingMockItem = null;
+        this.pendingMockIndex = null;
+
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
         this.userBackBtn = document.getElementById('userBackBtn');
         this.apiDetailBackBtn = document.getElementById('apiDetailBackBtn');
@@ -417,6 +423,8 @@ class SidebarUI {
         this.aiGenerateBtn = document.getElementById('aiGenerateBtn');
         this.aiGenerateWasmBtn = document.getElementById('aiGenerateWasmBtn');
         this.aiGenerateWasmDetailBtn = document.getElementById('aiGenerateWasmDetailBtn');
+        this.aiApiSelection = document.getElementById('aiApiSelection');
+        this.aiApiList = document.getElementById('aiApiList');
 
         // WASM Result Modal elements
         this.wasmResultModal = document.getElementById('wasmResultModal');
@@ -628,6 +636,30 @@ class SidebarUI {
                 this.handleTriggerNewPacketWithTab();
             } else if (message.type === 'CLIPPER_REGION_SELECTED') {
                 this.handleClipperRegionSelected(message.region);
+            } else if (message.type === 'PACKET_UPDATED' || message.action === 'PACKET_UPDATED') {
+                const pId = String(message.packetId);
+                // Refetch the specific packet
+                this.sendMessage({
+                    action: 'executeSQL',
+                    name: 'packets',
+                    sql: `SELECT rowid, name, urls, created FROM packets WHERE rowid = ?`,
+                    params: [pId]
+                }).then(resp => {
+                    if (resp.success && resp.result.length > 0) {
+                        const [rowid, name, urlsJson, created] = resp.result[0].values[0];
+                        const updatedPacket = { id: rowid, name, urls: JSON.parse(urlsJson), created };
+                        
+                        if (this.currentPacket && String(this.currentPacket.id) === pId) {
+                            this.currentPacket = updatedPacket;
+                            if (this.packetDetailView.classList.contains('active')) {
+                                this.showPacketDetailView(updatedPacket);
+                            }
+                        }
+                    }
+                    if (this.listView.classList.contains('active')) {
+                        this.loadCollections();
+                    }
+                });
             } else if (message.type === 'CLIPPER_CANCELLED') {
                 this.handleClipperCancelled();
             } else if (message.type === 'AUDIO_CLIP_FINISHED' || message.type === 'VIDEO_CLIP_FINISHED') {
@@ -905,15 +937,20 @@ class SidebarUI {
 <head>
     <meta charset="UTF-8">
     <title>${name}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary: #4f46e5;
+            --primary-light: #818cf8;
             --bg: #f8fafc;
             --surface: #ffffff;
             --text: #1e293b;
             --text-muted: #64748b;
             --border: #e2e8f0;
-            --radius: 12px;
+            --radius: 24px;
+            --shadow: 0 10px 25px rgba(0,0,0,0.05);
         }
         body.dark-mode {
             --bg: #0f172a;
@@ -921,31 +958,34 @@ class SidebarUI {
             --text: #f1f5f9;
             --text-muted: #94a3b8;
             --border: #334155;
+            --shadow: 0 10px 25px rgba(0,0,0,0.3);
+            --primary: #818cf8;
         }
         body { 
             margin: 0; 
             padding: 0; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--bg);
             color: var(--text);
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            transition: background 0.3s;
+            transition: all 0.3s ease;
         }
         #slide-container {
-            width: 80%;
-            max-width: 900px;
+            width: 85%;
+            max-width: 1000px;
             aspect-ratio: 16 / 9;
             background: var(--surface);
-            padding: 60px;
+            padding: 80px;
             border-radius: var(--radius);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            box-shadow: var(--shadow);
             display: flex;
             flex-direction: column;
             position: relative;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid var(--border);
         }
         
         /* Layout: Title */
@@ -953,8 +993,17 @@ class SidebarUI {
             justify-content: center;
             text-align: center;
         }
-        #slide-container.layout-title h1 { font-size: 64px; margin-bottom: 20px; }
-        #slide-container.layout-title p { font-size: 24px; color: var(--text-muted); }
+        #slide-container.layout-title h1 { 
+            font-size: 72px; 
+            margin-bottom: 24px; 
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        #slide-container.layout-title p { 
+            font-size: 28px; 
+            color: var(--text-muted);
+            font-weight: 400;
+        }
         #slide-container.layout-title .content-list { display: none; }
 
         /* Layout: Content */
@@ -962,18 +1011,36 @@ class SidebarUI {
             justify-content: flex-start;
             text-align: left;
         }
-        #slide-container.layout-content h1 { font-size: 42px; margin-bottom: 40px; border-bottom: 3px solid var(--primary); display: inline-block; padding-bottom: 10px; }
+        #slide-container.layout-content h1 { 
+            font-size: 48px; 
+            margin-bottom: 48px; 
+            font-weight: 700;
+            position: relative;
+            display: inline-block;
+            padding-bottom: 12px;
+        }
+        #slide-container.layout-content h1::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: var(--primary);
+            border-radius: 2px;
+        }
         #slide-container.layout-content p { display: none; }
         #slide-container.layout-content .content-list { 
             display: block; 
-            font-size: 24px; 
+            font-size: 28px; 
             list-style: none; 
             padding: 0; 
         }
         .content-list li {
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             display: flex;
             align-items: flex-start;
+            line-height: 1.4;
         }
         .content-list li::before {
             content: "•";
@@ -986,31 +1053,48 @@ class SidebarUI {
 
         [contenteditable="true"] {
             outline: none;
-            cursor: text;
+            transition: all 0.2s;
+            padding: 4px 8px;
+            border-radius: 8px;
         }
         [contenteditable="true"]:hover {
-            background: rgba(79, 70, 229, 0.05);
-            border-radius: 4px;
+            background: rgba(129, 140, 248, 0.1);
+        }
+        [contenteditable="true"]:focus {
+            background: rgba(129, 140, 248, 0.05);
+            box-shadow: 0 0 0 2px var(--primary-light);
         }
 
         #format-toggle {
             position: fixed;
-            bottom: 30px;
-            right: 30px;
-            padding: 12px 24px;
+            bottom: 40px;
+            right: 40px;
+            padding: 14px 28px;
             background: var(--primary);
             color: white;
             border: none;
-            border-radius: 30px;
+            border-radius: 40px;
             cursor: pointer;
             font-weight: 600;
-            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+            font-size: 15px;
+            box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3);
             z-index: 1000;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        #format-toggle:hover { opacity: 0.9; transform: translateY(-2px); }
+        #format-toggle:hover { 
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 12px 25px rgba(79, 70, 229, 0.4);
+        }
+        #format-toggle:active {
+            transform: translateY(-2px);
+        }
+        
+        .dark-mode #format-toggle {
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -1021,6 +1105,7 @@ class SidebarUI {
         <ul id="slide-list" class="content-list" contenteditable="true">
             <li>First bullet item</li>
             <li>Second bullet item</li>
+            <li>Press Enter for new bullets</li>
         </ul>
     </div>
 
@@ -1211,6 +1296,9 @@ class SidebarUI {
                 }
             } else if (type === 'api') {
                 itemUrl = item.documentation_url;
+            } else if (type === 'wasm') {
+                const pid = this.currentPacket.id;
+                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
             }
 
             if (itemUrl && activeNorm) {
@@ -1222,10 +1310,7 @@ class SidebarUI {
                 }
             }
 
-            // Handle Wasm types based on lastNavigatedIndex
-            if (type === 'wasm' && index === this.lastNavigatedIndex) {
-                card.classList.add('active');
-            }
+            // Wasm types now handled via itemUrl logic above
         });
     }
 
@@ -1249,6 +1334,9 @@ class SidebarUI {
                 if (sid) {
                     itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
                 }
+            } else if (type === 'wasm') {
+                const pid = this.currentPacket.id;
+                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
             }
 
             if (itemUrl && norm === this.normalizeUrl(itemUrl)) {
@@ -1617,7 +1705,13 @@ class SidebarUI {
         document.getElementById('aiGenerateWasmBtn').addEventListener('click', () => this.openAiPromptModal());
         document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAiPromptModal());
         document.getElementById('aiCancelBtn').addEventListener('click', () => this.closeAiPromptModal());
-        this.aiGenerateBtn.addEventListener('click', () => this.generateWasmWithAi());
+        this.aiGenerateBtn.addEventListener('click', () => {
+            if (this.aiPromptContext === 'mock') {
+                this.generateMockApiWithAi();
+            } else {
+                this.generateWasmWithAi();
+            }
+        });
         if (this.aiGenerateWasmDetailBtn) {
             this.aiGenerateWasmDetailBtn.addEventListener('click', () => this.openAiPromptModal());
         }
@@ -2338,7 +2432,11 @@ class SidebarUI {
                 if (!path.endsWith('/stack.html')) {
                     search.delete('packetId');
                 }
-                search.delete('name'); // Descriptive only
+                if (path.endsWith('/code-viewer.html')) {
+                    search.delete('index');
+                } else {
+                    search.delete('name'); // Descriptive only for others
+                }
                 search.sort();
                 const searchString = search.toString();
                 const identity = `extension:${path}${searchString ? '?' + searchString : ''}`;
@@ -2606,15 +2704,14 @@ class SidebarUI {
                     </div>
                     <div style="display: flex; gap: 4px; align-items: center;">
                         <button class="constructor-remove-btn" title="Remove function">🗑️</button>
-                        <button class="play-btn">▶</button>
                     </div>
                 `;
                 card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.removePacketItem(index);
                 });
-                card.querySelector('.play-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
+                card.addEventListener('click', () => {
+                    if (this.editMode) return;
                     this.activatePacketItem(item, index);
                 });
                 this.addReorderEvents(card, index, 'wasm');
@@ -2658,7 +2755,7 @@ class SidebarUI {
                     <span class="drag-handle" title="Drag to reorder"></span>
                     <span class="packet-page-icon">${item.icon || '🔌'}</span>
                     <div class="packet-page-info">
-                        <div class="packet-page-title">${this.escapeHtml(item.name)}</div>
+                        <div class="packet-page-title">${item.mock_prompt ? `${this.escapeHtml(item.mock_prompt)} (${this.escapeHtml(item.name)})` : this.escapeHtml(item.name)}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove API">🗑️</button>
                 `;
@@ -2736,17 +2833,62 @@ class SidebarUI {
     async removePacketItem(index) {
         if (!this.currentPacket) return;
 
+        // Get the item to be removed before splicing
+        const item = this.currentPacket.urls[index];
+        if (!item) return;
+
         // Remove the item at the specified index
         this.currentPacket.urls.splice(index, 1);
 
         try {
-            // Persist the change
+            // Persist the packet change
             await this.sendMessage({
                 action: 'savePacket',
                 id: this.currentPacket.id,
                 name: this.currentPacket.name,
                 urls: this.currentPacket.urls
             });
+
+            // 3. Clean up any refs in stacks and close open tabs for deleted resource
+            const resourceId = item.resourceId || item.mediaId || item.stackId;
+            if (resourceId) {
+                console.log(`[Sidebar] Deleting resource: ${resourceId}, Type: ${item.type}`);
+                
+                if (item.type === 'local' || item.type === 'page') {
+                    const dbName = `packet_${this.currentPacket.id}`;
+                    const cleanupSql = `DELETE FROM stack_items 
+                                       WHERE (type = 'local' OR type = 'page') 
+                                       AND (url LIKE '%id=${resourceId}%' 
+                                            OR metadata LIKE '%"resourceId":"${resourceId}"%')`;
+                    
+                    await this.sendMessage({ action: 'executeSQL', name: dbName, sql: cleanupSql });
+                    await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
+                }
+
+                // Close any open tabs for this resource
+                try {
+                    const tabs = await chrome.tabs.query({});
+                    console.log(`[Sidebar] Found ${tabs.length} open tabs, looking for id=${resourceId}`);
+                    
+                    const tabsToClose = tabs.filter(t => {
+                        if (!t.url) return false;
+                        // Match by id=RID in query params or by stackId=SID
+                        const matchesResource = t.url.includes(`id=${resourceId}`) || t.url.includes(`stackId=${resourceId}`);
+                        if (matchesResource) {
+                            console.log(`[Sidebar] Matching tab found to close: ${t.id}, URL: ${t.url}`);
+                        }
+                        return matchesResource;
+                    });
+
+                    if (tabsToClose.length > 0) {
+                        const ids = tabsToClose.map(t => t.id);
+                        console.log(`[Sidebar] Closing ${ids.length} tabs:`, ids);
+                        await chrome.tabs.remove(ids);
+                    }
+                } catch (e) {
+                    console.warn('[Sidebar] Failed to close tabs for deleted resource:', e);
+                }
+            }
 
             // Refresh the view
             this.showPacketDetailView(this.currentPacket);
@@ -2905,6 +3047,9 @@ class SidebarUI {
         } else if (type === 'wasm' || type === 'api') {
             if (type === 'api') {
                 this.activeUrl = item.documentation_url;
+            } else if (type === 'wasm') {
+                const pid = this.currentPacket?.id || item.packetId;
+                this.activeUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
             }
             this.lastNavigatedIndex = index;
         }
@@ -2951,7 +3096,17 @@ class SidebarUI {
                 reclaimFocus();
             });
         } else if (type === 'wasm') {
-            this.runWasm(item, index).then(() => {
+            const pid = this.currentPacket.id;
+            const url = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
+            this.sendMessage({
+                action: 'openTabInGroup',
+                url,
+                groupId: this.activePacketGroupId,
+                packetId: pid
+            }).then(resp => {
+                if (resp && resp.success && resp.newGroupId) {
+                    this.activePacketGroupId = resp.newGroupId;
+                }
                 reclaimFocus();
             });
         } else if (type === 'stack') {
@@ -3883,7 +4038,12 @@ class SidebarUI {
                 action: 'query',
                 payload: {
                     name: 'services',
-                    sql: 'SELECT * FROM configured_services ORDER BY name ASC'
+                    sql: `
+                        SELECT cs.name, cs.icon, cs.description, cs.config_id, cs.manifest_permission, cs.documentation_url, s.mock_prompt, s.mock_js
+                        FROM configured_services cs
+                        LEFT JOIN services s ON s.config_id = cs.config_id
+                        ORDER BY cs.name ASC
+                    `
                 }
             });
 
@@ -3902,12 +4062,12 @@ class SidebarUI {
                         const item = document.createElement('div');
                         item.className = 'schema-picker-item';
                         item.innerHTML = `
-                            <div class="schema-picker-item-name">${api.icon || '🔌'} ${api.name}</div>
+                            <div class="schema-picker-item-name">${api.icon || '🔌'} ${api.mock_prompt ? `${this.escapeHtml(api.mock_prompt)} (${this.escapeHtml(api.name)})` : this.escapeHtml(api.name)}</div>
                             <div class="schema-picker-item-preview">${api.description || ''}</div>
                         `;
                         item.onclick = () => {
-                            this.addApiToPacket(api);
                             this.apiPickerOverlay.classList.add('hidden');
+                            this.openMockApiPrompt(api, -1);
                         };
                         this.apiPickerList.appendChild(item);
                     });
@@ -3923,7 +4083,7 @@ class SidebarUI {
         }
     }
 
-    async addApiToPacket(api) {
+    async addApiToPacket(api, mockPrompt = null, mockJs = null) {
         if (!this.currentPacket) return;
         const { name, icon, config_id, description, manifest_permission, documentation_url } = api;
 
@@ -3946,7 +4106,9 @@ class SidebarUI {
                 name,
                 icon,
                 config_id,
-                documentation_url
+                documentation_url,
+                mock_prompt: mockPrompt,
+                mock_js: mockJs
             });
 
             const saveResp = await this.sendMessage({
@@ -3963,10 +4125,10 @@ class SidebarUI {
                     await this.sendMessage({ action: 'ensurePacketDatabase', packetId });
                     
                     const sql = `
-                        INSERT OR IGNORE INTO services (name, icon, description, config_id, manifest_permission)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO services (name, icon, description, config_id, manifest_permission, mock_prompt, mock_js)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                     `;
-                    const bind = [name, icon, description || '', config_id, manifest_permission || ''];
+                    const bind = [name, icon, description || '', config_id, manifest_permission || '', mockPrompt || '', mockJs || ''];
                     
                     await this.sendMessage({
                         action: 'executeSQL',
@@ -4956,7 +5118,7 @@ class SidebarUI {
         }
     }
 
-    async handleAddConfiguredApi(name, icon, description, config_id, manifest_permission = null, documentation_url = null) {
+    async handleAddConfiguredApi(name, icon, description, config_id, manifest_permission = null, documentation_url = null, mock_prompt = null) {
         try {
             const resp = await this.sendMessage({
                 action: 'exec',
@@ -5216,9 +5378,17 @@ class SidebarUI {
             const escapedQuery = query.replace(/"/g, '""');
             const sql = `
                 SELECT 
-                    name, icon, description, config_id, manifest_permission, documentation_url, supported_platforms,
+                    services_fts.name, 
+                    services_fts.icon, 
+                    services_fts.description, 
+                    services_fts.config_id, 
+                    services_fts.manifest_permission, 
+                    services_fts.documentation_url, 
+                    services_fts.supported_platforms,
+                    services.mock_prompt,
                     (SELECT 1 FROM configured_services WHERE configured_services.config_id = services_fts.config_id) as is_configured
                 FROM services_fts 
+                LEFT JOIN services ON services.config_id = services_fts.config_id
                 WHERE services_fts MATCH ? 
                 ORDER BY rank
             `;
@@ -5244,12 +5414,13 @@ class SidebarUI {
                              data-api-cid="${api.config_id}"
                              data-api-perm="${api.manifest_permission || ''}"
                              data-api-doc="${api.documentation_url || ''}"
+                             data-api-prompt="${api.mock_prompt || ''}"
                              data-api-configured="${api.is_configured ? 'true' : 'false'}">
                             <div class="search-result-main">
                                 <span class="icon">${api.icon || '🧩'}</span>
                                 <div class="api-item-text">
-                                    <div class="api-item-name">${api.name}</div>
-                                    <div class="api-item-hint">${api.description || ''}</div>
+                                    <div class="api-item-name">${api.mock_prompt ? `${this.escapeHtml(api.mock_prompt)} (${this.escapeHtml(api.name)})` : this.escapeHtml(api.name)}</div>
+                                    <div class="api-item-hint">${api.mock_prompt ? 'Mock: ' : ''}${api.description || ''}</div>
                                 </div>
                                 ${api.is_configured 
                                     ? '<button class="remove-api-btn btn-danger btn-sm">Remove</button>' 
@@ -5265,8 +5436,8 @@ class SidebarUI {
                         btn.onclick = (e) => {
                             e.stopPropagation();
                             const item = btn.closest('.search-result-item');
-                            const { apiName, apiIcon, apiDesc, apiCid, apiPerm, apiDoc } = item.dataset;
-                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null, apiDoc || null);
+                            const { apiName, apiIcon, apiDesc, apiCid, apiPerm, apiDoc, apiPrompt } = item.dataset;
+                            this.handleAddConfiguredApi(apiName, apiIcon, apiDesc, apiCid, apiPerm || null, apiDoc || null, apiPrompt || null);
                         };
                     });
 
@@ -5537,21 +5708,53 @@ class SidebarUI {
         }
     }
 
-    openAiPromptModal() {
+    openAiPromptModal(context = 'wasm') {
+        this.aiPromptContext = context;
+        const title = this.aiPromptModal.querySelector('h3');
+        if (title) {
+            title.textContent = context === 'mock' ? '✨ Mock API Implementation' : '✨ Generate Functions with Gemini';
+        }
         this.aiPromptModal.classList.remove('hidden');
         this.aiPromptTextarea.value = '';
+        if (context === 'mock' && this.pendingMockItem && this.pendingMockItem.mock_prompt) {
+            this.aiPromptTextarea.value = this.pendingMockItem.mock_prompt;
+        }
+
+        if (context === 'wasm') {
+            this.aiApiSelection?.classList.remove('hidden');
+            this.renderAiApiSelection();
+        } else {
+            this.aiApiSelection?.classList.add('hidden');
+        }
+
         this.aiPromptTextarea.focus();
         this.aiStatus.classList.add('hidden');
         this.aiGenerateBtn.disabled = false;
     }
 
+    openMockApiPrompt(item, index) {
+        this.pendingMockItem = item;
+        this.pendingMockIndex = index;
+        this.openAiPromptModal('mock');
+    }
+
     closeAiPromptModal() {
         this.aiPromptModal.classList.add('hidden');
+        this.pendingMockItem = null;
+        this.pendingMockIndex = null;
+        this.aiPromptContext = 'wasm';
     }
 
     async generateWasmWithAi() {
         const originalPrompt = this.aiPromptTextarea.value.trim();
         if (!originalPrompt) return;
+
+        const selectedApis = Array.from(this.aiApiList.querySelectorAll('.ai-api-item.selected'))
+            .map(el => ({
+                name: el.dataset.name,
+                config_id: el.dataset.configId,
+                mock_prompt: el.dataset.mockPrompt
+            }));
 
         this.aiStatus.classList.remove('hidden');
         this.aiGenerateBtn.disabled = true;
@@ -5566,13 +5769,21 @@ class SidebarUI {
                 const wits = await this.getWitsContext();
                 const dbContext = await this.getDatabaseContext();
 
+                // Augment with selected APIs
+                let apiContext = "";
+                if (selectedApis.length > 0) {
+                    apiContext = "\n\nAvailable Mock APIs (Interfaces):\n" + selectedApis.map(a => 
+                        `- ${a.name} (${a.config_id})\n  Behavior: ${a.mock_prompt}`
+                    ).join('\n');
+                }
+
                 // Augment prompt if this is a retry
                 let finalPrompt = `${originalPrompt}\n\n`;
                 if (attempt > 1 && lastError) {
                     finalPrompt += `IMPORTANT: Your previous attempt failed to compile. Please fix the errors below.\n\nPREVIOUS CODE:\n\`\`\`zig\n${lastCode}\n\`\`\`\n\nCOMPILER ERROR:\n${lastError}`;
                 }
 
-                const zigCode = await this.callGeminiApi(finalPrompt, wits, dbContext);
+                const zigCode = await this.callGeminiApi(finalPrompt, wits + apiContext, dbContext);
                 console.log('%c[AI Generated Zig Code]', 'color: #10b981; font-weight: bold; font-size: 12px;');
                 console.log(zigCode);
                 lastCode = zigCode;
@@ -5594,7 +5805,11 @@ class SidebarUI {
                     name: 'Function',
                     zigCode: zigCode,
                     data: base64,
-                    prompt: originalPrompt
+                    prompt: originalPrompt,
+                    selectedApis: selectedApis.map(a => ({
+                        name: a.name,
+                        config_id: a.config_id
+                    }))
                 };
 
                 // Add to the appropriate place depending on current view
@@ -5677,7 +5892,11 @@ class SidebarUI {
         }
 
         try {
-            const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
+            const resp = await this.sendMessage({ 
+                action: 'runWasmPacketItem', 
+                item, 
+                packetId: this.currentPacket.id 
+            });
             if (!resp) return;
             if (resp.success) {
                 this.showWasmResults(resp.logs, resp.result, true);
@@ -6458,6 +6677,127 @@ class SidebarUI {
         }
     }
 
+    async generateMockApiWithAi() {
+        const originalPrompt = this.aiPromptTextarea.value.trim();
+        if (!originalPrompt || !this.pendingMockItem) return;
+
+        this.aiStatus.classList.remove('hidden');
+        this.aiGenerateBtn.disabled = true;
+
+        try {
+            this.aiStatusText.textContent = `Calling Gemini to generate Mock API...`;
+            
+            const apiInfo = {
+                name: this.pendingMockItem.name,
+                config_id: this.pendingMockItem.config_id,
+                description: this.pendingMockItem.description
+            };
+
+            const mockJs = await this.callGeminiApiForMock(originalPrompt, apiInfo);
+            console.log('%c[AI Generated Mock JS]', 'color: #3b82f6; font-weight: bold; font-size: 12px;');
+            console.log(mockJs);
+
+            if (this.pendingMockIndex === -1) {
+                // NEW ITEM FLOW
+                await this.addApiToPacket(this.pendingMockItem, originalPrompt, mockJs);
+                this.closeAiPromptModal();
+                return;
+            }
+
+            // Update the existing item in the packet
+            const index = this.pendingMockIndex;
+            if (this.currentPacket && this.currentPacket.urls[index]) {
+                const item = this.currentPacket.urls[index];
+                item.mock_prompt = originalPrompt;
+                item.mock_js = mockJs;
+
+                await this.sendMessage({
+                    action: 'savePacket',
+                    id: this.currentPacket.id,
+                    name: this.currentPacket.name,
+                    urls: this.currentPacket.urls
+                });
+
+                this.showNotification(`Mock implementation generated for ${item.name}`, 'success');
+                this.closeAiPromptModal();
+                this.showPacketDetailView(this.currentPacket);
+            }
+        } catch (error) {
+            console.error('Mock generation failed:', error);
+            this.aiStatusText.textContent = 'Failed: ' + error.message;
+            this.aiGenerateBtn.disabled = false;
+        }
+    }
+
+    async callGeminiApiForMock(prompt, apiInfo) {
+        const apiKey = this.geminiApiKey;
+        const modelName = this.geminiModel;
+
+        if (!apiKey) throw new Error('Gemini API key is required in settings');
+        if (!modelName) throw new Error('No Gemini model selected in settings');
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
+
+        const systemInstruction = `You are a specialized code generator for a browser extension "Wildcard".
+Your task is to generate a COMPLETE JavaScript mock implementation for a Chrome/Platform API.
+
+API Context:
+Name: ${apiInfo.name}
+Config Identifier: ${apiInfo.config_id}
+Description: ${apiInfo.description || 'No description provided.'}
+
+Requirements:
+1. Generate a full mock implementation containing ALL standard functions of this API.
+2. Use a 'sqlite' object for persistent state. A database is automatically provided; you should create tables and manage state within it as needed for a realistic mock.
+3. The 'sqlite' object provides:
+   - async query(sql, bind): returns an array of rows
+   - async exec(sql, bind): returns number of changes
+4. All methods should be async if they interact with sqlite.
+5. All state (e.g., bookmarks, history, settings) MUST be persisted in the SQLite database.
+6. Return ONLY the JavaScript object literal. Do not include markdown code blocks.
+
+Example for chrome.bookmarks:
+{
+    "getTree": async (sqlite) => {
+        // Initialize table if it doesn't exist...
+        // Fetch from sqlite and return...
+    },
+    "create": async (sqlite, details) => {
+        // Insert into sqlite...
+    }
+}
+
+User-Specific Instructions (Apply these behavior overrides/details):
+${prompt}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: "Generate the mock API object implementation based on the system instructions and the user requirements." }] }],
+                system_instruction: { parts: [{ text: systemInstruction }] }
+            })
+        }).catch(err => {
+            if (!this.networkEnabled) {
+                throw new Error('Network access is disabled in settings. Please enable it to use AI features.');
+            }
+            throw err;
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || 'Gemini API call failed');
+        }
+
+        const data = await response.json();
+        let jsCode = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        // Clean up code blocks if LLM ignored instructions
+        jsCode = jsCode.replace(/^```javascript\n/, '').replace(/^```js\n/, '').replace(/^```\n?/, '').replace(/\n```$/, '');
+        
+        return jsCode;
+    }
+
     formatSize(size) {
         const bytes = Math.max(0, Number(size) || 0);
         if (bytes < 1024 * 1024) { // < 1 MB
@@ -6465,9 +6805,37 @@ class SidebarUI {
         }
         return (bytes / 1024 / 1024).toFixed(2) + ' MB';
     }
+
+    renderAiApiSelection() {
+        if (!this.aiApiList || !this.currentPacket) return;
+        this.aiApiList.innerHTML = '';
+        
+        const apis = this.currentPacket.urls.filter(u => u.type === 'api');
+        if (apis.length === 0) {
+            this.aiApiList.innerHTML = '<span class="modal-hint">No APIs in packet</span>';
+            return;
+        }
+
+        apis.forEach(api => {
+            const item = document.createElement('div');
+            item.className = 'ai-api-item';
+            item.dataset.configId = api.config_id;
+            item.dataset.name = api.name;
+            item.dataset.mockPrompt = api.mock_prompt || '';
+            item.innerHTML = `
+                <span class="ai-api-item-icon">${api.icon || '🔌'}</span>
+                <span>${api.name}</span>
+            `;
+            item.onclick = () => {
+                item.classList.toggle('selected');
+            };
+            this.aiApiList.appendChild(item);
+        });
+    }
 }
 
 // Initialize UI when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     new SidebarUI();
 });
+
