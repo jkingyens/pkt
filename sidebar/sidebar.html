@@ -458,6 +458,20 @@
       </div>
     </section>
 
+    <!-- APIs Section -->
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>🔌 APIs</h3>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="addApiDetailBtn" class="btn btn-secondary btn-sm section-add-btn" title="Add API">➕</button>
+          <span id="packetApiCount" class="badge">0</span>
+        </div>
+      </div>
+      <div id="packetApiList" class="packet-api-list">
+        <p class="hint">No APIs in this packet.</p>
+      </div>
+    </section>
+
     <!-- Data Section -->
     <section class="detail-section">
       <div class="section-header">
@@ -752,6 +766,19 @@
   </template>
 
 
+
+  <!-- ===== API PICKER MODAL ===== -->
+  <div id="apiPickerOverlay" class="schema-picker-overlay hidden">
+    <div class="schema-picker-modal">
+      <div class="schema-picker-header">
+        <h3>Connect API</h3>
+        <button id="apiPickerCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <div id="apiPickerList" class="schema-picker-list">
+        <!-- Configured APIs will be rendered here -->
+      </div>
+    </div>
+  </div>
 
   <!-- ===== LOCK SCREEN ===== -->
   <div id="lockScreen" class="lock-screen hidden">

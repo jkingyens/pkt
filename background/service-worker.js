@@ -423,6 +423,8 @@ function getItemUrl(item, packetId) {
     } else if (type === 'local' || type === 'wasm') {
         if (!resourceId) return null;
         return chrome.runtime.getURL(`sidebar/viewer.html?id=${resourceId}&name=${encodeURIComponent(name)}&packetId=${packetId || ''}`);
+    } else if (type === 'api') {
+        return item.documentation_url || null;
     } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
         if (!mediaId) return null;
         return chrome.runtime.getURL(`sidebar/media.html?id=${mediaId}&type=${encodeURIComponent(mimeType || '')}&name=${encodeURIComponent(name)}&packetId=${packetId || ''}`);
@@ -1178,7 +1180,7 @@ async function handleMessage(request, sender, sendResponse) {
                         // Sync tab order after saving reordered items
                         setTimeout(() => syncTabOrderForPacket(id, manager).catch(() => {}), 100);
                         
-                        sendResponse({ success: true, id });
+                        sendResponse({ success: true, id, packet: { id, name: request.name, urls: request.urls } });
                     } else {
                         await db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
                         const result = await db.query("SELECT last_insert_rowid()");
@@ -1187,7 +1189,7 @@ async function handleMessage(request, sender, sendResponse) {
                         // Sync tab order for new packet
                         setTimeout(() => syncTabOrderForPacket(newId, manager).catch(() => {}), 100);
                         
-                        sendResponse({ success: true, id: newId });
+                        sendResponse({ success: true, id: newId, packet: { id: newId, name: request.name, urls: request.urls } });
                     }
                 } catch (err) {
                     console.error('savePacket error:', err);
@@ -1725,6 +1727,15 @@ async function ensurePacketDatabase(packetId, manager) {
             position INTEGER,
             FOREIGN KEY(stack_id) REFERENCES stacks(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT,
+            description TEXT,
+            config_id TEXT UNIQUE NOT NULL,
+            manifest_permission TEXT,
+            created TEXT DEFAULT (datetime('now'))
+        );
     `);
 
     // Migration: ensure columns exist in existing stacks table
@@ -2091,6 +2102,10 @@ async function syncTabOrderForPacket(packetId, manager) {
         // 3. Process Media
         const mediaItems = urls.filter(item => (typeof item === 'object' && item.type === 'media'));
         mediaItems.forEach(m => addUrl(getItemUrl(m, packetId)));
+
+        // 4. Process APIs
+        const apiItems = urls.filter(item => (typeof item === 'object' && item.type === 'api'));
+        apiItems.forEach(a => addUrl(getItemUrl(a, packetId)));
 
         const packetUrls = totalUrls;
 

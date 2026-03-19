@@ -390,6 +390,12 @@ class SidebarUI {
         this.createNewStackBtn = document.getElementById('createNewStackBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
         this.deletePacketDetailBtn = document.getElementById('deletePacketDetailBtn');
+        this.addApiDetailBtn = document.getElementById('addApiDetailBtn');
+        this.packetApiList = document.getElementById('packetApiList');
+        this.packetApiCount = document.getElementById('packetApiCount');
+        this.apiPickerOverlay = document.getElementById('apiPickerOverlay');
+        this.apiPickerList = document.getElementById('apiPickerList');
+        this.apiPickerCloseBtn = document.getElementById('apiPickerCloseBtn');
         this.terminalOpenBtn = document.getElementById('terminalOpenBtn');
 
         // Wits view elements
@@ -1196,6 +1202,8 @@ class SidebarUI {
                 if (sid) {
                     itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
                 }
+            } else if (type === 'api') {
+                itemUrl = item.documentation_url;
             }
 
             if (itemUrl && activeNorm) {
@@ -1397,6 +1405,14 @@ class SidebarUI {
 
         const packetDetailTitle = document.getElementById('packetDetailTitle');
         if (packetDetailTitle) packetDetailTitle.addEventListener('click', () => this.renameCurrentPacket());
+        if (this.addApiDetailBtn) {
+            this.addApiDetailBtn.addEventListener('click', () => {
+                this.showApiPicker();
+            });
+        }
+        if (this.apiPickerCloseBtn) {
+            this.apiPickerCloseBtn.onclick = () => this.apiPickerOverlay.classList.add('hidden');
+        }
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
                 if (this.mediaAddOptions) {
@@ -2426,18 +2442,21 @@ class SidebarUI {
         const mediaList = document.getElementById('packetMediaList');
         const wasmList = document.getElementById('packetWasmList');
         const stackList = document.getElementById('packetStackList');
+        const apiList = document.getElementById('packetApiList');
         const dataList = document.getElementById('packetDataList');
 
         pageList.innerHTML = '';
         mediaList.innerHTML = '';
         wasmList.innerHTML = '';
         stackList.innerHTML = '';
+        if (apiList) apiList.innerHTML = '';
         dataList.innerHTML = '<p class="hint">Loading data...</p>';
 
         let pageCount = 0;
         let mediaCount = 0;
         let wasmCount = 0;
         let stackCount = 0;
+        let apiCount = 0;
 
         console.log('[Render] Rendering URLs:', urls, 'Active:', this.activeUrl);
         urls.forEach((item, index) => {
@@ -2620,6 +2639,31 @@ class SidebarUI {
                 });
                 this.addReorderEvents(card, index, 'stack');
                 stackList.appendChild(card);
+            } else if (type === 'api') {
+                apiCount++;
+                const card = document.createElement('div');
+                card.setAttribute('tabindex', '0');
+                card.setAttribute('data-index', index);
+                card.draggable = true;
+                card.className = `packet-page-card api`;
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder"></span>
+                    <span class="packet-page-icon">${item.icon || '🔌'}</span>
+                    <div class="packet-page-info">
+                        <div class="packet-page-title">${this.escapeHtml(item.name)}</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove API">🗑️</button>
+                `;
+                card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.removePacketItem(index);
+                });
+                card.addEventListener('click', () => {
+                    if (this.editMode) return;
+                    this.activatePacketItem(item, index);
+                });
+                this.addReorderEvents(card, index, 'api');
+                if (apiList) apiList.appendChild(card);
             }
         });
 
@@ -2627,11 +2671,13 @@ class SidebarUI {
         document.getElementById('packetMediaCount').textContent = mediaCount;
         document.getElementById('packetWasmCount').textContent = wasmCount;
         document.getElementById('packetStackCount').textContent = stackCount;
+        if (this.packetApiCount) this.packetApiCount.textContent = apiCount;
 
         if (pageCount === 0) pageList.innerHTML = '<p class="hint">No pages in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
         if (stackCount === 0) stackList.innerHTML = '<p class="hint">No stacks in this packet.</p>';
+        if (apiCount === 0 && apiList) apiList.innerHTML = '<p class="hint">No APIs in this packet.</p>';
 
         // Load and render per-packet data
         try {
@@ -2847,7 +2893,10 @@ class SidebarUI {
             const sid = item.stackId || item.id;
             console.log('[Sidebar] Activating stack:', sid, item.name);
             this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
-        } else if (type === 'wasm') {
+        } else if (type === 'wasm' || type === 'api') {
+            if (type === 'api') {
+                this.activeUrl = item.documentation_url;
+            }
             this.lastNavigatedIndex = index;
         }
 
@@ -2875,7 +2924,7 @@ class SidebarUI {
             }
         };
 
-        if (type === 'page' || type === 'link' || type === 'local') {
+        if (type === 'page' || type === 'link' || type === 'local' || type === 'api') {
             const url = this.activeUrl;
             this.sendMessage({
                 action: 'openTabInGroup',
@@ -3813,9 +3862,125 @@ class SidebarUI {
                 this.constructorItems.splice(index, 1);
                 this.renderConstructorItems();
             });
-
             this.constructorList.appendChild(card);
         });
+    }
+
+    async showApiPicker() {
+        if (!this.currentPacket) return;
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'query',
+                payload: {
+                    name: 'services',
+                    sql: 'SELECT * FROM configured_services ORDER BY name ASC'
+                }
+            });
+
+            if (resp && resp.success) {
+                const allApis = this._normalizeRows(resp.result);
+                // Filter to only Chrome and Chrome AI APIs for now
+                const filteredApis = allApis.filter(api => 
+                    api.config_id && (api.config_id.startsWith('chrome:') || api.config_id.startsWith('chrome-ai:'))
+                );
+
+                this.apiPickerList.innerHTML = '';
+                if (filteredApis.length === 0) {
+                    this.apiPickerList.innerHTML = '<p class="schema-picker-empty">No compatible APIs configured yet. Add them in User settings first.</p>';
+                } else {
+                    filteredApis.forEach(api => {
+                        const item = document.createElement('div');
+                        item.className = 'schema-picker-item';
+                        item.innerHTML = `
+                            <div class="schema-picker-item-name">${api.icon || '🔌'} ${api.name}</div>
+                            <div class="schema-picker-item-preview">${api.description || ''}</div>
+                        `;
+                        item.onclick = () => {
+                            this.addApiToPacket(api);
+                            this.apiPickerOverlay.classList.add('hidden');
+                        };
+                        this.apiPickerList.appendChild(item);
+                    });
+                }
+                this.apiPickerOverlay.classList.remove('hidden');
+            } else {
+                console.error('[Sidebar] Failed to fetch configured APIs:', resp?.error);
+                this.showNotification('Error loading configured APIs', 'error');
+            }
+        } catch (e) {
+            console.error('[Sidebar] showApiPicker failed:', e);
+            this.showNotification('Error opening API picker', 'error');
+        }
+    }
+
+    async addApiToPacket(api) {
+        if (!this.currentPacket) return;
+        const { name, icon, config_id, description, manifest_permission, documentation_url } = api;
+
+        const packetId = this.currentPacket.id;
+        const resp = await this.sendMessage({ action: 'getPacket', id: packetId });
+        if (resp && resp.success) {
+            const packet = resp.packet;
+            const urls = packet.urls || [];
+            
+            // Check if already added
+            const exists = urls.find(u => u.type === 'api' && u.config_id === config_id);
+            if (exists) {
+                this.showNotification(`${name} is already in this packet`, 'info');
+                return;
+            }
+
+            // 1. Update the master packets table (urls JSON)
+            urls.push({
+                type: 'api',
+                name,
+                icon,
+                config_id,
+                documentation_url
+            });
+
+            const saveResp = await this.sendMessage({
+                action: 'savePacket',
+                id: packet.id,
+                name: packet.name,
+                urls: urls
+            });
+
+            if (saveResp && saveResp.success) {
+                // 2. Insert into the packet-specific database
+                try {
+                    const dbName = `packet_${packetId}`;
+                    await this.sendMessage({ action: 'ensurePacketDatabase', packetId });
+                    
+                    const sql = `
+                        INSERT OR IGNORE INTO services (name, icon, description, config_id, manifest_permission)
+                        VALUES (?, ?, ?, ?, ?)
+                    `;
+                    const bind = [name, icon, description || '', config_id, manifest_permission || ''];
+                    
+                    await this.sendMessage({
+                        action: 'executeSQL',
+                        name: dbName,
+                        sql: sql,
+                        bind: bind
+                    });
+                    
+                    // Force checkpoint to ensure persistence (SQLite OPFS)
+                    await this.sendMessage({ action: 'saveCheckpoint', name: dbName });
+                    
+                } catch (dbErr) {
+                    console.error('[Sidebar] Failed to insert API into packet database:', dbErr);
+                    // We don't fail the whole operation if packet DB sync fails, 
+                    // since it's already in the master 'urls' list.
+                }
+
+                this.showNotification(`Added ${name} to packet`, 'success');
+                this.showPacketDetailView(saveResp.packet);
+            } else {
+                this.showNotification('Failed to save packet', 'error');
+            }
+        }
     }
 
     async createAndShowNewPacket(items = [], tabIdToGroup = null) {
@@ -3964,6 +4129,7 @@ class SidebarUI {
             // Update the items array in the database
             await this.sendMessage({
                 action: 'savePacket',
+                id: this.currentPacket.id,
                 name: this.currentPacket.name,
                 urls: this.currentPacket.urls
             });
