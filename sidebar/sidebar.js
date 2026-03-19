@@ -2882,9 +2882,14 @@ class SidebarUI {
 
             // 3. Clean up any refs in stacks and close open tabs for deleted resource
             const resourceId = item.resourceId || item.mediaId || item.stackId;
-            if (resourceId) {
-                console.log(`[Sidebar] Deleting resource: ${resourceId}, Type: ${item.type}`);
+            if (resourceId || item.type === 'api') {
+                console.log(`[Sidebar] Deleting resource: ${resourceId || item.id}, Type: ${item.type}`);
                 
+                if (item.type === 'api') {
+                    const mockDbName = `mock_${item.id}`;
+                    await this.sendMessage({ action: 'deleteCollection', name: mockDbName });
+                }
+
                 if (item.type === 'local' || item.type === 'page') {
                     const dbName = `packet_${this.currentPacket.id}`;
                     const cleanupSql = `DELETE FROM stack_items 

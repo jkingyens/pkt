@@ -169,17 +169,19 @@ async function initTerminal() {
             sandboxReady = true;
             initQueue.forEach(msg => sandboxIframe.contentWindow.postMessage(msg, '*'));
         } else if (data.type === 'sqlite-query') {
+            const dbName = data.mockId ? `mock_${data.mockId}` : `mock_${data.configId.replace(/:/g, '_')}_${packetId}`;
             const resp = await chrome.runtime.sendMessage({
                 action: 'executeSQL',
-                name: `mock_${data.configId.replace(/:/g, '_')}_${packetId}`,
+                name: dbName,
                 sql: data.sql,
                 params: data.bind
             });
             sandboxIframe.contentWindow.postMessage({ type: 'sqlite-result', result: resp.result, qId: data.qId }, '*');
         } else if (data.type === 'sqlite-exec') {
+            const dbName = data.mockId ? `mock_${data.mockId}` : `mock_${data.configId.replace(/:/g, '_')}_${packetId}`;
             const resp = await chrome.runtime.sendMessage({
                 action: 'executeSQL',
-                name: `mock_${data.configId.replace(/:/g, '_')}_${packetId}`,
+                name: dbName,
                 sql: data.sql,
                 params: data.bind
             });
@@ -261,7 +263,7 @@ async function initTerminal() {
         return res instanceof Promise ? res : Promise.resolve(res);
     }
 
-    const initMockInSandbox = (configId, code) => {
+    const initMockInSandbox = (configId, mockId, code) => {
         if (isApiLive(configId)) {
             // In Production Mode, we bypass the sandbox but still need to satisfy the "all mocks ready" check
             setTimeout(() => {
@@ -269,7 +271,7 @@ async function initTerminal() {
             }, 0);
             return;
         }
-        const msg = { type: 'init-mock', configId, code };
+        const msg = { type: 'init-mock', configId, mockId, code };
         if (sandboxReady) {
             sandboxIframe.contentWindow.postMessage(msg, '*');
         } else {
@@ -413,7 +415,7 @@ async function initTerminal() {
     if (mockItems.length > 0) {
         console.log(`Terminal: Waiting for ${mockItems.length} mocks before starting worker`);
         mockItems.forEach(it => {
-            initMockInSandbox(it.config_id, it.mock_js);
+            initMockInSandbox(it.config_id, it.id, it.mock_js);
         });
         
         // Start worker when sandbox and all mocks are ready

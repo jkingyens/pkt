@@ -2650,12 +2650,12 @@ async function performStartupLock() {
                                         // Evaluate the mock JS
                                         mocks[u.config_id] = new Function('sqlite', `return ${u.mock_js}`)({
                                             query: async (sql, bind) => {
-                                                const dbName = `mock_${u.config_id.replace(/:/g, '_')}_${packetId}`;
+                                                const dbName = `mock_${u.id}`;
                                                 const db = sqliteManager.getDatabase(dbName) || await sqliteManager.initDatabase(dbName);
                                                 return await db.query(sql, bind);
                                             },
                                             exec: async (sql, bind) => {
-                                                const dbName = `mock_${u.config_id.replace(/:/g, '_')}_${packetId}`;
+                                                const dbName = `mock_${u.id}`;
                                                 const db = sqliteManager.getDatabase(dbName) || await sqliteManager.initDatabase(dbName);
                                                 return await db.exec(sql, bind);
                                             }

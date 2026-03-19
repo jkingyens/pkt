@@ -1,7 +1,7 @@
 const mocks = {};
 
 window.addEventListener('message', async (e) => {
-    const { type, configId, code, methodName, args, callId } = e.data;
+    const { type, configId, mockId, code, methodName, args, callId } = e.data;
 
     if (type === 'init-mock') {
         try {
@@ -9,7 +9,7 @@ window.addEventListener('message', async (e) => {
                 query: (sql, bind) => {
                     return new Promise((resolve) => {
                         const qId = Math.random().toString(36).substr(2, 9);
-                        window.parent.postMessage({ type: 'sqlite-query', sql, bind, qId, configId }, '*');
+                        window.parent.postMessage({ type: 'sqlite-query', sql, bind, qId, configId, mockId }, '*');
                         function handler(ev) {
                             if (ev.data.type === 'sqlite-result' && ev.data.qId === qId) {
                                 window.removeEventListener('message', handler);
@@ -45,7 +45,7 @@ window.addEventListener('message', async (e) => {
                 exec: (sql, bind) => {
                     return new Promise((resolve) => {
                         const qId = Math.random().toString(36).substr(2, 9);
-                        window.parent.postMessage({ type: 'sqlite-exec', sql, bind, qId, configId }, '*');
+                        window.parent.postMessage({ type: 'sqlite-exec', sql, bind, qId, configId, mockId }, '*');
                         function handler(ev) {
                             if (ev.data.type === 'sqlite-exec-result' && ev.data.qId === qId) {
                                 window.removeEventListener('message', handler);
@@ -62,7 +62,8 @@ window.addEventListener('message', async (e) => {
             // Evaluate mock code in sandbox
             mocks[configId] = {
                 instance: new Function('sqlite', `return ${code}\n`)(sqliteProxy),
-                sqlite: sqliteProxy
+                sqlite: sqliteProxy,
+                mockId: mockId
             };
             window.parent.postMessage({ type: 'mock-initialized', configId }, '*');
         } catch (err) {
