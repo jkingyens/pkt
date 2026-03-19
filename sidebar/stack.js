@@ -805,7 +805,16 @@
 
             nextBtn.disabled = isPageLoading || isBlocked;
 
-            if (isLastSlide) {
+            let showFinish = isLastSlide;
+            if (stackMode === 'media' && pipWindow) {
+                const mediaEl = pipWindow.document.getElementById('pip-media-driver');
+                if (mediaEl) {
+                    // Show finish if media is complete (at the end)
+                    showFinish = mediaEl.currentTime >= mediaEl.duration - 0.2 || mediaEl.ended;
+                }
+            }
+
+            if (showFinish) {
                 nextBtn.innerHTML = `Finish ${ICONS.finish}`;
                 nextBtn.onclick = async () => {
                     if (contentTabId) {
@@ -820,7 +829,8 @@
                     }
                 };
             } else {
-                nextBtn.innerHTML = `Next ${ICONS.next}`;
+                const label = (stackMode === 'media') ? 'Skip' : 'Next';
+                nextBtn.innerHTML = `${label} ${ICONS.next}`;
                 nextBtn.onclick = advanceSlide;
             }
         }
@@ -1313,6 +1323,25 @@
 
             await chrome.runtime.sendMessage({ action: 'executeSQL', name: dbName, sql });
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
+            
+            // Phase 2: Marker Automation
+            if (stackMode === 'media' && mediaDuration > 0) {
+                let newMarkerTime = 0;
+                if (atIndex === 0) {
+                    newMarkerTime = 0;
+                } else if (atIndex >= items.length) {
+                    // Appending (items.length is count BEFORE reload, but atIndex is final position)
+                    const lastMarker = stackMarkers.length > 0 ? stackMarkers[stackMarkers.length - 1] : 0;
+                    newMarkerTime = Number(((lastMarker + mediaDuration) / 2).toFixed(2));
+                } else {
+                    // Inserting
+                    const prevMarker = stackMarkers[atIndex - 1] || 0;
+                    const nextMarker = stackMarkers[atIndex] || mediaDuration;
+                    newMarkerTime = Number(((prevMarker + nextMarker) / 2).toFixed(2));
+                }
+                stackMarkers.splice(atIndex, 0, newMarkerTime);
+                await saveStackDriverMetadata();
+            }
 
             // Sync tab group order to reflect new item
             chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
@@ -1341,6 +1370,12 @@
             }
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
 
+            // Phase 2: Marker Automation
+            if (stackMode === 'media') {
+                stackMarkers.splice(index, 1);
+                await saveStackDriverMetadata();
+            }
+
             // Sync tab group order after removal
             chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
 
@@ -1366,6 +1401,13 @@
                 });
             }
             await chrome.runtime.sendMessage({ action: 'saveCheckpoint', name: dbName });
+
+            // Phase 2: Marker Automation
+            if (stackMode === 'media') {
+                const movedMarker = stackMarkers.splice(fromIndex, 1)[0];
+                stackMarkers.splice(toIndex, 0, movedMarker);
+                await saveStackDriverMetadata();
+            }
 
             // Sync tab group order after internal reorder
             chrome.runtime.sendMessage({ action: 'syncTabOrder', packetId }).catch(() => { });
@@ -2227,6 +2269,7 @@
 
         // Always update the PIP progress UI
         updateProgressBar();
+        if (pipWindow) updatePipStatus();
     }
 
     async function advanceToNextMarker() {
@@ -2237,15 +2280,14 @@
         const currentTime = mediaEl.currentTime;
         const sortedMarkers = [...stackMarkers].sort((a, b) => a - b);
 
-        const nextMarker = sortedMarkers.find(m => m > currentTime);
+        // Find the first marker that is ahead of current time (+ buffer to avoid staying on same marker)
+        const nextMarker = sortedMarkers.find(m => m > currentTime + 0.3);
+        
         if (nextMarker !== undefined) {
             mediaEl.currentTime = nextMarker;
-            // The timeupdate listener will handle the slide advancement
         } else {
-            // No more markers, just advance to end or next slide if possible
-            if (currentSlideIndex < items.length - 1) {
-                advanceSlide();
-            }
+            // No more markers, skip to the end
+            mediaEl.currentTime = mediaEl.duration;
         }
     }
 
