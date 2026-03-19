@@ -31,7 +31,7 @@ import { compileZigCode } from './zig-compiler.js';
     let currentItem = null;
     let currentPacketUrls = [];
     let selectedApis = [];
-    let allAvailableApis = [];
+    let packetApis = [];
 
     const DEFAULT_SYSTEM_INSTRUCTION = `You are an expert Zig developer. 
 Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
@@ -90,10 +90,41 @@ It will run in a host environment with these WIT interfaces available:
         while ((match = regex.exec(code)) !== null) {
             const configId = match[1];
             if (!apis.some(a => a.config_id === configId)) {
-                apis.push({ name: configId.split(':').pop(), config_id: configId });
+                apis.push(enrichApiMetadata({ config_id: configId }));
             }
         }
         return apis;
+    }
+
+    function enrichApiMetadata(api) {
+        // Find the API definition within the same packet
+        const baseConfigId = api.config_id.split('/')[0];
+        const packetApi = packetApis.find(a => a.config_id === api.config_id || a.config_id === baseConfigId);
+        
+        if (packetApi) {
+            return {
+                ...api,
+                name: packetApi.name || api.name || baseConfigId.split(':').pop(),
+                mock_prompt: packetApi.mock_prompt || api.mock_prompt || ''
+            };
+        }
+        return {
+            ...api,
+            name: api.name || baseConfigId.split(':').pop()
+        };
+    }
+
+    function getApiLabel(api) {
+        const name = api.name || api.config_id.split('/').pop().split(':').pop();
+        // The user wants: Prompt (Official Name)
+        // If mock_prompt is present, it's the "prompt". Otherwise, we use config_id as the prompt?
+        // Wait, the sidebar uses mock_prompt (name).
+        // If mock_prompt is missing, it shows just name.
+        // But the user said "using the prompt and bracketed the official name".
+        // This suggests: if it's in the code as chrome:bookmarks/bookmarks, that IS a prompt?
+        // No, usually "the prompt" refers to the mock behavior prompt.
+        
+        return api.mock_prompt ? `${escapeHtml(api.mock_prompt)} (${escapeHtml(name)})` : escapeHtml(name);
     }
 
     function renderApiChips(container, apis, removable = false) {
@@ -101,7 +132,7 @@ It will run in a host environment with these WIT interfaces available:
         apis.forEach((api, i) => {
             const chip = document.createElement('div');
             chip.className = 'api-tag';
-            chip.innerHTML = `<span>🔌 ${api.mock_prompt ? `${escapeHtml(api.mock_prompt)} (${escapeHtml(api.name)})` : escapeHtml(api.name)}</span>`;
+            chip.innerHTML = `<span>🔌 ${getApiLabel(api)}</span>`;
             if (removable) {
                 const remove = document.createElement('span');
                 remove.className = 'api-tag-remove';
@@ -129,6 +160,8 @@ It will run in a host environment with these WIT interfaces available:
         }
 
         currentPacketUrls = JSON.parse(resp.result[0].values[0]);
+        packetApis = currentPacketUrls.filter(u => u.type === 'api');
+
         if (!isNaN(index)) {
             currentItem = currentPacketUrls[index];
         } else {
@@ -146,7 +179,7 @@ It will run in a host environment with these WIT interfaces available:
         codeBlock.innerHTML = highlightZig(code);
 
         // Selected APIs
-        selectedApis = currentItem.selectedApis || extractApisFromZig(code);
+        selectedApis = (currentItem.selectedApis || extractApisFromZig(code)).map(enrichApiMetadata);
         renderApiChips(headerApiTags, selectedApis);
     }
 
@@ -170,28 +203,6 @@ It will run in a host environment with these WIT interfaces available:
     // Initialize
     try {
         await loadItem();
-        const staticApis = await (await fetch(chrome.runtime.getURL('apis.json'))).json();
-        
-        const resp = await chrome.runtime.sendMessage({
-            action: 'query',
-            payload: {
-                name: 'services',
-                sql: `SELECT cs.name, cs.config_id, s.mock_prompt 
-                      FROM configured_services cs 
-                      LEFT JOIN services s ON s.config_id = cs.config_id`
-            }
-        });
-
-        const configuredApis = resp.success ? normalizeRows(resp.result) : [];
-        
-        const apiMap = new Map();
-        staticApis.forEach(a => apiMap.set(a.config_id, a));
-        configuredApis.forEach(a => {
-            const existing = apiMap.get(a.config_id) || {};
-            apiMap.set(a.config_id, { ...existing, ...a });
-        });
-        allAvailableApis = Array.from(apiMap.values());
-
     } catch (err) {
         loading.innerHTML = `<div class="error">Error: ${err.message}</div>`;
     } finally {
@@ -218,9 +229,9 @@ It will run in a host environment with these WIT interfaces available:
             return;
         }
 
-        const filtered = allAvailableApis.filter(a => 
-            a.name.toLowerCase().includes(query) || a.config_id.toLowerCase().includes(query)
-        ).slice(0, 5);
+        const filtered = packetApis.filter(a => 
+            a.name.toLowerCase().includes(query) || a.config_id.toLowerCase().includes(query) || (a.mock_prompt && a.mock_prompt.toLowerCase().includes(query))
+        );
 
         if (filtered.length > 0) {
             apiSearchResults.innerHTML = '';
@@ -228,7 +239,7 @@ It will run in a host environment with these WIT interfaces available:
                 const div = document.createElement('div');
                 div.className = 'search-result';
                 div.innerHTML = `
-                    <div class="search-result-name">${api.mock_prompt ? `${escapeHtml(api.mock_prompt)} (${escapeHtml(api.name)})` : escapeHtml(api.name)}</div>
+                    <div class="search-result-name">${getApiLabel(api)}</div>
                     <div class="search-result-id">${api.config_id}</div>
                 `;
                 div.onclick = () => {
