@@ -81,13 +81,21 @@
                 "src/island.js",
                 "sidebar/local-editor.js",
                 "sidebar/theme-init.js",
-                "apis.json"
+                "apis.json",
+                "sandbox.html",
+                "sandbox.js"
             ],
             "matches": [
                 "<all_urls>"
             ]
         }
     ],
+    "cross_origin_opener_policy": {
+        "value": "same-origin"
+    },
+    "cross_origin_embedder_policy": {
+        "value": "require-corp"
+    },
     "content_scripts": [
         {
             "matches": [

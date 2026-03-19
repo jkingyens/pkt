@@ -154,6 +154,7 @@ async function initTerminal() {
     terminal.focus();
 
     const sandboxIframe = document.createElement('iframe');
+    sandboxIframe.setAttribute('sandbox', 'allow-scripts');
     sandboxIframe.src = chrome.runtime.getURL('sandbox.html');
     sandboxIframe.style.display = 'none';
     document.body.appendChild(sandboxIframe);
