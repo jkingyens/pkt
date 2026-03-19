@@ -3082,7 +3082,12 @@ class SidebarUI {
             console.log(`[Sidebar] Activating stack: ${sid} ${item.name} for packet: ${pid}`);
         } else if (type === 'wasm' || type === 'api') {
             if (type === 'api') {
-                this.activeUrl = item.documentation_url;
+                if (item.mock_js) {
+                    const pid = this.currentPacket?.id || item.packetId;
+                    this.activeUrl = chrome.runtime.getURL(`sidebar/mock-viewer.html?packetId=${pid}&apiId=${item.id}`);
+                } else {
+                    this.activeUrl = item.documentation_url;
+                }
             } else if (type === 'wasm') {
                 const pid = this.currentPacket?.id || item.packetId;
                 this.activeUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
