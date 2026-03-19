@@ -1041,6 +1041,12 @@
         if (type === 'page' || type === 'link') {
             return item.url || meta.url;
         } else if (type === 'local' || type === 'wasm') {
+            if (type === 'wasm' && !resourceId) {
+                // If no resourceId, this might be an AI-generated function or raw wasm data in metadata
+                // We can construct a terminal URL to execute it
+                const name = item.name || meta.name || 'Function';
+                return chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(name)}&track=false`);
+            }
             if (!resourceId) return null;
             return chrome.runtime.getURL(`sidebar/viewer.html?id=${resourceId}&name=${encodeURIComponent(itemName)}&packetId=${packetId}`);
         } else if (type === 'media') {
@@ -1110,7 +1116,7 @@
                 ${isDisabled ? '<div class="offline-badge">Offline</div>' : ''}
                 <div class="item-icon-box">${getIcon(item.type)}</div>
                 <div class="item-content">
-                    <div class="item-name">${escapeHtml(item.name || 'Untitled')}</div>
+                    <div class="item-name">${escapeHtml((item.type === 'wasm' ? (item.metadata?.prompt || item.name) : (item.name || 'Untitled')))}</div>
                     <div class="item-type-badge">${item.type}</div>
                     ${triggerMarkerTime !== undefined && triggerMarkerTime !== null ? `
                         <div class="marker-trigger-label" title="Triggered by marker at ${formatTime(triggerMarkerTime)}">

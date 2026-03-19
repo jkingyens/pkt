@@ -2600,6 +2600,7 @@ class SidebarUI {
                 card.className = `packet-page-card wasm`;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
+                    <span class="packet-page-icon">🧩</span>
                     <div class="packet-page-info">
                         <div class="packet-page-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
@@ -5714,6 +5715,10 @@ class SidebarUI {
 
             let context = '';
             for (const name of collections.collections) {
+                if (name === 'undefined' || name === 'packet_undefined') {
+                    console.log(`[Sidebar] Skipping invalid database context for: ${name}`);
+                    continue;
+                }
                 const schemaResp = await this.sendMessage({ action: 'getSchema', name });
                 if (schemaResp.success) {
                     context += `\nCollection: "${name}"\n`;

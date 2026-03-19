@@ -797,6 +797,15 @@ async function initializeSQLite() {
         await sqliteManager.ensureEventsCollection();
         await sqliteManager.ensureServicesCollection();
         console.log('[SQLiteInit] System collections ensured.');
+            
+            // NEW: Cleanup junk databases legacy from old bugs
+            const junkDbs = ['packet_undefined', 'undefined'];
+            for (const name of junkDbs) {
+                if (sqliteManager.databases.has(name)) {
+                    console.log(`[SQLiteInit] Cleaning up junk database: ${name}`);
+                    await sqliteManager.deleteCollection(name).catch(e => console.warn(`Failed to delete junk DB ${name}:`, e));
+                }
+            }
 
             // Load tab mappings into memory cache
             const { tabToUrlMap = {}, playbackTabIds = [] } = await chrome.storage.local.get(['tabToUrlMap', 'playbackTabIds']);
