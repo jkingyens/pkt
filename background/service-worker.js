@@ -1065,8 +1065,12 @@ async function handleMessage(request, sender, sendResponse, manager) {
                     sendResponse({ success: false, error: 'Database not found' });
                     break;
                 }
-                const result = await db.exec(request.sql, request.params || []);
-                sendResponse({ success: true, result });
+                const res = await db.exec(request.sql, request.params || []);
+                if (res && res.result !== undefined && !Array.isArray(res)) {
+                    sendResponse({ success: true, ...res });
+                } else {
+                    sendResponse({ success: true, result: res });
+                }
                 break;
             }
             case 'exec': {
@@ -1784,7 +1788,7 @@ async function ensurePacketDatabase(packetId, manager) {
             name TEXT NOT NULL,
             icon TEXT,
             description TEXT,
-            config_id TEXT UNIQUE NOT NULL,
+            config_id TEXT NOT NULL,
             manifest_permission TEXT,
             mock_prompt TEXT,
             mock_js TEXT,

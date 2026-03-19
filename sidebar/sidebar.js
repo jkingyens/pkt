@@ -185,34 +185,35 @@ It will run in a host environment with these WIT interfaces available:
 1. Output ONLY the raw Zig (.zig) source code. No markdown formatting, no explanations, no HTML tags.
 2. The module MUST export a 'run' function: 'pub export fn run() i32 { ... }'
 3. The module MUST define a dummy 'main' function to satisfy WASI: 'pub fn main() void {}'
-4. You can import host functions using extern block syntax. The module name corresponds to the WIT interface.
+4. REQUIRED: You MUST export the 'cabi_realloc' function for memory allocation.
+5. You can import host functions using extern block syntax. The module name corresponds to the WIT interface.
    Example:
    extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
    extern "user:sqlite/sqlite" fn execute(db: i32, sql: i32, params: i32) i32;
 
-5. Use the standard library if needed via \`const std = @import("std");\`.
-6. CRITICAL ZIG SYNTAX: When defining pointers to structs or arrays (e.g. for WIT lists or strings), you MUST use valid Zig pointer syntax like \`[*]const T\` or \`*const T\`. NEVER use \`[*const T]\` as that is invalid syntax.
-7. CRITICAL ZIG BUILTINS: You MUST use modern Zig 0.11+ builtins. 
+6. Use the standard library if needed via \`const std = @import("std");\`.
+7. CRITICAL ZIG SYNTAX: When defining pointers to structs or arrays (e.g. for WIT lists or strings), you MUST use valid Zig pointer syntax like \`[*]const T\` or \`*const T\`. NEVER use \`[*const T]\` as that is invalid syntax.
+8. CRITICAL ZIG BUILTINS: You MUST use modern Zig 0.11+ builtins. 
    - DO NOT use \`@intToPtr(T, addr)\`. Use \`@as(T, @ptrFromInt(addr))\` instead.
    - DO NOT use \`@ptrFromInt(T, addr)\` with two arguments. \`@ptrFromInt\` takes EXACTLY ONE argument.
    - DO NOT use \`@ptrCast(T, ptr)\` with two arguments. \`@ptrCast\` takes EXACTLY ONE argument.
    - DO NOT use \`@intCast(T, int)\` with two arguments. \`@intCast\` takes EXACTLY ONE argument.
    - DO NOT use \`@ptrToInt(ptr)\`. Use \`@intFromPtr(ptr)\` instead.
-8. CRITICAL ZIG TYPES: \`usize\`, \`u8\`, \`u32\`, \`bool\`, etc are primitive built-in types in Zig. DO NOT redefine them (e.g. do NOT write \`const usize = ...\`).
-9. CRITICAL EXTERN STRUCTS: An \`extern struct\` can ONLY contain extern-compatible types. If you need a union inside an \`extern struct\`, it MUST be declared as an \`extern union\`. NEVER use a plain \`union\` inside an \`extern struct\`.
-10. CRITICAL STRUCT DECLARATIONS: In Zig, structs are assigned to constants. You MUST declare them as \`const MyStruct = struct { ... };\` or \`const MyStruct = extern struct { ... };\`. NEVER use C-style declarations like \`struct MyStruct { ... }\` or \`extern struct MyStruct { ... }\`.
-11. CRITICAL CASTING: Whenever you need to cast a pointer returned by an allocator or an \`anyopaque\` pointer (like from WIT list data_ptr), DO NOT use \`@ptrCast\` or \`@intCast\`. Instead use the \`@as(T, ...)\` builtin. Example: To cast an opaque ptr to a typed ptr: \`const typed_ptr = @as(*const MyStruct, @ptrCast(opaque_ptr));\`
-12. CRITICAL ZIG POINTERS: Zig DOES NOT HAVE A \`*mut\` KEYWORD. Pointers to mutable data are written as \`*T\`. Pointers to constant data are \`*const T\`. NEVER write \`*mut T\` like in Rust!
-13. CRITICAL HOST FUNCTIONS: DO NOT invent your own signatures for host functions. If the template or instructions say \`extern "chrome:bookmarks/bookmarks" fn get_tree() i32;\`, you MUST USE IT EXACTLY AS PROVIDED. Do not add arguments to it!
-14. CRITICAL EXTERN BLOCKS: Zig DOES NOT support Rust-style \`extern "module" { fn f(); }\` blocks. You must declare EACH extern function individually like \`extern "module" fn f() void;\`.
-15. CRITICAL UNUSED VARIABLES: Zig is extremely strict about unused variables. 
+9. CRITICAL ZIG TYPES: \`usize\`, \`u8\`, \`u32\`, \`bool\`, etc are primitive built-in types in Zig. DO NOT redefine them (e.g. do NOT write \`const usize = ...\`).
+10. CRITICAL EXTERN STRUCTS: An \`extern struct\` can ONLY contain extern-compatible types. If you need a union inside an \`extern struct\`, it MUST be declared as an \`extern union\`. NEVER use a plain \`union\` inside an \`extern struct\`.
+11. CRITICAL STRUCT DECLARATIONS: In Zig, structs are assigned to constants. You MUST declare them as \`const MyStruct = struct { ... };\` or \`const MyStruct = extern struct { ... };\`. NEVER use C-style declarations like \`struct MyStruct { ... }\` or \`extern struct MyStruct { ... }\`.
+12. CRITICAL CASTING: Whenever you need to cast a pointer returned by an allocator or an \`anyopaque\` pointer (like from WIT list data_ptr), DO NOT use \`@ptrCast\` or \`@intCast\`. Instead use the \`@as(T, ...)\` builtin. Example: To cast an opaque ptr to a typed ptr: \`const typed_ptr = @as(*const MyStruct, @ptrCast(opaque_ptr));\`
+13. CRITICAL ZIG POINTERS: Zig DOES NOT HAVE A \`*mut\` KEYWORD. Pointers to mutable data are written as \`*T\`. Pointers to constant data are \`*const T\`. NEVER write \`*mut T\` like in Rust!
+14. CRITICAL HOST FUNCTIONS: DO NOT invent your own signatures for host functions. If the template or instructions say \`extern "chrome:bookmarks/bookmarks" fn get_tree() i32;\`, you MUST USE IT EXACTLY AS PROVIDED. Do not add arguments to it!
+15. CRITICAL EXTERN BLOCKS: Zig DOES NOT support Rust-style \`extern "module" { fn f(); }\` blocks. You must declare EACH extern function individually like \`extern "module" fn f() void;\`.
+16. CRITICAL UNUSED VARIABLES: Zig is extremely strict about unused variables. 
    - DO NOT discard a parameter using \`_ = param;\` if you use it anywhere else in the function. 
    - BAD: \`_ = x; return x + 1;\` (This causes a "pointless discard" error).
    - GOOD: \`_ = x; return 1;\` OR just \`return x + 1;\`.
    - ONLY discard a parameter if it is TRULY NEVER used. Doing both is a fatal error.
-16. CRITICAL HOST POINTERS: Host functions return \`i32\`. To use this as a pointer address in Zig, you MUST cast it to \`usize\` first. 
+17. CRITICAL HOST POINTERS: Host functions return \`i32\`. To use this as a pointer address in Zig, you MUST cast it to \`usize\` first. 
     - EXAMPLE: \`const addr = @as(usize, @intCast(get_tree())); const ptr = @as(*const Result, @ptrFromInt(addr));\`
-17. CRITICAL MEMORY ALLOCATION: The host needs to allocate memory in your WASM module to return strings and lists. You MUST export an allocation function exactly named \`cabi_realloc\`.
+18. CRITICAL MEMORY ALLOCATION: The host needs to allocate memory in your WASM module to return strings and lists. You MUST export an allocation function exactly named \`cabi_realloc\`.
     - COPY THIS CODE EXACTLY:
     pub export fn cabi_realloc(ptr: ?*anyopaque, old_size: usize, align_val: usize, new_size: usize) ?*anyopaque {
         _ = align_val;
@@ -220,38 +221,38 @@ It will run in a host environment with these WIT interfaces available:
         const mem = std.heap.page_allocator.alloc(u8, new_size) catch @panic("OOM");
         if (ptr) |p| {
             const old_ptr = @as([*]u8, @ptrCast(p));
-            const copy_len = if (old_size < new_size) old_size else new_size;
+            const copy_len = if (old_size \u003c new_size) old_size else new_size;
             @memcpy(mem[0..copy_len], old_ptr[0..copy_len]);
         }
         return mem.ptr;
     }
 
-18. CRITICAL COMPILER LIMITATION: Our Zig environment does NOT support the \`mod\` instruction for floating-point numbers. 
+19. CRITICAL COMPILER LIMITATION: Our Zig environment does NOT support the \`mod\` instruction for floating-point numbers. 
     - AVOID using \`std.math.mod\` or the \`%\` operator with \`f32\` or \`f64\` types. 
     - This will cause a compilation error: "TODO: Implement wasm inst: mod".
     - Workaround: Use integer operations wherever possible.
-19. RANDOMNESS: To get truly random results, DO NOT use a hardcoded seed like \`42\`.
+20. RANDOMNESS: To get truly random results, DO NOT use a hardcoded seed like \`42\`.
     - We support the WASI \`random_get\` and \`clock_time_get\` interfaces.
     - RECOMMENDED SEEDING:
     var seed: u64 = 0;
-    _ = std.os.wasi.random_get(@ptrCast(&seed), 8);
+    _ = std.os.wasi.random_get(@ptrCast(\u0026seed), 8);
     var prng = std.rand.DefaultPrng.init(seed);
     const rand = prng.random();
-20. STANDARD LIBRARY OUTPUT: While \`std.debug.print\` and \`std.log\` are now supported via WASI stubs, they are slower than the host \`log\` function.
+21. STANDARD LIBRARY OUTPUT: While \`std.debug.print\` and \`std.log\` are now supported via WASI stubs, they are slower than the host \`log\` function.
     - PREFER using the host \`log\` function for your debug messages: \`extern "env" fn log(ptr: [*]const u8, len: i32) void;\`
     - If you must use \`std.debug.print\`, ensure you include the newline character \`\\n\` to flush the buffer correctly.
-21. COMPTIME FORMAT STRINGS: Functions like \`std.debug.print\`, \`std.fmt.allocPrint\`, and \`std.fmt.format\` require the format string to be known at compile-time (comptime).
+22. COMPTIME FORMAT STRINGS: Functions like \`std.debug.print\`, \`std.fmt.allocPrint\`, and \`std.fmt.format\` require the format string to be known at compile-time (comptime).
     - NEVER pass a runtime-known variable as the first argument to these functions. 
     - The format string MUST be a string literal.
     - BAD: \`std.debug.print(my_string, .{});\`
     - GOOD: \`std.debug.print("{s}\\n", .{my_string});\` or \`std.debug.print("Count: {d}\\n", .{count});\`
-22. ERROR HANDLING: Zig is extremely strict about return values that can be errors.
+23. ERROR HANDLING: Zig is extremely strict about return values that can be errors.
     - YOU MUST NOT discard an error silently.
-    - BAD: \`std.os.wasi.random_get(&seed, 8);\u0060 (Compilation error: "error is discarded")
-    - GOOD: \`_ = std.os.wasi.random_get(&seed, 8);\u0060 (If you don't care about the error)
-    - BETTER: \`try std.os.wasi.random_get(&seed, 8);\u0060 (If the function can return an error)
-    - ALSO GOOD: \`std.os.wasi.random_get(&seed, 8) catch |err| { ... };\`
-23. DATABASE CONTEXT: You have access to the following SQLite collections and their schemas:
+    - BAD: \`std.os.wasi.random_get(\u0026seed, 8);\u0060 (Compilation error: "error is discarded")
+    - GOOD: \`_ = std.os.wasi.random_get(\u0026seed, 8);\u0060 (If you don't care about the error)
+    - BETTER: \`try std.os.wasi.random_get(\u0026seed, 8);\u0060 (If the function can return an error)
+    - ALSO GOOD: \`std.os.wasi.random_get(\u0026seed, 8) catch |err| { ... };\`
+24. DATABASE CONTEXT: You have access to the following SQLite collections and their schemas:
 {{DATABASE_CONTEXT}}
     - Use this context to identify correct collection and table names for your queries. 
     - DO NOT guess or invent table names (like "links"). Use ONLY what is provided above.
@@ -268,6 +269,18 @@ pub export fn run() i32 {
 }
 
 pub fn main() void {}
+
+pub export fn cabi_realloc(ptr: ?*anyopaque, old_size: usize, align_val: usize, new_size: usize) ?*anyopaque {
+    _ = align_val;
+    if (new_size == 0) return null;
+    const mem = std.heap.page_allocator.alloc(u8, new_size) catch @panic("OOM");
+    if (ptr) |p| {
+        const old_ptr = @as([*]u8, @ptrCast(p));
+        const copy_len = if (old_size \u003c new_size) old_size else new_size;
+        @memcpy(mem[0..copy_len], old_ptr[0..copy_len]);
+    }
+    return mem.ptr;
+};
 `;
 
 class SidebarUI {
@@ -4057,10 +4070,9 @@ class SidebarUI {
                 payload: {
                     name: 'services',
                     sql: `
-                        SELECT cs.name, cs.icon, cs.description, cs.config_id, cs.manifest_permission, cs.documentation_url, s.mock_prompt, s.mock_js
-                        FROM configured_services cs
-                        LEFT JOIN services s ON s.config_id = cs.config_id
-                        ORDER BY cs.name ASC
+                        SELECT name, icon, description, config_id, manifest_permission, documentation_url
+                        FROM configured_services
+                        ORDER BY name ASC
                     `
                 }
             });
@@ -4111,15 +4123,9 @@ class SidebarUI {
             const packet = resp.packet;
             const urls = packet.urls || [];
             
-            // Check if already added
-            const exists = urls.find(u => u.type === 'api' && u.config_id === config_id);
-            if (exists) {
-                this.showNotification(`${name} is already in this packet`, 'info');
-                return;
-            }
-
             // 1. Update the master packets table (urls JSON)
             urls.push({
+                id: 'api_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
                 type: 'api',
                 name,
                 icon,
@@ -5778,6 +5784,7 @@ class SidebarUI {
 
         const selectedApis = Array.from(this.aiApiList.querySelectorAll('.ai-api-item.selected'))
             .map(el => ({
+                id: el.dataset.id,
                 name: el.dataset.name,
                 config_id: el.dataset.configId,
                 mock_prompt: el.dataset.mockPrompt
@@ -5834,8 +5841,10 @@ class SidebarUI {
                     data: base64,
                     prompt: originalPrompt,
                     selectedApis: selectedApis.map(a => ({
+                        id: a.id,
                         name: a.name,
-                        config_id: a.config_id
+                        config_id: a.config_id,
+                        mock_prompt: a.mock_prompt
                     }))
                 };
 
@@ -6004,6 +6013,13 @@ class SidebarUI {
         const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
 
         let systemInstruction = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+        
+        // Ensure cabi_realloc is always required, even if using a custom prompt
+        if (!systemInstruction.includes('cabi_realloc')) {
+            console.warn('[Sidebar] Custom system prompt is missing cabi_realloc requirement. Using default instruction to ensure compatibility.');
+            systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+        }
+
         systemInstruction = systemInstruction.replace('{{WITS_CONTEXT}}', witsContext);
         systemInstruction = systemInstruction.replace('{{DATABASE_CONTEXT}}', dbContext);
 
@@ -6846,6 +6862,7 @@ ${prompt}`;
         apis.forEach(api => {
             const item = document.createElement('div');
             item.className = 'ai-api-item';
+            item.dataset.id = api.id || '';
             item.dataset.configId = api.config_id;
             item.dataset.name = api.name;
             item.dataset.mockPrompt = api.mock_prompt || '';

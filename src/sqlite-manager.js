@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS configured_services (
   description TEXT,
   config_id   TEXT UNIQUE NOT NULL,
   manifest_permission TEXT,
+  documentation_url TEXT,
   created     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
@@ -115,8 +116,17 @@ class SQLiteManager {
                         const handler = this.pendingRequests.get(id);
                         if (handler) {
                             this.pendingRequests.delete(id);
-                            if (success) handler.resolve(result);
-                            else handler.reject(new Error(error));
+                            if (success) {
+                                // If result is present and there are other fields (like 'changes'), return an object
+                                const { type: _type, id: _id, success: _success, error: _error, ...rest } = event.data;
+                                if (Object.keys(rest).length > 1 && rest.result !== undefined) {
+                                    handler.resolve(rest);
+                                } else {
+                                    handler.resolve(result);
+                                }
+                            } else {
+                                handler.reject(new Error(error));
+                            }
                         }
                     }
                 };
@@ -128,7 +138,8 @@ class SQLiteManager {
 
         // 2. Database discovery (must happen after connection but before init resolves)
         try {
-            const existingNames = await this._sendRequest('list', {});
+            const resp = await this._sendRequest('list', {});
+            const existingNames = (resp && resp.result !== undefined && !Array.isArray(resp)) ? resp.result : resp;
             if (Array.isArray(existingNames)) {
                 existingNames.forEach(name => this.databases.add(name));
                 console.log('[SQLiteManager] Discovered existing databases:', existingNames);
@@ -184,12 +195,18 @@ class SQLiteManager {
             throw new Error(response.error || `Proxy request failed for action: ${action}`);
         }
 
+        // Return the whole object if it contains more than just the result
+        const { id: _id, action: _action, success: _success, error: _error, ...rest } = response;
+        
         // Restore binary data if result is an array and we expect binary (e.g. for 'export')
         let finalResult = response.result;
         if (Array.isArray(finalResult) && (action === 'export' || id === 'export' || action === 'exportToBlob')) {
             finalResult = new Uint8Array(finalResult);
         }
 
+        if (Object.keys(rest).length > 1) {
+            return { ...rest, result: finalResult };
+        }
         return finalResult;
     }
   }
@@ -489,7 +506,7 @@ interface sqlite {
    * @returns {Object|null} Proxy with async exec/run methods
    */
   getDatabase(collectionName) {
-    if (!this.databases.has(collectionName)) return null;
+    if (!collectionName) return null;
     return {
       exec: async (sql, bind) => {
         await this.initDatabase(collectionName);

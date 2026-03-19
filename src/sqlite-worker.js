@@ -73,6 +73,7 @@ self.onmessage = async (event) => {
                     bind,
                     rowMode: 'array',
                     callback: function(row, stmt) {
+                        console.log('[SQLiteWorker] Row:', row, 'Cols:', stmt.getColumnNames());
                         // For compatibility with legacy sql.js format:
                         // Each statement result is an object with {columns, values}
                         if (!currentResult) {
@@ -86,7 +87,8 @@ self.onmessage = async (event) => {
                     }
                 });
                 
-                self.postMessage({ id, success: true, result: results });
+                const changes = db.changes();
+                self.postMessage({ id, success: true, result: results, changes });
                 break;
             }
 

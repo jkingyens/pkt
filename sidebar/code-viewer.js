@@ -33,6 +33,8 @@ import { compileZigCode } from './zig-compiler.js';
     let currentPacketUrls = [];
     let selectedApis = [];
     let packetApis = [];
+    // Map from base config_id -> selected mock id (or 'live')
+    let apiMockSelections = {};
 
     const DEFAULT_SYSTEM_INSTRUCTION = `You are an expert Zig developer. 
 Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
@@ -105,8 +107,8 @@ It will run in a host environment with these WIT interfaces available:
         if (packetApi) {
             return {
                 ...api,
-                name: packetApi.name || api.name || baseConfigId.split(':').pop(),
-                mock_prompt: packetApi.mock_prompt || api.mock_prompt || ''
+                name: api.name || packetApi.name || baseConfigId.split(':').pop(),
+                mock_prompt: api.mock_prompt || packetApi.mock_prompt || ''
             };
         }
         return {
@@ -184,6 +186,7 @@ It will run in a host environment with these WIT interfaces available:
         // Selected APIs
         selectedApis = (currentItem.selectedApis || extractApisFromZig(code)).map(enrichApiMetadata);
         renderApiChips(headerApiTags, selectedApis);
+        renderApiSelectionDropdowns();
     }
 
     function escapeHtml(text) {
@@ -385,20 +388,78 @@ It will run in a host environment with these WIT interfaces available:
         }
     };
 
-    const productionModeCheckbox = document.getElementById('production-mode-checkbox');
+    function renderApiSelectionDropdowns() {
+        const container = document.getElementById('api-selection-dropdowns');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        // Initialise defaults: prefer stored selectedApi id, fallback to first compatible mock
+        selectedApis.forEach(api => {
+            const baseConfigId = api.config_id.split('/')[0];
+            const compatible = packetApis.filter(p => {
+                const base = p.config_id.split('/')[0];
+                return base === baseConfigId || p.config_id === api.config_id;
+            });
+            
+            if (!apiMockSelections[baseConfigId]) {
+                // Default: use the stored id, or first compatible mock
+                const stored = api.id && compatible.find(p => p.id === api.id);
+                apiMockSelections[baseConfigId] = stored ? stored.id : (compatible[0]?.id || 'live');
+            }
+            
+            if (compatible.length === 0) return;
+            
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)';
+            
+            const label = document.createElement('span');
+            label.textContent = `${api.name || baseConfigId.split(':').pop()}:`;
+            wrapper.appendChild(label);
+            
+            const select = document.createElement('select');
+            select.style.cssText = 'font-size:12px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;';
+            
+            compatible.forEach(mock => {
+                const opt = document.createElement('option');
+                opt.value = mock.id || '';
+                opt.textContent = mock.mock_prompt
+                    ? (mock.mock_prompt.length > 35 ? mock.mock_prompt.substring(0, 35) + '…' : mock.mock_prompt)
+                    : (mock.name || mock.config_id);
+                if (apiMockSelections[baseConfigId] === mock.id) opt.selected = true;
+                select.appendChild(opt);
+            });
+            
+            // Always add Live option
+            const liveOpt = document.createElement('option');
+            liveOpt.value = 'live';
+            liveOpt.textContent = '⚡ Live';
+            if (apiMockSelections[baseConfigId] === 'live') liveOpt.selected = true;
+            select.appendChild(liveOpt);
+            
+            select.onchange = () => {
+                apiMockSelections[baseConfigId] = select.value;
+            };
+            
+            wrapper.appendChild(select);
+            container.appendChild(wrapper);
+        });
+    }
 
     // Run Logic
     runBtn.onclick = () => {
-        const isProduction = productionModeCheckbox?.checked;
-        if (isProduction) {
-            const confirmed = confirm("⚠️ WARNING: Production Mode\n\nThis will allow the function to call REAL Chrome APIs and modify your browser data. Are you sure you want to proceed?");
+        // Check if any selection is 'live'
+        const hasLive = Object.values(apiMockSelections).includes('live');
+        if (hasLive) {
+            const confirmed = confirm("⚠️ WARNING: Live API Mode\n\nOne or more APIs are set to LIVE, which will call REAL Chrome APIs and may modify your browser data. Are you sure you want to proceed?");
             if (!confirmed) return;
         }
 
         const execName = currentItem.name || 'Function';
         let terminalUrl = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(execName)}&embedded=true&track=false`);
-        if (isProduction) {
-            terminalUrl += '&production=true';
+        
+        // Pass mock selections as URL param
+        if (Object.keys(apiMockSelections).length > 0) {
+            terminalUrl += `&mockSelections=${encodeURIComponent(JSON.stringify(apiMockSelections))}`;
         }
 
         terminalIframe.src = terminalUrl;

@@ -97,8 +97,8 @@ async function initTerminal() {
     const mockControlData = new Int32Array(mockControlSAB);
     const mockData = new Uint8Array(mockDataSAB);
 
-    // 4. Start WASI Worker
-    const worker = new Worker(new URL('./assets/terminal/terminal-worker.js', import.meta.url), { type: 'module' });
+    // 4. Start WASI Worker (with cache busting)
+    const worker = new Worker(new URL(`./assets/terminal/terminal-worker.js?v=${Date.now()}`, import.meta.url), { type: 'module' });
 
     worker.onmessage = (e) => {
         if (e.data.type === 'stdout') {
@@ -177,24 +177,29 @@ async function initTerminal() {
             });
             sandboxIframe.contentWindow.postMessage({ type: 'sqlite-result', result: resp.result, qId: data.qId }, '*');
         } else if (data.type === 'sqlite-exec') {
-            chrome.runtime.sendMessage({
+            const resp = await chrome.runtime.sendMessage({
                 action: 'executeSQL',
                 name: `mock_${data.configId.replace(/:/g, '_')}_${packetId}`,
                 sql: data.sql,
                 params: data.bind
             });
-        } else if (data.type === 'call-result' || data.type === 'call-error') {
+            sandboxIframe.contentWindow.postMessage({ type: 'sqlite-exec-result', success: resp?.success, changes: resp?.changes, qId: data.qId }, '*');
+        } else if (data.type === 'mock-result' || data.type === 'mock-error' || data.type === 'call-result' || data.type === 'call-error') {
             const { val, error, callId } = data;
-            if (error) console.error(`Terminal: Mock call error [${callId}]:`, error);
+            const type = data.type;
+            const isError = type === 'mock-error' || type === 'call-error';
+            
+            if (isError) console.error(`Terminal: Mock call error [${callId}]:`, error);
+            else console.log(`Terminal: Received mock result [${callId}]`, val);
             
             // Write result to SAB and notify worker
-            const res = error ? { error } : { val };
+            const res = isError ? { error } : { val };
             const json = JSON.stringify(res);
             const bytes = new TextEncoder().encode(json);
             
             mockData.set(bytes);
             Atomics.store(mockControlData, 1, bytes.length); // length
-            Atomics.store(mockControlData, 0, data.type === 'call-error' ? 3 : 2); // state: result_ready or error
+            Atomics.store(mockControlData, 0, isError ? 3 : 2); // state: result_ready or error
             Atomics.notify(mockControlData, 0);
         } else if (data.type === 'mock-initialized') {
             console.log(`Terminal: Mock ${data.configId} initialized in sandbox`);
@@ -203,8 +208,30 @@ async function initTerminal() {
         }
     });
 
+    // Parse per-API mock selections: { 'chrome:bookmarks': 'api_...' | 'live' }
+    let mockSelections = {};
+    try {
+        const rawSelections = urlParams.get('mockSelections');
+        if (rawSelections) {
+            mockSelections = JSON.parse(decodeURIComponent(rawSelections));
+        }
+    } catch (e) {
+        console.warn('Terminal: Failed to parse mockSelections:', e);
+    }
+
+    // For backward compat, treat ?production=true as all-live
     const isProduction = urlParams.get('production') === 'true';
-    console.log('Terminal: isProduction:', isProduction);
+    if (isProduction) {
+        // Will be overridden per-API below if needed
+        console.log('Terminal: Legacy production mode enabled');
+    }
+
+    function isApiLive(configId) {
+        const base = configId.includes('/') ? configId.split('/')[0] : configId;
+        return isProduction || mockSelections[base] === 'live';
+    }
+
+    console.log('Terminal: mockSelections:', mockSelections);
 
     async function callRealApi(configId, methodName, args) {
         // Map WIT-style configId (chrome:bookmarks/bookmarks) to Chrome API (chrome.bookmarks)
@@ -235,7 +262,7 @@ async function initTerminal() {
     }
 
     const initMockInSandbox = (configId, code) => {
-        if (isProduction) {
+        if (isApiLive(configId)) {
             // In Production Mode, we bypass the sandbox but still need to satisfy the "all mocks ready" check
             setTimeout(() => {
                 window.postMessage({ type: 'mock-initialized', configId }, '*');
@@ -263,19 +290,20 @@ async function initTerminal() {
             
             try {
                 const { configId, methodName, args } = JSON.parse(json);
+                const callId = Math.random().toString(36).substr(2, 9);
                 
-                if (isProduction && configId.startsWith('chrome:')) {
+                if (isApiLive(configId) && configId.startsWith('chrome:')) {
                     try {
                         const val = await callRealApi(configId, methodName, args || []);
-                        const resultJson = JSON.stringify({ val });
+                        const resultJson = JSON.stringify({ val, callId });
                         const resultBytes = new TextEncoder().encode(resultJson);
                         mockData.set(resultBytes);
                         Atomics.store(mockControlData, 1, resultBytes.length);
                         Atomics.store(mockControlData, 0, 2); // state: result_ready
                         Atomics.notify(mockControlData, 0);
                     } catch (err) {
-                        console.error(`Terminal: Real API call failed:`, err);
-                        const errorJson = JSON.stringify({ error: err.message });
+                        console.error(`Terminal: Real API call failed [${callId}]:`, err);
+                        const errorJson = JSON.stringify({ error: err.message, callId });
                         const errorBytes = new TextEncoder().encode(errorJson);
                         mockData.set(errorBytes);
                         Atomics.store(mockControlData, 1, errorBytes.length);
@@ -283,8 +311,22 @@ async function initTerminal() {
                         Atomics.notify(mockControlData, 0);
                     }
                 } else {
-                    console.log(`Terminal: Forwarding mock call ${configId}.${methodName} to sandbox`);
-                    sandboxIframe.contentWindow.postMessage({ type: 'call-mock', configId, methodName, args }, '*');
+                    // Normalization for mock calls:
+                    // 1. Strip interface name from configId if needed (e.g. chrome:bookmarks/bookmarks -> chrome:bookmarks)
+                    const baseConfigId = configId.includes('/') ? configId.split('/')[0] : configId;
+                    
+                    // 2. Try both kebab-case and camelCase for methodName
+                    const camelMethodName = methodName.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+                    
+                    console.log(`Terminal: Forwarding mock call ${configId}.${methodName} (as ${camelMethodName}) to sandbox [${callId}]`);
+                    sandboxIframe.contentWindow.postMessage({ 
+                        type: 'call-mock', 
+                        configId: baseConfigId, 
+                        methodName: camelMethodName, 
+                        originalMethodName: methodName,
+                        args, 
+                        callId 
+                    }, '*');
                 }
             } catch (err) {
                 console.error('Terminal: Failed to parse or process mock call:', err);
@@ -356,8 +398,18 @@ async function initTerminal() {
         });
     };
 
-    // Finalize mock initialization in sandbox once packet data is ready
-    const mockItems = packetData.items.filter(it => it.type === 'api' && it.mock_js);
+    // Filter mock items to only those selected (not live)
+    const mockItems = packetData.items.filter(it => {
+        if (it.type !== 'api' || !it.mock_js) return false;
+        const base = it.config_id.includes('/') ? it.config_id.split('/')[0] : it.config_id;
+        if (isApiLive(it.config_id)) return false; // skip live APIs
+        // If selections exist for this base, only load the selected mock
+        const selection = mockSelections[base];
+        if (selection && selection !== 'live') {
+            return it.id === selection;
+        }
+        return true; // include all mocks if no explicit selection
+    });
     if (mockItems.length > 0) {
         console.log(`Terminal: Waiting for ${mockItems.length} mocks before starting worker`);
         mockItems.forEach(it => {

@@ -233,6 +233,7 @@ self.onmessage = async (e) => {
         };
 
         const bufferedWrite = (buf) => {
+            console.log('[Worker] Stdout write:', new TextDecoder().decode(buf));
             stdoutBuffer.push(buf);
             if (!flushTimeout) {
                 flushTimeout = setTimeout(flush, 20); // Flush every 20ms
@@ -353,17 +354,20 @@ self.onmessage = async (e) => {
                         if (!wasmWriter) wasmWriter = new WasmWriter(wasmInstance);
                         
                         try {
-                            const view = wasmWriter.view;
                             if (res && Array.isArray(res)) {
+                                console.log("[Worker-Host] Serializing", res.length, "nodes for get-tree");
                                 const list = wasmWriter.writeBookmarkNodeList(res);
-                                view.setUint8(retPtr, 0); // is_err = false
-                                view.setUint32(retPtr + 4, list.ptr, true); // val.ok.ptr
-                                view.setUint32(retPtr + 8, list.len, true); // val.ok.len
+                                // Refresh view after allocation as it might have grown memory
+                                wasmWriter.view.setUint8(retPtr, 0); // is_err = false
+                                wasmWriter.view.setUint32(retPtr + 4, list.ptr, true); // val.ok.ptr
+                                wasmWriter.view.setUint32(retPtr + 8, list.len, true); // val.ok.len
                             } else {
-                                view.setUint8(retPtr, 1); // is_err = true
+                                console.warn("[Worker-Host] get-tree failed or returned non-array:", res);
                                 const err = wasmWriter.writeString("Failed to fetch bookmarks");
-                                view.setUint32(retPtr + 4, err.ptr, true);
-                                view.setUint32(retPtr + 8, err.len, true);
+                                // Refresh view after allocation
+                                wasmWriter.view.setUint8(retPtr, 1); // is_err = true
+                                wasmWriter.view.setUint32(retPtr + 4, err.ptr, true);
+                                wasmWriter.view.setUint32(retPtr + 8, err.len, true);
                             }
                         } catch (e) {
                             console.error("[Worker-Host] Failed to serialize get-tree result:", e);
