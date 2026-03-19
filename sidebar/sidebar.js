@@ -1135,6 +1135,8 @@ class SidebarUI {
 
 
             if (saveResp.success) {
+                if (!saveResp.id) throw new Error('Failed to retrieve resource ID');
+
                 const newItem = {
                     type: 'local',
                     name: name,
@@ -1153,7 +1155,7 @@ class SidebarUI {
                 this.showPacketDetailView(this.currentPacket);
 
                 // Open the new page immediately
-                const url = chrome.runtime.getURL(`sidebar/viewer.html?id=${saveResp.id}&name=${encodeURIComponent(name)}`);
+                const url = chrome.runtime.getURL(`sidebar/viewer.html?id=${saveResp.id}&name=${encodeURIComponent(name)}&packetId=${this.currentPacket.id}`);
                 await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: this.currentPacket.id });
             } else {
                 throw new Error(saveResp.error || 'Failed to save local page');
@@ -1277,6 +1279,8 @@ class SidebarUI {
         const activeNorm = this.normalizeUrl(this.activeUrl);
         console.log('[Sidebar] Highlights: activeUrl=', this.activeUrl, 'activeNorm=', activeNorm);
 
+        let matchCards = [];
+
         allCards.forEach(card => {
             const index = parseInt(card.getAttribute('data-index'), 10);
             const item = this.currentPacket.urls[index];
@@ -1286,10 +1290,17 @@ class SidebarUI {
 
             // Handle Page/Media/Local types based on activeUrl
             let itemUrl;
-            if (type === 'page' || type === 'link') itemUrl = typeof item === 'string' ? item : item.url;
-            else if (type === 'local') itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
-            else if (type === 'media') itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
-            else if (type === 'stack') {
+            if (type === 'page' || type === 'link') {
+                itemUrl = typeof item === 'string' ? item : item.url;
+            } else if (type === 'local') {
+                if (item.resourceId) {
+                    itemUrl = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}&packetId=${this.currentPacket.id}`);
+                }
+            } else if (type === 'media') {
+                if (item.mediaId) {
+                    itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}&packetId=${this.currentPacket.id}`);
+                }
+            } else if (type === 'stack') {
                 const sid = item.stackId || item.id;
                 if (sid) {
                     itemUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
@@ -1305,13 +1316,22 @@ class SidebarUI {
                 const itemNorm = this.normalizeUrl(itemUrl);
                 const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
                 if (isActive) {
-                    console.log(`[Sidebar] Highlight MATCH for index ${index}:`, itemNorm);
-                    card.classList.add('active');
+                    matchCards.push({ card, index });
                 }
             }
-
-            // Wasm types now handled via itemUrl logic above
         });
+
+        // Enforce single highlight: Pick the best match
+        if (matchCards.length > 0) {
+            let bestMatch = matchCards[0];
+            // If multiple matches, prefer the one that was specifically tracked as last navigated
+            if (matchCards.length > 1 && this.lastNavigatedIndex !== null) {
+                const target = matchCards.find(m => m.index === this.lastNavigatedIndex);
+                if (target) bestMatch = target;
+            }
+            bestMatch.card.classList.add('active');
+            console.log(`[Sidebar] Applied highlight to card index ${bestMatch.index}`);
+        }
     }
 
     updateHoverHighlight(url, active) {
@@ -5638,9 +5658,14 @@ class SidebarUI {
             activeTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
 
+        const docEl = document.documentElement;
         if (activeTheme === 'dark') {
+            docEl.classList.add('dark-mode');
+            docEl.setAttribute('data-theme', 'dark');
             document.body.classList.add('dark-mode');
         } else {
+            docEl.classList.remove('dark-mode');
+            docEl.setAttribute('data-theme', 'light');
             document.body.classList.remove('dark-mode');
         }
         this.updateThemeUI();

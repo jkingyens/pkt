@@ -76,6 +76,15 @@
             loading.classList.add('hidden');
             iframe.classList.remove('hidden');
 
+            // Proactively bridge current theme to iframe
+            chrome.storage.local.get(['theme'], (result) => {
+                const theme = result.theme || 'system';
+                console.log('[Viewer] Initial theme bridge:', theme);
+                if (iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({ type: 'THEME_CHANGE', theme }, '*');
+                }
+            });
+
             // Setup MutationObserver for auto-save
             const observer = new MutationObserver((mutations) => {
                 scheduleSave();

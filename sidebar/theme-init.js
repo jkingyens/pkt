@@ -3,6 +3,8 @@
  * Ensures consistent light/dark theme across all extension pages.
  */
 (function() {
+    const docEl = document.documentElement;
+
     function applyTheme(theme) {
         let activeTheme = theme;
         if (activeTheme === 'system') {
@@ -10,19 +12,37 @@
         }
 
         if (activeTheme === 'dark') {
-            document.body.classList.add('dark-mode');
+            docEl.classList.add('dark-mode');
+            docEl.setAttribute('data-theme', 'dark');
         } else {
-            document.body.classList.remove('dark-mode');
+            docEl.classList.remove('dark-mode');
+            docEl.setAttribute('data-theme', 'light');
         }
-    }
 
-    // 0. Immediate signal from parent if in an iframe
-    try {
-        if (window.parent && window.parent.document && window.parent.document.body) {
-            if (window.parent.document.body.classList.contains('dark-mode')) {
+        // Also apply to body if it exists, for backward compatibility
+        if (document.body) {
+            if (activeTheme === 'dark') {
                 document.body.classList.add('dark-mode');
             } else {
                 document.body.classList.remove('dark-mode');
+            }
+        }
+    }
+
+    // 0. Immediate synchronous check for iframes
+    try {
+        if (window.parent && window.parent !== window) {
+            // Check parent's documentElement or body for dark-mode
+            const parentDoc = window.parent.document;
+            const isParentDark = parentDoc.documentElement.classList.contains('dark-mode') || 
+                               (parentDoc.body && parentDoc.body.classList.contains('dark-mode'));
+            
+            if (isParentDark) {
+                docEl.classList.add('dark-mode');
+                docEl.setAttribute('data-theme', 'dark');
+            } else {
+                docEl.classList.remove('dark-mode');
+                docEl.setAttribute('data-theme', 'light');
             }
         }
     } catch (e) {
