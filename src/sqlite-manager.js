@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS packets (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   name    TEXT NOT NULL,
   urls    TEXT NOT NULL,  -- JSON array of URL strings
+  color   TEXT,
   created TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
@@ -381,6 +382,18 @@ class SQLiteManager {
     await this.initDatabase(PACKETS_COLLECTION);
     const db = this.getDatabase(PACKETS_COLLECTION);
     await db.exec(PACKETS_SCHEMA);
+    
+    try {
+      // Check if color column exists to avoid console errors from ALTER TABLE
+      const info = await db.query("PRAGMA table_info(packets)");
+      const hasColor = info.some(col => col.name === 'color');
+      if (!hasColor) {
+        await db.exec("ALTER TABLE packets ADD COLUMN color TEXT");
+        console.log('[SQLiteManager] Added missing color column to packets table');
+      }
+    } catch (e) {
+      console.warn('[SQLiteManager] Migration check failed:', e);
+    }
   }
 
   /**

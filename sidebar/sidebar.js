@@ -595,6 +595,8 @@ class SidebarUI {
                 } else if (msg.type === 'TERMINAL_STATE_CHANGED') {
                     this.terminalTabs = msg.terminalTabs;
                     this.updateTerminalUI();
+                } else if (msg.type === 'packetFocused') {
+                    this.handlePacketFocused(msg);
                 }
             });
             this.port.onDisconnect.addListener(() => {
@@ -611,35 +613,7 @@ class SidebarUI {
     setupMessageHandlers() {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'packetFocused') {
-                if (!message.packet) {
-                    this.activeUrl = null;
-                    // Only clear group ID if we're not currently looking at a specific packet detail
-                    // This prevents switching to an un-grouped tab from breaking the "Sync Tab Order" command
-                    if (!this.packetDetailView.classList.contains('active')) {
-                        this.activePacketGroupId = null;
-                    }
-                    this.isClipperInvoked = false;
-                    this.resetEditMode(); // Always reset edit mode when navigating to a non-packet tab
-                    this.updateClipperState();
-                    this.updateAddPageVisibility();
-                    this.updateItemHighlights();
-                    return;
-                }
-
-                this.activeUrl = message.packet.activeUrl || null;
-                this.activePacketGroupId = message.packet.groupId || null;
-                this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
-
-                // If already showing THIS packet, just update highlights surgically
-                if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packet.id)) {
-                    this.updateItemHighlights();
-                } else {
-                    this.showPacketDetailView(message.packet);
-                }
-
-                // Sync navigation index
-                this.lastNavigatedIndex = this.getActiveItemIndex();
-                this.updateClipperState();
+                this.handlePacketFocused(message);
             } else if (message.type === 'UPDATE_ACTIVE_URL') {
                 // Surgical update to avoid view switching/scrolling on navigation within packet
                 if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packetId)) {
@@ -716,6 +690,38 @@ class SidebarUI {
                 });
             }
         });
+    }
+
+    handlePacketFocused(message) {
+        if (!message.packet) {
+            this.activeUrl = null;
+            // Only clear group ID if we're not currently looking at a specific packet detail
+            // This prevents switching to an un-grouped tab from breaking the "Sync Tab Order" command
+            if (!this.packetDetailView.classList.contains('active')) {
+                this.activePacketGroupId = null;
+            }
+            this.isClipperInvoked = false;
+            this.resetEditMode(); // Always reset edit mode when navigating to a non-packet tab
+            this.updateClipperState();
+            this.updateAddPageVisibility();
+            this.updateItemHighlights();
+            return;
+        }
+
+        this.activeUrl = message.packet.activeUrl || null;
+        this.activePacketGroupId = message.packet.groupId || null;
+        this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
+
+        // If already showing THIS packet, just update highlights surgically
+        if (this.packetDetailView.classList.contains('active') && this.currentPacket && String(this.currentPacket.id) === String(message.packet.id)) {
+            this.updateItemHighlights();
+        } else {
+            this.showPacketDetailView(message.packet);
+        }
+
+        // Sync navigation index
+        this.lastNavigatedIndex = this.getActiveItemIndex();
+        this.updateClipperState();
     }
 
     /**
@@ -1184,6 +1190,7 @@ class SidebarUI {
 
         // 3. Highlight the matching card
         const activeNorm = this.normalizeUrl(this.activeUrl);
+        console.log('[Sidebar] Highlights: activeUrl=', this.activeUrl, 'activeNorm=', activeNorm);
 
         allCards.forEach(card => {
             const index = parseInt(card.getAttribute('data-index'), 10);
@@ -1208,7 +1215,9 @@ class SidebarUI {
 
             if (itemUrl && activeNorm) {
                 const itemNorm = this.normalizeUrl(itemUrl);
-                if (itemNorm === activeNorm) {
+                const isActive = itemNorm && activeNorm && itemNorm === activeNorm;
+                if (isActive) {
+                    console.log(`[Sidebar] Highlight MATCH for index ${index}:`, itemNorm);
                     card.classList.add('active');
                 }
             }
@@ -2333,7 +2342,7 @@ class SidebarUI {
                 search.sort();
                 const searchString = search.toString();
                 const identity = `extension:${path}${searchString ? '?' + searchString : ''}`;
-                console.log('[Normalize] Extension URL:', url, 'Identity:', identity);
+                // console.log('[Normalize] Extension URL:', url, 'Identity:', identity); // Chatty but helpful for now
                 return identity;
             }
 
@@ -2402,6 +2411,8 @@ class SidebarUI {
     }
 
     async showPacketDetailView(packet) {
+        if (!packet) return;
+        console.log('[Sidebar] Showing packet detail:', packet.id, packet.name);
         // Switching between different packets or entering a packet should reset edit mode
         if (!this.currentPacket || String(this.currentPacket.id) !== String(packet.id)) {
             this.resetEditMode();
@@ -2477,7 +2488,7 @@ class SidebarUI {
                 const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
-                    <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
+                    <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2ZyB+'>
                     <div class="packet-page-info">
                         <div class="packet-page-hostname">${this.escapeHtml(hostname)}</div>
                         <div class="packet-page-url">${this.escapeHtml(url)}</div>
@@ -2886,9 +2897,10 @@ class SidebarUI {
         } else if (type === 'media') {
             this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
         } else if (type === 'stack') {
-            const sid = item.stackId || item.id;
-            console.log('[Sidebar] Activating stack:', sid, item.name);
-            this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${this.currentPacket.id}&name=${encodeURIComponent(item.name)}`);
+            const sid = item.stackId || item.metadata?.stackId;
+            const pid = this.currentPacket.id || item.packetId || item.metadata?.packetId || 'undefined';
+            this.activeUrl = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${pid}&name=${encodeURIComponent(item.name)}`);
+            console.log(`[Sidebar] Activating stack: ${sid} ${item.name} for packet: ${pid}`);
         } else if (type === 'wasm' || type === 'api') {
             if (type === 'api') {
                 this.activeUrl = item.documentation_url;

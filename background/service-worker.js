@@ -374,7 +374,10 @@ function normalizeUrl(url) {
             let path = parsed.pathname.replace(/\/$/, '').toLowerCase();
             const search = new URLSearchParams(parsed.search);
             // Strip non-essential parameters for matching identity
-            search.delete('packetId');
+            // CRITICAL: stack.html MUST keep packetId for identity isolation
+            if (!path.endsWith('/stack.html')) {
+                search.delete('packetId');
+            }
             search.delete('name'); // Descriptive only
             search.sort();
             const searchString = search.toString();
@@ -534,7 +537,7 @@ async function navigatePacketItems(groupId, direction, manager) {
 
     try {
         const db = manager.getDatabase('packets');
-        const rows = await db.query(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
+        const rows = await db.query(`SELECT name, urls FROM packets WHERE id = ${packetId}`);
         if (!rows || !rows.length) return;
 
         const { name, urls: urlsJson } = rows[0];
@@ -811,7 +814,7 @@ async function initializeSQLite() {
                 console.log('[SW] Biometrics enabled and session NOT verified. Gating restoration...');
             } else {
                 recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
-                const recover = () => reassociateTabGroups().catch(e => console.error('[GroupRecovery] Failed:', e));
+                const recover = () => reassociateTabGroups(sqliteManager).catch(e => console.error('[GroupRecovery] Failed:', e));
                 recover();
                 setTimeout(recover, 2000);
             }
@@ -856,16 +859,26 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Message handler for sidebar communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    handleMessage(request, sender, sendResponse);
+    (async () => {
+        try {
+            await initializeSQLite();
+            const manager = sqliteManager;
+            console.log('[SW] Message received:', request.action || request.type, request);
+            await handleMessage(request, sender, sendResponse, manager);
+        } catch (err) {
+            console.error('[SW] Error in onMessage listener:', err);
+            try { sendResponse({ success: false, error: err.message }); } catch (e) {}
+        }
+    })();
     return true; // Keep channel open for async response
 });
 
-async function handleMessage(request, sender, sendResponse) {
+async function handleMessage(request, sender, sendResponse, manager) {
     const action = request.action || request.type;
     
     console.log('[SW] Message received:', action, request);
     try {
-        const manager = await initializeSQLite();
+        // manager is already initialized and passed from the caller
         
         // Final guard: if initializeSQLite returned but manager is still null (rare race), throw
         if (!manager && action !== 'RESET_STATE') {
@@ -1093,7 +1106,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
 
-                    const result = await db.query(`SELECT name, urls FROM packets WHERE rowid = ${request.id}`);
+                    const result = await db.query(`SELECT name, urls FROM packets WHERE id = ${request.id}`);
                     if (!result || !result.length) {
                         throw new Error('Packet not found');
                     }
@@ -1147,7 +1160,7 @@ async function handleMessage(request, sender, sendResponse) {
             case 'ensurePacketDatabase': {
                 try {
                     const packetId = request.packetId;
-                    await ensurePacketDatabase(packetId, manager);
+                    await ensurePacketDatabase(packetId, sqliteManager);
                     sendResponse({ success: true, dbName: `packet_${packetId}` });
                 } catch (err) {
                     console.error('ensurePacketDatabase error:', err);
@@ -1175,7 +1188,7 @@ async function handleMessage(request, sender, sendResponse) {
 
                     if (request.id !== undefined && request.id !== null) {
                         const id = parseInt(request.id, 10);
-                        await db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
+                        await db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE id = ${id}`);
                         
                         // Sync tab order after saving reordered items
                         setTimeout(() => syncTabOrderForPacket(id, manager).catch(() => {}), 100);
@@ -1202,7 +1215,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
                     const id = parseInt(request.id, 10);
-                    await db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
+                    await db.exec(`DELETE FROM packets WHERE id = ${id}`);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deletePacket error:', err);
@@ -1229,7 +1242,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
                     const id = parseInt(request.id, 10);
-                    await db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
+                    await db.exec(`DELETE FROM schemas WHERE id = ${id}`);
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deleteSchema error:', err);
@@ -1241,7 +1254,7 @@ async function handleMessage(request, sender, sendResponse) {
                 try {
                     const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
-                    const rows = await db.query(`SELECT rowid, name, sql FROM schemas ORDER BY created DESC`);
+                    const rows = await db.query(`SELECT id, name, sql FROM schemas ORDER BY created DESC`);
                     sendResponse({ success: true, schemas: rows.map(row => ({ id: row.rowid, name: row.name, sql: row.sql })) });
                 } catch (err) {
                     console.error('listSchemas error:', err);
@@ -1256,9 +1269,9 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    const result = await db.query(`SELECT id, name, urls FROM packets WHERE id = ${packetId}`);
                     if (!result.length) { sendResponse({ success: true, packet: null }); break; }
-                    const { rowid: id, name, urls: urlsJson } = result[0];
+                    const { id: id, name, urls: urlsJson } = result[0];
                     sendResponse({ success: true, packet: { id, name, urls: safeParseUrls(urlsJson) } });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1297,12 +1310,16 @@ async function handleMessage(request, sender, sendResponse) {
 
                         console.log(`[Unlock] Restoring ${lockedGroupsRestoration.length} groups...`);
                         for (const groupData of lockedGroupsRestoration) {
-                            const { packetId, urls } = groupData;
-                            if (!urls || urls.length === 0) continue;
-
-                            // Open the first tab to start the group
+                            const { packetId, urls, color } = groupData;
+                            
+                            // 1. Create first tab
                             const firstTab = await chrome.tabs.create({ url: urls[0], active: false });
+                            
+                            // 2. Create group from it
                             const groupId = await chrome.tabs.group({ tabIds: [firstTab.id] });
+                            if (color) {
+                                await chrome.tabGroups.update(groupId, { color }).catch(() => {});
+                            }
                             
                             // Add remaining tabs
                             for (let i = 1; i < urls.length; i++) {
@@ -1326,7 +1343,7 @@ async function handleMessage(request, sender, sendResponse) {
                         console.log('[Unlock] Performing deferred restoration...');
                         recoverLocalPages().catch(e => console.error('[Recovery] Failed:', e));
                         
-                        const recover = () => reassociateTabGroups(manager).catch(e => console.error('[GroupRecovery] Failed:', e));
+                        const recover = () => reassociateTabGroups(sqliteManager).catch(e => console.error('[GroupRecovery] Failed:', e));
                         recover();
                         setTimeout(recover, 2000);
 
@@ -1392,7 +1409,7 @@ async function handleMessage(request, sender, sendResponse) {
                     // Lazy Recovery: If tab is in a group but we don't have a mapping, try to repair it
                     if (!packetId) {
                         console.log(`[GroupRecovery] Lazy recovery triggered for group ${tab.groupId}`);
-                        await reassociateTabGroups(manager);
+                        await reassociateTabGroups(sqliteManager);
                         const updatedStore = await chrome.storage.local.get('activeGroups');
                         activeGroups = updatedStore.activeGroups || {};
                         packetId = activeGroups[tab.groupId];
@@ -1401,9 +1418,9 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!packetId) { sendResponse({ success: true, packet: null }); break; }
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    const result = await db.query(`SELECT id, name, urls FROM packets WHERE id = ${packetId}`);
                     if (!result.length) { sendResponse({ success: true, packet: null }); break; }
-                    const { rowid: id, name, urls: urlsJson } = result[0];
+                    const { id: id, name, urls: urlsJson } = result[0];
                     sendResponse({
                         success: true,
                         packet: {
@@ -1423,12 +1440,12 @@ async function handleMessage(request, sender, sendResponse) {
                 try {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
-                    const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${request.id}`);
+                    const result = await db.query(`SELECT id, name, urls FROM packets WHERE id = ${request.id}`);
                     if (!result.length) {
                         sendResponse({ success: false, error: 'Packet not found' });
                         break;
                     }
-                    const { rowid: id, name, urls: urlsJson } = result[0];
+                    const { id: id, name, urls: urlsJson } = result[0];
                     sendResponse({
                         success: true,
                         packet: { id, name, urls: safeParseUrls(urlsJson) }
@@ -1543,10 +1560,11 @@ async function handleMessage(request, sender, sendResponse) {
                             await setTabMapping(existing.id, url, packetId);
                         } else {
                             const newTab = await chrome.tabs.create({ url, active: true });
-                            await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGroupId });
+                            // ALWAYS use the unified helper to create/join group and save the mapping
+                            const finalGroupId = await getOrCreateGroupForPacket(packetId, newTab.id, targetGroupId, manager);
                             await setTabMapping(newTab.id, url, packetId);
+                            sendResponse({ success: true, groupId: finalGroupId });
                         }
-                        sendResponse({ success: true, groupId: targetGroupId });
                     } else {
                         // This case should ideally not happen with getOrCreateGroupForPacket
                         const newTab = await chrome.tabs.create({ url, active: true });
@@ -1564,7 +1582,7 @@ async function handleMessage(request, sender, sendResponse) {
             case 'syncTabOrder': {
                 try {
                     const { packetId } = request;
-                    await syncTabOrderForPacket(packetId, manager);
+                    await syncTabOrderForPacket(packetId, sqliteManager);
                     sendResponse({ success: true });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
@@ -1648,11 +1666,13 @@ async function handleMessage(request, sender, sendResponse) {
                         }
                     }
                 }, 1000);
+                sendResponse({ success: true });
                 break;
             }
             case 'RECORDING_STARTED':
             case 'RECORDING_ERROR': {
                 // These are broadcasted by offscreen.js.
+                sendResponse({ success: true });
                 break;
             }
 
@@ -1789,21 +1809,31 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     try {
         await updateBadge({ tabId });
         const tab = await chrome.tabs.get(tabId);
-        const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+        const { activeGroups: initialActiveGroups = {} } = await chrome.storage.local.get('activeGroups');
+        let activeGroups = initialActiveGroups;
         const groupId = tab.groupId;
-
-        if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) {
-            chrome.runtime.sendMessage({ type: 'packetFocused', packet: null }).catch(() => { });
-            return;
+        let packetId = activeGroups[groupId];
+        
+        // Lazy Recovery: If tab is in a group but we don't have a mapping, try to repair it
+        if (!packetId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+            console.log(`[GroupRecovery] onActivated: Lazy recovery triggered for group ${groupId}`);
+            await reassociateTabGroups(sqliteManager);
+            const updated = await chrome.storage.local.get('activeGroups');
+            activeGroups = updated.activeGroups || {};
+            packetId = activeGroups[groupId];
         }
 
-        const packetId = activeGroups[groupId];
+        if (!packetId) {
+            // Note: We don't send packet: null here avoid "kicking" the user out of the current packet detail 
+            // when they click an unrelated tab.
+            return;
+        }
         await initializeSQLite();
-        const db = manager.getDatabase('packets');
+        const db = sqliteManager.getDatabase('packets');
         if (!db) return;
-        const result = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+        const result = await db.query(`SELECT id, name, urls FROM packets WHERE id = ${packetId}`);
         if (!result || !result.length) return;
-        const { rowid: id, name, urls: urlsJson } = result[0];
+        const { id: id, name, urls: urlsJson } = result[0];
 
         // Use mapping if available but prefer active tab URL if it matches any item in the packet
         const mappedUrl = getMappedUrlSync(tabId);
@@ -1815,8 +1845,16 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
         const activeUrl = currentUrlMatches ? tab.url : (mappedUrl || tab.url);
         const packet = { id, name, urls, groupId, activeUrl };
-        chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
-    } catch (e) { }
+        
+        console.log(`[SW] Sending packetFocused for packet "${name}" (ID: ${id}) to sidebar`);
+        if (sidebarPort) {
+            sidebarPort.postMessage({ type: 'packetFocused', packet });
+        } else {
+            chrome.runtime.sendMessage({ type: 'packetFocused', packet }).catch(() => { });
+        }
+    } catch (e) {
+        console.error('[SW] onActivated error:', e);
+    }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -1840,16 +1878,26 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         try {
             await updateBadge({ tabId });
 
-            const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+            const { activeGroups: initialActiveGroups = {} } = await chrome.storage.local.get('activeGroups');
+            let activeGroups = initialActiveGroups;
             const groupId = tab.groupId;
+            let packetId = activeGroups[groupId];
+            
+            // Lazy Recovery: If tab is in a group but we don't have a mapping, try to repair it
+            if (!packetId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                console.log(`[GroupRecovery] onUpdated: Lazy recovery triggered for group ${groupId}`);
+                await reassociateTabGroups(sqliteManager);
+                const updated = await chrome.storage.local.get('activeGroups');
+                activeGroups = updated.activeGroups || {};
+                packetId = activeGroups[groupId];
+            }
 
             // Only notify sidebar of highlight change if it's already in the group
-            if (groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && activeGroups[groupId]) {
-                const packetId = activeGroups[groupId];
+            if (packetId) {
                 await initializeSQLite();
-        const db = manager.getDatabase('packets');
+                const db = sqliteManager.getDatabase('packets');
                 if (!db) return;
-                const result = await db.query(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+                const result = await db.query(`SELECT urls FROM packets WHERE id = ${packetId}`);
                 if (!result || !result.length) return;
                 const { urls: urlsJson } = result[0];
                 const urls = safeParseUrls(urlsJson);
@@ -2035,7 +2083,7 @@ async function recoverLocalPages() {
                         action: 'openTabInGroup',
                         url: record.url,
                         packetId: record.packetId
-                    }, {}, () => {});
+                    }, {}, () => {}, sqliteManager);
                 } catch (e) {
                     console.error('[Recovery] Failed to restore page:', record.url, e);
                 }
@@ -2048,7 +2096,7 @@ async function recoverLocalPages() {
                 // Short delay to allow tabs to finish grouping
                 setTimeout(async () => {
                     for (const pid of uniquePacketIds) {
-                        await syncTabOrderForPacket(pid).catch(e => console.error(`[Recovery] Sync failed for ${pid}:`, e));
+                        await syncTabOrderForPacket(pid, sqliteManager).catch(e => console.error(`[Recovery] Sync failed for ${pid}:`, e));
                     }
                 }, 1000);
             }
@@ -2072,7 +2120,7 @@ async function syncTabOrderForPacket(packetId, manager) {
         const db = manager.getDatabase('packets');
         if (!db) return;
 
-        const result = await db.query(`SELECT urls FROM packets WHERE rowid = ${packetId}`);
+        const result = await db.query(`SELECT urls FROM packets WHERE id = ${packetId}`);
         if (!result.length) return;
 
         const urls = safeParseUrls(result[0].urls);
@@ -2206,8 +2254,16 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId, man
     let { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
     const groups = await chrome.tabGroups.query({});
     
-    // Find all groups currently mapped to this packetId
     let matchingGroups = groups.filter(g => String(activeGroups[g.id]) === String(packetId));
+    
+    // Lazy Recovery 2: If no active mapping, try a quick recovery before giving up
+    if (matchingGroups.length === 0) {
+        console.log(`[SW] No group mapping for packet ${packetId}, attempting recovery...`);
+        await reassociateTabGroups(sqliteManager);
+        const updated = await chrome.storage.local.get('activeGroups');
+        activeGroups = updated.activeGroups || {};
+        matchingGroups = groups.filter(g => String(activeGroups[g.id]) === String(packetId));
+    }
     
     // Check if hintGroupId is actually mapped to this packet
     if (hintGroupId && !matchingGroups.some(g => g.id === hintGroupId)) {
@@ -2269,19 +2325,33 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId, man
 
         if (targetGroupId) {
             let packetName = 'Packet';
+            let savedColor = null;
             try {
                 const db = manager.getDatabase('packets');
                 if (db) {
-                    const result = await db.query(`SELECT name FROM packets WHERE rowid = ${packetId}`);
-                    if (result.length) packetName = result[0].name;
+                    const result = await db.query(`SELECT name, color FROM packets WHERE id = ${packetId}`);
+                    if (result.length) {
+                        packetName = result[0].name;
+                        savedColor = result[0].color;
+                    }
                 }
             } catch (e) { }
 
             const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
             const availableColors = colors.filter(c => !groups.some(g => g.color === c));
             const pool = availableColors.length > 0 ? availableColors : colors;
-            const randomColor = pool[Math.floor(Math.random() * pool.length)];
-            await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
+            const newColor = savedColor || pool[Math.floor(Math.random() * pool.length)];
+            
+            await chrome.tabGroups.update(targetGroupId, { title: packetName, color: newColor });
+            
+            // Persist the color if it was newly picked
+            if (!savedColor) {
+               try {
+                   const db = manager.getDatabase('packets');
+                   await db.exec(`UPDATE packets SET color = ? WHERE id = ?`, [newColor, packetId]);
+               } catch (e) { }
+            }
+            
             activeGroups[targetGroupId] = packetId;
         }
     }
@@ -2304,6 +2374,8 @@ async function getOrCreateGroupForPacket(packetId, tabIdToJoin, hintGroupId, man
 async function reassociateTabGroups(manager) {
     if (!manager) manager = await initializeSQLite();
     const db = manager.getDatabase('packets');
+    if (!db) return;
+
     try {
         console.log('[GroupRecovery] Starting re-association check...');
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
@@ -2314,11 +2386,7 @@ async function reassociateTabGroups(manager) {
             return;
         }
 
-        await initializeSQLite();
-        const db = manager.getDatabase('packets');
-        if (!db) return;
-
-        const result = await db.query(`SELECT rowid, name, urls FROM packets`);
+        const result = await db.query(`SELECT id, name, urls FROM packets`);
         const allPackets = result.map(row => ({
             id: row.rowid,
             name: row.name,
@@ -2353,9 +2421,21 @@ async function reassociateTabGroups(manager) {
                 const packetUrlSet = new Set(packet.urls.map(item => {
                     const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
                     let url;
-                    if (type === 'page' || type === 'link') url = typeof item === 'string' ? item : item.url;
-                    else if (type === 'local') url = chrome.runtime.getURL(`sidebar/viewer.html?id=${item.resourceId}&name=${encodeURIComponent(item.name)}`);
-                    else if (type === 'media') url = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                    if (type === 'page' || type === 'link') {
+                        url = typeof item === 'string' ? item : (item.url || (item.metadata && item.metadata.url));
+                    } else if (type === 'local' || type === 'wasm') {
+                        const rid = item.resourceId || (item.metadata && item.metadata.resourceId);
+                        if (rid) url = chrome.runtime.getURL(`sidebar/viewer.html?id=${rid}&name=${encodeURIComponent(item.name || '')}&packetId=${packet.id}`);
+                    } else if (type === 'api') {
+                        url = item.documentation_url;
+                    } else if (type === 'media' || type === 'image' || type === 'video' || type === 'audio') {
+                        const mid = item.mediaId || (item.metadata && item.metadata.mediaId);
+                        const mime = item.mimeType || (item.metadata && item.metadata.mimeType);
+                        if (mid) url = chrome.runtime.getURL(`sidebar/media.html?id=${mid}&type=${encodeURIComponent(mime || '')}&name=${encodeURIComponent(item.name || '')}&packetId=${packet.id}`);
+                    } else if (type === 'stack') {
+                        const sid = item.stackId || (item.metadata && item.metadata.stackId);
+                        if (sid) url = chrome.runtime.getURL(`sidebar/stack.html?id=${sid}&packetId=${packet.id}&name=${encodeURIComponent(item.name || '')}`);
+                    }
                     return url ? normalizeUrl(url) : null;
                 }).filter(Boolean));
 
@@ -2367,14 +2447,30 @@ async function reassociateTabGroups(manager) {
             }
 
             // Acceptance Criteria: 
-            // 1. If title match failed or yielded multiple, use URL validation
-            // 2. If NO title matches but more than 50% of the tabs URL match -> RECOVER
+            // 1. If title matches a unique packet, and no conflicting URLs, recover it.
+            // 2. OR if URL overlap is significant (>= 50%).
+            const titleMatch = group.title && candidates.length === 1;
+            
+            // If title match is unique, it's our best packet even if URLs (highestMatch) aren't ready yet
+            if (titleMatch && !bestPacket) {
+                bestPacket = candidates[0];
+                console.log(`[GroupRecovery] Title match found for "${group.title}" -> Packet "${bestPacket.name}"`);
+            }
+
             const groupConfidence = highestMatch / Math.max(1, groupUrls.length);
-            const isConfident = (group.title && candidates.some(p => p.id === bestPacket?.id) && highestMatch > 0) || (groupConfidence >= 0.5);
+            const isConfident = (titleMatch && (highestMatch > 0 || groupUrls.length === 0)) || (groupConfidence >= 0.5);
+            
+            if (!isConfident && (titleMatch || highestMatch > 0)) {
+                console.log(`[GroupRecovery] Insufficient confidence for "${group.title}": titleMatch=${titleMatch}, matchCount=${highestMatch}, groupSize=${groupUrls.length}`);
+            }
 
             if (bestPacket && isConfident) {
                 console.log(`[GroupRecovery] RECOVERED: "${group.title}" (ID: ${group.id}) -> Packet "${bestPacket.name}" (Confidence: ${Math.round(groupConfidence * 100)}%)`);
                 
+                // Persist the current group color to the DB so it's remembered next time
+                try {
+                    await db.exec(`UPDATE packets SET color = ? WHERE id = ?`, [group.color, bestPacket.id]);
+                } catch (e) { }
                 // Aggressive Cleanup: If this packet was previously mapped to other groups, clear them.
                 // This prevents "ghost" mappings where one packet points to multiple group IDs.
                 for (const [gid, pid] of Object.entries(newActiveGroups)) {
@@ -2413,9 +2509,9 @@ async function reassociateTabGroups(manager) {
                 const packetId = newActiveGroups[activeTab.groupId];
                 if (packetId) {
                     const db = manager.getDatabase('packets');
-                    const res = await db.query(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
+                    const res = await db.query(`SELECT id, name, urls FROM packets WHERE id = ${packetId}`);
                     if (res.length) {
-                        const { rowid: id, name, urls: urlsJson } = res[0];
+                        const { id: id, name, urls: urlsJson } = res[0];
                         chrome.runtime.sendMessage({ 
                             type: 'packetFocused', 
                             packet: { id, name, urls: safeParseUrls(urlsJson), groupId: activeTab.groupId, activeUrl: activeTab.url } 
@@ -2459,7 +2555,8 @@ async function performStartupLock() {
                 if (tabs.length > 0) {
                     restorationData.push({
                         packetId,
-                        urls: tabs.map(t => t.url || t.pendingUrl).filter(Boolean)
+                        urls: tabs.map(t => t.url || t.pendingUrl).filter(Boolean),
+                        color: groups.find(g => g.id === parseInt(gid))?.color
                     });
                     
                     // Close all tabs in the group
