@@ -29,6 +29,7 @@ import { compileZigCode } from './zig-compiler.js';
     const regenStatusText = document.getElementById('regen-status-text');
 
     let currentItem = null;
+    let currentPacketName = '';
     let currentPacketUrls = [];
     let selectedApis = [];
     let packetApis = [];
@@ -151,7 +152,7 @@ It will run in a host environment with these WIT interfaces available:
         const resp = await chrome.runtime.sendMessage({
             action: 'executeSQL',
             name: 'packets',
-            sql: `SELECT urls FROM packets WHERE id = ?`,
+            sql: `SELECT name, urls FROM packets WHERE id = ?`,
             params: [packetId]
         });
 
@@ -159,7 +160,9 @@ It will run in a host environment with these WIT interfaces available:
             throw new Error('Failed to load packet data');
         }
 
-        currentPacketUrls = JSON.parse(resp.result[0].values[0]);
+        const row = resp.result[0].values[0];
+        currentPacketName = row[0];
+        currentPacketUrls = JSON.parse(row[1]);
         packetApis = currentPacketUrls.filter(u => u.type === 'api');
 
         if (!isNaN(index)) {
@@ -264,7 +267,9 @@ It will run in a host environment with these WIT interfaces available:
             regenStatus.classList.remove('hidden');
             regenerateBtn.disabled = true;
 
-            const newPrompt = editPromptInput.value;
+            const originalPrompt = editPromptInput.value.trim();
+            if (!originalPrompt) return;
+
             const settings = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt']);
             
             if (!settings.geminiApiKey || !settings.geminiModel) {
@@ -295,53 +300,82 @@ It will run in a host environment with these WIT interfaces available:
                 ).join('\n');
             }
 
-            // Gemini Call
-            regenStatusText.textContent = 'Calling Gemini...';
-            let systemInstruction = settings.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
-            systemInstruction = systemInstruction.replace('{{WITS_CONTEXT}}', witsContext).replace('{{DATABASE_CONTEXT}}', dbContext);
+            let lastError = null;
+            let lastCode = null;
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/${settings.geminiModel}:generateContent?key=${settings.geminiApiKey}`;
-            const aiResp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: newPrompt }] }],
-                    system_instruction: { parts: [{ text: systemInstruction }] }
-                })
-            });
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    // Gemini Call
+                    regenStatusText.textContent = `Calling Gemini (Attempt #${attempt})...`;
+                    let systemInstruction = settings.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+                    systemInstruction = systemInstruction.replace('{{WITS_CONTEXT}}', witsContext).replace('{{DATABASE_CONTEXT}}', dbContext);
 
-            if (!aiResp.ok) throw new Error('Gemini API call failed');
-            const aiData = await aiResp.json();
-            let zigCode = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            zigCode = zigCode.replace(/^```zig\n/, '').replace(/^```\n?/, '').replace(/\n```$/, '');
+                    // Augment prompt if this is a retry
+                    let finalPrompt = `${originalPrompt}\n\n`;
+                    if (attempt > 1 && lastError) {
+                        finalPrompt += `IMPORTANT: Your previous attempt failed to compile. Please fix the errors below.\n\nPREVIOUS CODE:\n\`\`\`zig\n${lastCode}\n\`\`\`\n\nCOMPILER ERROR:\n${lastError}`;
+                    }
 
-            // Compile
-            regenStatusText.textContent = 'Compiling Zig...';
-            const wasmBytes = await compileZigCode(zigCode, (s) => { regenStatusText.textContent = s; });
+                    const url = `https://generativelanguage.googleapis.com/v1beta/${settings.geminiModel}:generateContent?key=${settings.geminiApiKey}`;
+                    const aiResp = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: finalPrompt }] }],
+                            system_instruction: { parts: [{ text: systemInstruction + apiContext }] }
+                        })
+                    });
 
-            // Save
-            regenStatusText.textContent = 'Saving...';
-            const binaryBase64 = arrayBufferToBase64(wasmBytes);
-            
-            currentItem.prompt = newPrompt;
-            currentItem.zigCode = zigCode;
-            currentItem.data = binaryBase64;
-            currentItem.selectedApis = selectedApis;
+                    if (!aiResp.ok) throw new Error('Gemini API call failed');
+                    const aiData = await aiResp.json();
+                    let zigCode = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    zigCode = zigCode.replace(/^```zig\n/, '').replace(/^```\n?/, '').replace(/\n```$/, '');
+                    lastCode = zigCode;
 
-            await chrome.runtime.sendMessage({
-                action: 'savePacket',
-                id: packetId,
-                urls: currentPacketUrls
-            });
+                    // Compile
+                    regenStatusText.textContent = `Compiling Zig (Attempt #${attempt})...`;
+                    const wasmBytes = await compileZigCode(zigCode, (s) => { 
+                        regenStatusText.textContent = `${s} (Attempt #${attempt})...`; 
+                    });
 
-            // Update UI
-            headerText.textContent = newPrompt;
-            codeBlock.innerHTML = highlightZig(zigCode);
-            renderApiChips(headerApiTags, selectedApis);
-            editModal.classList.add('hidden');
-            
-            // Notify sidebar
-            chrome.runtime.sendMessage({ action: 'PACKET_UPDATED', packetId });
+                    // Save
+                    regenStatusText.textContent = 'Saving...';
+                    const binaryBase64 = arrayBufferToBase64(wasmBytes);
+                    
+                    currentItem.prompt = originalPrompt;
+                    currentItem.zigCode = zigCode;
+                    currentItem.data = binaryBase64;
+                    currentItem.selectedApis = selectedApis;
+
+                    await chrome.runtime.sendMessage({
+                        action: 'savePacket',
+                        id: packetId,
+                        name: currentPacketName,
+                        urls: currentPacketUrls
+                    });
+
+                    // Update UI
+                    headerText.textContent = originalPrompt;
+                    codeBlock.innerHTML = highlightZig(zigCode);
+                    renderApiChips(headerApiTags, selectedApis);
+                    editModal.classList.add('hidden');
+                    
+                    // Notify sidebar
+                    chrome.runtime.sendMessage({ action: 'PACKET_UPDATED', packetId });
+                    return; // Success!
+
+                } catch (error) {
+                    lastError = error.message;
+                    console.error(`Regeneration failed (Attempt #${attempt}):`, error);
+
+                    if (attempt < 3) {
+                        regenStatusText.textContent = `Error in #${attempt}. Retrying...`;
+                        await new Promise(r => setTimeout(r, 1000));
+                    } else {
+                        throw error; // Re-throw to be caught by outer try-catch
+                    }
+                }
+            }
 
         } catch (err) {
             alert('Regeneration failed: ' + err.message);

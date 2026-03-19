@@ -1209,18 +1209,23 @@ async function handleMessage(request, sender, sendResponse, manager) {
                     const db = manager.getDatabase('packets');
                     if (!db) throw new Error('Packets database not found');
                     const urlsJson = JSON.stringify(request.urls || []);
-                    const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
 
                     if (request.id !== undefined && request.id !== null) {
                         const id = parseInt(request.id, 10);
-                        await db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE id = ${id}`);
+                        if (request.name !== undefined) {
+                            const escapedName = request.name.replace(/'/g, "''");
+                            await db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE id = ${id}`);
+                        } else {
+                            await db.exec(`UPDATE packets SET urls = '${escapedUrls}' WHERE id = ${id}`);
+                        }
                         
                         // Sync tab order after saving reordered items
                         setTimeout(() => syncTabOrderForPacket(id, manager).catch(() => {}), 100);
                         
                         sendResponse({ success: true, id, packet: { id, name: request.name, urls: request.urls } });
                     } else {
+                        const escapedName = (request.name || 'Untitled Packet').replace(/'/g, "''");
                         await db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
                         const result = await db.query("SELECT last_insert_rowid()");
                         const newId = result[0]['last_insert_rowid()'];
@@ -1228,7 +1233,7 @@ async function handleMessage(request, sender, sendResponse, manager) {
                         // Sync tab order for new packet
                         setTimeout(() => syncTabOrderForPacket(newId, manager).catch(() => {}), 100);
                         
-                        sendResponse({ success: true, id: newId, packet: { id: newId, name: request.name, urls: request.urls } });
+                        sendResponse({ success: true, id: newId, packet: { id: newId, name: request.name || 'Untitled Packet', urls: request.urls } });
                     }
                 } catch (err) {
                     console.error('savePacket error:', err);

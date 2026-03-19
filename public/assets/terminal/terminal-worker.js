@@ -215,9 +215,34 @@ self.onmessage = async (e) => {
             }
         };
 
+        let stdoutBuffer = [];
+        let flushTimeout = null;
+        const flush = () => {
+            if (stdoutBuffer.length > 0) {
+                const totalLen = stdoutBuffer.reduce((acc, b) => acc + b.length, 0);
+                const combined = new Uint8Array(totalLen);
+                let offset = 0;
+                for (const b of stdoutBuffer) {
+                    combined.set(b, offset);
+                    offset += b.length;
+                }
+                self.postMessage({ type: 'stdout', data: combined });
+                stdoutBuffer = [];
+            }
+            flushTimeout = null;
+        };
+
+        const bufferedWrite = (buf) => {
+            stdoutBuffer.push(buf);
+            if (!flushTimeout) {
+                flushTimeout = setTimeout(flush, 20); // Flush every 20ms
+            }
+            if (stdoutBuffer.length > 200) flush(); // Flush if too many chunks
+        };
+
         const stdin = new SABStdin(inputSAB, controlSAB);
-        const stdout = new ConsoleStdout((buf) => self.postMessage({ type: 'stdout', data: buf }));
-        const stderr = new ConsoleStdout((buf) => self.postMessage({ type: 'stdout', data: buf }));
+        const stdout = new ConsoleStdout(bufferedWrite);
+        const stderr = new ConsoleStdout(bufferedWrite);
 
         const fds = [
             stdin,
@@ -241,6 +266,73 @@ self.onmessage = async (e) => {
         const wasi = new WASI(wasmArgs, wasmEnv, fds);
         let wasmInstance = null;
 
+        class WasmWriter {
+            constructor(instance) {
+                this.instance = instance;
+            }
+            get view() { return new DataView(this.instance.exports.memory.buffer); }
+            get u8() { return new Uint8Array(this.instance.exports.memory.buffer); }
+            alloc(size, align = 4) {
+                if (!this.instance.exports.cabi_realloc) return 0;
+                return this.instance.exports.cabi_realloc(0, 0, align, size);
+            }
+            writeString(str) {
+                if (!str) return { ptr: 0, len: 0 };
+                const bytes = new TextEncoder().encode(str);
+                const ptr = this.alloc(bytes.length, 1);
+                if (!ptr) return { ptr: 0, len: 0 };
+                this.u8.set(bytes, ptr);
+                return { ptr, len: bytes.length };
+            }
+            writeBookmarkNode(ptr, node) {
+                const id = this.writeString(node.id || node.title || "");
+                this.view.setUint32(ptr, id.ptr, true);
+                this.view.setUint32(ptr + 4, id.len, true);
+
+                if (node.parentId) {
+                    const pId = this.writeString(node.parentId);
+                    this.view.setUint8(ptr + 8, 1);
+                    this.view.setUint32(ptr + 12, pId.ptr, true);
+                    this.view.setUint32(ptr + 16, pId.len, true);
+                } else {
+                    this.view.setUint8(ptr + 8, 0);
+                }
+
+                const title = this.writeString(node.title || "");
+                this.view.setUint32(ptr + 20, title.ptr, true);
+                this.view.setUint32(ptr + 24, title.len, true);
+
+                if (node.url) {
+                    const url = this.writeString(node.url);
+                    this.view.setUint8(ptr + 28, 1);
+                    this.view.setUint32(ptr + 32, url.ptr, true);
+                    this.view.setUint32(ptr + 36, url.len, true);
+                } else {
+                    this.view.setUint8(ptr + 28, 0);
+                }
+
+                if (node.children && node.children.length > 0) {
+                    const list = this.writeBookmarkNodeList(node.children);
+                    this.view.setUint8(ptr + 40, 1);
+                    this.view.setUint32(ptr + 44, list.ptr, true);
+                    this.view.setUint32(ptr + 48, list.len, true);
+                } else {
+                    this.view.setUint8(ptr + 40, 0);
+                }
+            }
+            writeBookmarkNodeList(nodes) {
+                const nodeSize = 52;
+                const ptr = this.alloc(nodes.length * nodeSize, 4);
+                if (!ptr) return { ptr: 0, len: 0 };
+                nodes.forEach((node, i) => {
+                    this.writeBookmarkNode(ptr + (i * nodeSize), node);
+                });
+                return { ptr, len: nodes.length };
+            }
+        }
+
+        let wasmWriter = null;
+
         const importObject = {
             wasi_snapshot_preview1: wasi.wasiImport,
             env: {
@@ -254,14 +346,30 @@ self.onmessage = async (e) => {
                 }
             },
             "chrome:bookmarks/bookmarks": {
-                "get-tree": () => {
-                    console.log("[Worker-Host] Calling mock get-tree (Sync SAB)");
+                "get-tree": (retPtr) => {
+                    console.log("[Worker-Host] Calling mock get-tree with retPtr:", retPtr);
                     const res = getMockSync("chrome:bookmarks", "getTree") || getMockSync("chrome:bookmarks/bookmarks", "get-tree");
-                    return typeof res === 'number' ? res : 0;
+                    if (retPtr && wasmInstance) {
+                        if (!wasmWriter) wasmWriter = new WasmWriter(wasmInstance);
+                        
+                        try {
+                            const view = wasmWriter.view;
+                            if (res && Array.isArray(res)) {
+                                const list = wasmWriter.writeBookmarkNodeList(res);
+                                view.setUint8(retPtr, 0); // is_err = false
+                                view.setUint32(retPtr + 4, list.ptr, true); // val.ok.ptr
+                                view.setUint32(retPtr + 8, list.len, true); // val.ok.len
+                            } else {
+                                view.setUint8(retPtr, 1); // is_err = true
+                                const err = wasmWriter.writeString("Failed to fetch bookmarks");
+                                view.setUint32(retPtr + 4, err.ptr, true);
+                                view.setUint32(retPtr + 8, err.len, true);
+                            }
+                        } catch (e) {
+                            console.error("[Worker-Host] Failed to serialize get-tree result:", e);
+                        }
+                    }
                 },
-                "get_tree": (...args) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](...args),
-                "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                 "create": (details) => {
                     console.log("[Worker-Host] Calling mock create (Sync SAB)");
                     getMockSync("chrome:bookmarks", "create", [details]) || getMockSync("chrome:bookmarks/bookmarks", "create", [details]);
@@ -269,15 +377,22 @@ self.onmessage = async (e) => {
                 }
             },
             "chrome:bookmarks": {
-                "get-tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                "get_tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
-                "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                "get_tree": (retPtr) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](retPtr),
                 "create": (...args) => importObject["chrome:bookmarks/bookmarks"]["create"](...args)
             },
             "user:sqlite/sqlite": {
-                "execute": () => 0,
-                "query": () => 0
+                "execute": (sqlPtr, sqlLen) => {
+                    if (!wasmInstance) return 0;
+                    const sql = new TextDecoder().decode(new Uint8Array(wasmInstance.exports.memory.buffer, sqlPtr, sqlLen));
+                    return getMockSync("user:sqlite", "execute", [sql]) ? 0 : 1;
+                },
+                "query": (sqlPtr, sqlLen, retPtr) => {
+                    if (!wasmInstance) return 0;
+                    const sql = new TextDecoder().decode(new Uint8Array(wasmInstance.exports.memory.buffer, sqlPtr, sqlLen));
+                    const res = getMockSync("user:sqlite", "query", [sql]);
+                    // SQLite results are often complex; for now just return success/failure
+                    return res ? 0 : 1;
+                }
             }
         };
 
@@ -311,7 +426,7 @@ self.onmessage = async (e) => {
                 try {
                     const res = instance.exports[execName]();
                     if (res !== undefined) {
-                        self.postMessage({ type: 'stdout', data: new TextEncoder().encode(`Result: ${res}\n`) });
+                      bufferedWrite(new TextEncoder().encode(`Result: ${res}\n`));
                     }
                     executed = true;
                 } catch (e) {
@@ -357,10 +472,12 @@ self.onmessage = async (e) => {
                 }
             }
 
+            flush();
             self.postMessage({ type: 'exit' });
         } catch (err) {
             console.error('Worker: Error:', err);
-            if (!e.data.wasmBytes) self.postMessage({ type: 'exit' });
+            flush();
+            self.postMessage({ type: 'exit' });
         }
     }
 };
