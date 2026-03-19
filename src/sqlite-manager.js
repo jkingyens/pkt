@@ -415,8 +415,8 @@ class SQLiteManager {
 
     // Check for defaults
     try {
-      const check = await db.exec("SELECT rowid FROM wits WHERE name = 'chrome:bookmarks'");
-      if (!check.length) {
+      const check = await db.exec("SELECT id FROM wits WHERE name = 'chrome:bookmarks'");
+      if (!check || !check.length) {
         const defaultWit = `package chrome:bookmarks;
 
 interface bookmarks {
@@ -434,8 +434,8 @@ interface bookmarks {
         await db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
       }
 
-      const checkSqlite = await db.exec("SELECT rowid FROM wits WHERE name = 'user:sqlite'");
-      if (!checkSqlite.length) {
+      const checkSqlite = await db.exec("SELECT id FROM wits WHERE name = 'user:sqlite'");
+      if (!checkSqlite || !checkSqlite.length) {
         const sqliteWit = `package user:sqlite;
 
 interface sqlite {

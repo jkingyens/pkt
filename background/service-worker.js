@@ -1255,7 +1255,7 @@ async function handleMessage(request, sender, sendResponse, manager) {
                     const db = manager.getDatabase('schemas');
                     if (!db) throw new Error('Schemas database not found');
                     const rows = await db.query(`SELECT id, name, sql FROM schemas ORDER BY created DESC`);
-                    sendResponse({ success: true, schemas: rows.map(row => ({ id: row.rowid, name: row.name, sql: row.sql })) });
+                    sendResponse({ success: true, schemas: rows.map(row => ({ id: row.id, name: row.name, sql: row.sql })) });
                 } catch (err) {
                     console.error('listSchemas error:', err);
                     sendResponse({ success: false, error: err.message });
@@ -2388,7 +2388,7 @@ async function reassociateTabGroups(manager) {
 
         const result = await db.query(`SELECT id, name, urls FROM packets`);
         const allPackets = result.map(row => ({
-            id: row.rowid,
+            id: row.id,
             name: row.name,
             urls: safeParseUrls(row.urls)
         }));
