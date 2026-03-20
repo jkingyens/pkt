@@ -582,6 +582,34 @@ h1 {
   overflow-y: auto;
 }
 
+.database-group {
+  margin-bottom: 20px;
+}
+
+.database-group:last-child {
+  margin-bottom: 10px;
+}
+
+.database-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+}
+
+.database-header::before {
+  content: '📁';
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .entry-row {
   display: flex;
   align-items: center;

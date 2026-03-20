@@ -2815,7 +2815,7 @@ class SidebarUI {
         if (stackCount === 0) stackList.innerHTML = '<p class="hint">No stacks in this packet.</p>';
         if (apiCount === 0 && apiList) apiList.innerHTML = '<p class="hint">No APIs in this packet.</p>';
 
-        // Load and render per-packet data
+        // Load and render per-packet databases (packet itself + mocks)
         try {
             const packetId = this.currentPacket?.id;
             if (!packetId) {
@@ -2824,32 +2824,63 @@ class SidebarUI {
                 return;
             }
 
-            const packetDbName = `packet_${packetId}`;
-            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packetId });
-            const schemaResp = await this.sendMessage({ action: 'getSchema', name: packetDbName });
-            if (!schemaResp) return;
+            const databaseConfigs = [{ name: 'Packet', dbName: `packet_${packetId}`, type: 'packet' }];
+            const seenDbs = new Set([`packet_${packetId}`]);
 
-            if (schemaResp.success) {
-                const tables = schemaResp.schema;
-                this.packetDataCount.textContent = tables.length;
-
-                if (tables.length === 0) {
-                    dataList.innerHTML = '<p class="hint">No tables in this packet.</p>';
-                } else {
-                    dataList.innerHTML = tables.map(table => `
-                        <div class="entry-row" style="cursor: default; padding: 6px 10px; background: var(--bg-alt); margin-bottom: 4px; border-radius: 6px;">
-                            <span class="drag-handle"></span>
-                            <span class="entry-label" style="font-family: inherit;">${this.escapeHtml(table.name)}</span>
-                        </div>
-                    `).join('');
+            urls.forEach(item => {
+                const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                if (type === 'api' && item.id) {
+                    const dbName = `mock_${item.id}`;
+                    if (!seenDbs.has(dbName)) {
+                        databaseConfigs.push({
+                            name: item.mock_prompt || item.name,
+                            dbName: dbName,
+                            type: 'mock'
+                        });
+                        seenDbs.add(dbName);
+                    }
                 }
+            });
+
+            let databasesFound = 0;
+            let html = '';
+
+            for (const config of databaseConfigs) {
+                if (config.type === 'packet') {
+                    await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packetId });
+                }
+                const schemaResp = await this.sendMessage({ action: 'getSchema', name: config.dbName });
+                if (schemaResp && schemaResp.success && schemaResp.schema && schemaResp.schema.length > 0) {
+                    databasesFound++;
+                    const tables = schemaResp.schema.filter(t => t.name !== 'sqlite_sequence');
+                    if (tables.length > 0) {
+                        html += `
+                            <div class="database-group">
+                                <div class="database-header">${this.escapeHtml(config.name)}</div>
+                                ${tables.map(table => `
+                                    <div class="entry-row" style="cursor: default; padding: 6px 10px; background: var(--bg-alt); margin-bottom: 4px; border-radius: 6px;">
+                                        <span class="drag-handle"></span>
+                                        <span class="entry-label" style="font-family: inherit;">${this.escapeHtml(table.name)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    } else {
+                        // Empty database but it exists? Decrease the count if we don't show it
+                        databasesFound--;
+                    }
+                }
+            }
+
+            this.packetDataCount.textContent = databasesFound;
+            if (databasesFound === 0) {
+                dataList.innerHTML = '<p class="hint">No databases in this packet.</p>';
             } else {
-                dataList.innerHTML = '<p class="hint">Failed to load data schema.</p>';
-                this.packetDataCount.textContent = '0';
+                dataList.innerHTML = html;
             }
         } catch (err) {
-            console.error('[SidebarUI] Failed to load packet data:', err);
-            dataList.innerHTML = '<p class="hint">Error loading packet data.</p>';
+            console.error('[SidebarUI] Failed to load packet databases:', err);
+            dataList.innerHTML = '<p class="hint">Error loading packet databases.</p>';
             this.packetDataCount.textContent = '0';
         }
     }
@@ -3279,8 +3310,8 @@ class SidebarUI {
 
 
     renderCollections(collections) {
-        // Filter out internal packet databases (starting with packet_)
-        const filtered = collections.filter(name => !name.startsWith('packet_'));
+        // Filter out internal packet databases (starting with packet_) and mock databases (starting with mock_)
+        const filtered = collections.filter(name => !name.startsWith('packet_') && !name.startsWith('mock_'));
 
         if (filtered.length === 0) {
             this.collectionsList.innerHTML = `
