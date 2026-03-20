@@ -15,8 +15,8 @@
         "contextMenus",
         "scripting",
         "declarativeNetRequest",
-        "privacy",
-        "favicon"
+        "favicon",
+        "privacy"
     ],
     "host_permissions": [
         "<all_urls>"

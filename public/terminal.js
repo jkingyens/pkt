@@ -342,28 +342,36 @@ async function initTerminal() {
 
     // 6. Handle Direct Execution
     const execCommand = urlParams.get('exec');
+    const itemIndex = parseInt(urlParams.get('itemIndex'));
     let wasmBytes = null;
     let zigzagCode = null;
+    let item = null;
 
-    if (execCommand) {
-        const item = packetData.items.find((it, idx) => {
+    if (!isNaN(itemIndex) && packetData.items[itemIndex]) {
+        item = packetData.items[itemIndex];
+        // Double check type to be safe
+        if (item.type !== 'wasm') item = null;
+    }
+
+    if (!item && execCommand) {
+        item = packetData.items.find((it, idx) => {
             let name = it.name || it.title || `wasm_${idx}`;
             name = name.replace(/[\/\\?%*:|"<>]/g, '_');
             return it.type === 'wasm' && name === execCommand;
         });
+    }
 
-        if (item && item.data) {
-            try {
-                zigzagCode = item.zigCode || null;
-                const binaryString = atob(item.data);
-                wasmBytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    wasmBytes[i] = binaryString.charCodeAt(i);
-                }
-                console.log(`Terminal: Prepared direct execution for ${execCommand} (${wasmBytes.length} bytes)`);
-            } catch (e) {
-                console.error(`Terminal: Failed to decode WASM for ${execCommand}:`, e);
+    if (item && item.data) {
+        try {
+            zigzagCode = item.zigCode || null;
+            const binaryString = atob(item.data);
+            wasmBytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                wasmBytes[i] = binaryString.charCodeAt(i);
             }
+            console.log(`Terminal: Prepared direct execution for ${item.name || execCommand} (${wasmBytes.length} bytes)`);
+        } catch (e) {
+            console.error(`Terminal: Failed to decode WASM:`, e);
         }
     }
 

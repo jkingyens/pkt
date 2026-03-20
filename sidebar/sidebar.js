@@ -516,6 +516,14 @@ class SidebarUI {
         this.startConnectivityPolling(5000);
 
         // Consolidated initialization flow
+        // Refresh API list when permissions change
+        if (chrome.permissions) {
+            chrome.permissions.onAdded.addListener(() => {
+                this.syncManifestPermissions().then(() => this.renderApiList());
+            });
+            chrome.permissions.onRemoved.addListener(() => this.renderApiList());
+        }
+
         this.init();
 
         // Establish a persistent connection to the background script
@@ -572,6 +580,9 @@ class SidebarUI {
 
             // 6. Maintenance: Ensure API schema is up to date and populated
             await this.ensureApiSchema();
+            
+            // 7. Sync manifest permissions with configured services
+            await this.syncManifestPermissions();
         } catch (e) {
             console.error('[SidebarUI] continueInit failed:', e);
         }
@@ -1322,7 +1333,8 @@ class SidebarUI {
                 itemUrl = item.documentation_url;
             } else if (type === 'wasm') {
                 const pid = this.currentPacket.id;
-                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
+                const idParam = item.id ? `&id=${item.id}` : '';
+                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}${idParam}&name=${encodeURIComponent(item.name || '')}`);
             }
 
             if (itemUrl && activeNorm) {
@@ -1369,7 +1381,8 @@ class SidebarUI {
                 }
             } else if (type === 'wasm') {
                 const pid = this.currentPacket.id;
-                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
+                const idParam = item.id ? `&id=${item.id}` : '';
+                itemUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}${idParam}&name=${encodeURIComponent(item.name || '')}`);
             }
 
             if (itemUrl && norm === this.normalizeUrl(itemUrl)) {
@@ -2578,6 +2591,16 @@ class SidebarUI {
 
     async renderPacketItems(urls) {
         // Target new sections
+        const [permResp, configResp] = await Promise.all([
+            chrome.permissions.getAll(),
+            this.sendMessage({
+                action: 'query',
+                payload: { name: 'services', sql: "SELECT config_id FROM configured_services" }
+            })
+        ]);
+        const granted = new Set(permResp.permissions || []);
+        const configured = new Set(this._normalizeRows(configResp.result).map(r => r.config_id));
+
         const pageList = document.getElementById('packetPageList');
         const mediaList = document.getElementById('packetMediaList');
         const wasmList = document.getElementById('packetWasmList');
@@ -2781,12 +2804,17 @@ class SidebarUI {
                 card.setAttribute('tabindex', '0');
                 card.setAttribute('data-index', index);
                 card.draggable = true;
-                card.className = `packet-page-card api`;
+                
+                const perm = item.manifest_permission;
+                const isActuallyConfigured = perm ? granted.has(perm) : (item.config_id.startsWith('chrome-ai:') || !perm);
+                
+                card.className = `packet-page-card api${isActuallyConfigured ? '' : ' unconfigured'}`;
+                const isMock = !!item.mock_prompt;
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder"></span>
-                    <span class="packet-page-icon">${item.icon || '🔌'}</span>
+                    <span class="packet-page-icon">${isActuallyConfigured ? (item.icon || '🔌') : '🔒'}</span>
                     <div class="packet-page-info">
-                        <div class="packet-page-title">${item.mock_prompt ? `${this.escapeHtml(item.mock_prompt)} (${this.escapeHtml(item.name)})` : this.escapeHtml(item.name)}</div>
+                        <div class="packet-page-title">${isMock ? `${this.escapeHtml(item.mock_prompt)}` : `<span style="opacity: 0.7">⚡ Live Interface</span>`} <span style="opacity: 0.5; font-size: 0.9em;">(${this.escapeHtml(item.name)})</span>${isActuallyConfigured ? '' : ' <span class="lock-label" style="color:var(--danger);font-size:10px;font-weight:bold;">(LOCKED)</span>'}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove API">🗑️</button>
                 `;
@@ -3121,7 +3149,8 @@ class SidebarUI {
                 }
             } else if (type === 'wasm') {
                 const pid = this.currentPacket?.id || item.packetId;
-                this.activeUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
+                const idParam = item.id ? `&id=${item.id}` : '';
+                this.activeUrl = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}${idParam}&name=${encodeURIComponent(item.name || '')}`);
             }
             this.lastNavigatedIndex = index;
         }
@@ -3169,7 +3198,8 @@ class SidebarUI {
             });
         } else if (type === 'wasm') {
             const pid = this.currentPacket.id;
-            const url = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}&name=${encodeURIComponent(item.name || '')}`);
+            const idParam = item.id ? `&id=${item.id}` : '';
+            const url = chrome.runtime.getURL(`sidebar/code-viewer.html?packetId=${pid}&index=${index}${idParam}&name=${encodeURIComponent(item.name || '')}`);
             this.sendMessage({
                 action: 'openTabInGroup',
                 url,
@@ -3990,6 +4020,7 @@ class SidebarUI {
 
             this.constructorItems.push({
                 type: 'wasm',
+                id: crypto.randomUUID(),
                 name: file.name,
                 data: base64
             });
@@ -4131,15 +4162,30 @@ class SidebarUI {
                 } else {
                     filteredApis.forEach(api => {
                         const item = document.createElement('div');
-                        item.className = 'schema-picker-item';
+                        item.className = 'schema-picker-item-grid'; // Use a grid for actions
                         item.innerHTML = `
-                            <div class="schema-picker-item-name">${api.icon || '🔌'} ${api.mock_prompt ? `${this.escapeHtml(api.mock_prompt)} (${this.escapeHtml(api.name)})` : this.escapeHtml(api.name)}</div>
-                            <div class="schema-picker-item-preview">${api.description || ''}</div>
+                            <div class="schema-picker-item-info">
+                                <div class="schema-picker-item-name">${api.icon || '🔌'} ${this.escapeHtml(api.name)}</div>
+                                <div class="schema-picker-item-preview">${api.description || ''}</div>
+                            </div>
+                            <div class="schema-picker-item-actions">
+                                <button class="btn-small connect-live-btn" title="Connect as Live Interface">⚡ Connect</button>
+                                <button class="btn-small create-mock-btn" title="Create Mock API">✨ Mock</button>
+                            </div>
                         `;
-                        item.onclick = () => {
+                        
+                        item.querySelector('.connect-live-btn').onclick = (e) => {
+                            e.stopPropagation();
+                            this.apiPickerOverlay.classList.add('hidden');
+                            this.addApiToPacket(api, null, null); // Add as 'Live'
+                        };
+                        
+                        item.querySelector('.create-mock-btn').onclick = (e) => {
+                            e.stopPropagation();
                             this.apiPickerOverlay.classList.add('hidden');
                             this.openMockApiPrompt(api, -1);
                         };
+                        
                         this.apiPickerList.appendChild(item);
                     });
                 }
@@ -4776,14 +4822,7 @@ class SidebarUI {
             return;
         }
 
-        // Built-in permissions that are always granted or not requestable via chrome.permissions.contains
-        const nonRequestable = ['runtime', 'activeTab', 'favicon'];
-        if (nonRequestable.includes(permission)) {
-            this.updateChromePermissionStatus(true, 'Always Available');
-            if (this.apiDetailPermissionHelper) this.apiDetailPermissionHelper.classList.add('hidden');
-            return;
-        }
-
+        // Check actual manifest permissions via the API
         try {
             const hasPermission = await chrome.permissions.contains({ permissions: [permission] });
             this.updateChromePermissionStatus(hasPermission, hasPermission ? 'Available' : 'Unavailable');
@@ -4867,6 +4906,15 @@ class SidebarUI {
             }
         } catch (e) {
             console.warn('[Sidebar] ensureApiSchema check error:', e.message);
+        }
+    }
+
+    async syncManifestPermissions() {
+        console.log('[Sidebar] Manifest permissions changed, refreshing UI...');
+        try {
+            await this.renderApiList();
+        } catch (e) {
+            console.error('[Sidebar] Failed to refresh API list after permission change:', e);
         }
     }
 
@@ -5039,6 +5087,10 @@ class SidebarUI {
         this.apiList.innerHTML = '';
 
         try {
+            // Fetch current permissions
+            const currentPermissions = await chrome.permissions.getAll();
+            const granted = new Set(currentPermissions.permissions || []);
+
             const resp = await this.sendMessage({
                 action: 'query',
                 payload: { name: 'services', sql: 'SELECT * FROM configured_services ORDER BY created ASC' }
@@ -5059,18 +5111,31 @@ class SidebarUI {
                 item.className = 'api-item';
                 
                 let status = 'Configured';
-                if (isGemini && !this.geminiApiKey) status = 'Needs Setup';
+                if (isGemini) {
+                    if (!this.geminiApiKey) status = 'Needs Setup';
+                } else if (api.manifest_permission && !granted.has(api.manifest_permission)) {
+                    status = 'LOCKED';
+                }
                 
                 item.innerHTML = `
                     <div class="api-item-info">
                         <div class="api-item-icon">${api.icon || '🔌'}</div>
                         <div class="api-item-text">
                             <div class="api-item-name">${api.name}</div>
-                            <div class="api-item-status">${status}</div>
+                            <div class="api-item-status" style="${status === 'LOCKED' ? 'color:var(--danger);font-weight:bold;' : ''}">${status}</div>
                         </div>
                     </div>
-                    ${(isGemini || isChrome) ? '<div class="api-item-chevron">›</div>' : ''}
+                    <div class="api-item-actions" style="display:flex;align-items:center;gap:8px;">
+                        <button class="api-item-remove-btn" title="Remove API" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:0.6;padding:4px;">🗑️</button>
+                        ${(isGemini || isChrome) ? '<div class="api-item-chevron">›</div>' : ''}
+                    </div>
                 `;
+
+                const removeBtn = item.querySelector('.api-item-remove-btn');
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.handleRemoveConfiguredApi(api.name, api.config_id);
+                });
                 
                 if (isGemini || isChrome) {
                     item.onclick = () => this.showApiDetailView(api.config_id);
@@ -5743,10 +5808,8 @@ class SidebarUI {
 
         const selectedApis = Array.from(this.aiApiList.querySelectorAll('.ai-api-item.selected'))
             .map(el => ({
-                id: el.dataset.id,
-                name: el.dataset.name,
                 config_id: el.dataset.configId,
-                mock_prompt: el.dataset.mockPrompt
+                name: el.dataset.name
             }));
 
         this.aiStatus.classList.remove('hidden');
@@ -5795,15 +5858,14 @@ class SidebarUI {
 
                 const newWasmItem = {
                     type: 'wasm',
+                    id: crypto.randomUUID(),
                     name: 'Function',
                     zigCode: zigCode,
                     data: base64,
                     prompt: originalPrompt,
                     selectedApis: selectedApis.map(a => ({
-                        id: a.id,
-                        name: a.name,
                         config_id: a.config_id,
-                        mock_prompt: a.mock_prompt
+                        name: a.name
                     }))
                 };
 
@@ -5874,7 +5936,7 @@ class SidebarUI {
         const isInteractive = await this.isWasmInteractive(item.data);
         if (isInteractive) {
             // Open terminal and execute (untracked)
-            let name = item.name || item.title || `wasm_${index}`;
+            let name = item.id || item.name || item.title || `wasm_${index}`;
             name = name.replace(/[\/\\?%*:|"<>]/g, '_');
 
             const url = chrome.runtime.getURL(`public/terminal.html?packetId=${this.currentPacket.id}&exec=${encodeURIComponent(name)}&track=false`);
@@ -6808,32 +6870,42 @@ ${prompt}`;
         return (bytes / 1024 / 1024).toFixed(2) + ' MB';
     }
 
-    renderAiApiSelection() {
-        if (!this.aiApiList || !this.currentPacket) return;
-        this.aiApiList.innerHTML = '';
+    async renderAiApiSelection() {
+        if (!this.aiApiList) return;
+        this.aiApiList.innerHTML = '<div class="spinner-sm"></div>';
         
-        const apis = this.currentPacket.urls.filter(u => u.type === 'api');
-        if (apis.length === 0) {
-            this.aiApiList.innerHTML = '<span class="modal-hint">No APIs in packet</span>';
-            return;
-        }
+        try {
+            const resp = await this.sendMessage({
+                action: 'query',
+                payload: { name: 'services', sql: "SELECT * FROM configured_services WHERE config_id LIKE 'chrome:%' OR config_id LIKE 'chrome-ai:%' ORDER BY name ASC" }
+            });
 
-        apis.forEach(api => {
-            const item = document.createElement('div');
-            item.className = 'ai-api-item';
-            item.dataset.id = api.id || '';
-            item.dataset.configId = api.config_id;
-            item.dataset.name = api.name;
-            item.dataset.mockPrompt = api.mock_prompt || '';
-            item.innerHTML = `
-                <span class="ai-api-item-icon">${api.icon || '🔌'}</span>
-                <span>${api.name}</span>
-            `;
-            item.onclick = () => {
-                item.classList.toggle('selected');
-            };
-            this.aiApiList.appendChild(item);
-        });
+            const apis = this._normalizeRows(resp.result);
+            this.aiApiList.innerHTML = '';
+
+            if (apis.length === 0) {
+                this.aiApiList.innerHTML = '<span class="modal-hint">No APIs configured. Add them in User settings.</span>';
+                return;
+            }
+
+            apis.forEach(api => {
+                const item = document.createElement('div');
+                item.className = 'ai-api-item';
+                item.dataset.configId = api.config_id;
+                item.dataset.name = api.name;
+                item.innerHTML = `
+                    <span class="ai-api-item-icon">${api.icon || '🔌'}</span>
+                    <span>${api.name}</span>
+                `;
+                item.onclick = () => {
+                    item.classList.toggle('selected');
+                };
+                this.aiApiList.appendChild(item);
+            });
+        } catch (e) {
+            console.error('[Sidebar] Failed to render AI API selection:', e);
+            this.aiApiList.innerHTML = '<span class="modal-hint">Error loading APIs</span>';
+        }
     }
 }
 

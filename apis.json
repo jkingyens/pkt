@@ -512,7 +512,7 @@
   },
   {
     "name": "Chrome: Privacy",
-    "icon": "🔒",
+    "icon": "🛡️",
     "description": "Control browser privacy settings",
     "config_id": "chrome:privacy",
     "manifest_permission": "privacy",

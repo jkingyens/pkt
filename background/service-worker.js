@@ -389,6 +389,10 @@ function normalizeUrl(url) {
                 // Keep name if it's there (it's the function name)
                 const funcName = parsed.searchParams.get('name');
                 if (funcName) search.set('name', funcName);
+                
+                // Keep id if it's there (it's the unique function identity)
+                const funcId = parsed.searchParams.get('id');
+                if (funcId) search.set('id', funcId);
             }
 
             search.sort();
@@ -2637,6 +2641,32 @@ async function performStartupLock() {
                 async function executeWasm(item, packetId) {
                     const runtime = new WasmRuntime();
                     const executionLogs = [];
+                    
+                    // Fetch configured APIs and manifest permissions
+                    const configuredApis = new Set();
+                    const currentPermissions = await chrome.permissions.getAll();
+                    const granted = new Set(currentPermissions.permissions || []);
+                    const apiPermissions = {};
+                    
+                    try {
+                        const servicesDb = manager.getDatabase('services');
+                        if (servicesDb) {
+                            const configuredRows = await servicesDb.query("SELECT config_id FROM configured_services");
+                            if (configuredRows) configuredRows.forEach(r => configuredApis.add(r.config_id));
+                            
+                            const metaRows = await servicesDb.query("SELECT config_id, manifest_permission FROM services_fts");
+                            if (metaRows) metaRows.forEach(r => apiPermissions[r.config_id] = r.manifest_permission);
+                        }
+                    } catch (e) {
+                        console.error('[WASM-Host] Failed to fetch configured services or metadata:', e);
+                    }
+
+                    const isApiConfigured = (configId) => {
+                        if (!configuredApis.has(configId)) return false;
+                        const perm = apiPermissions[configId];
+                        if (perm && !granted.has(perm)) return false;
+                        return true;
+                    };
 
                     const mocks = {};
                     if (packetId) {
@@ -2733,6 +2763,9 @@ async function performStartupLock() {
                         "chrome:bookmarks/bookmarks": {
                             "get-tree": () => {
                                 try {
+                                    if (!isApiConfigured('chrome:bookmarks')) {
+                                        throw new Error("API 'chrome:bookmarks' is not configured. Please enable it in User settings.");
+                                    }
                                     let data = bookmarkCache;
                                     const mockFn = getMock("chrome:bookmarks", "getTree") || getMock("chrome:bookmarks/bookmarks", "get-tree");
                                     if (mockFn) {
@@ -2766,6 +2799,15 @@ async function performStartupLock() {
                             "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                             "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                             "create": (titlePtr, titleLen, urlPtr, urlLen) => {
+                                if (!isApiConfigured('chrome:bookmarks')) {
+                                    const errStr = runtime.writeString("API 'chrome:bookmarks' is not configured.");
+                                    const resultPtr = runtime.alloc(12, 4);
+                                    const view = runtime.getView();
+                                    view.setUint32(resultPtr, 1, true);
+                                    view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                    view.setUint32(resultPtr + 8, errStr.len, true);
+                                    return resultPtr;
+                                }
                                 const title = runtime.readString(titlePtr, titleLen);
                                 const url = runtime.readString(urlPtr, urlLen);
 

@@ -3,6 +3,7 @@ import { compileZigCode } from './zig-compiler.js';
 (async () => {
     const params = new URLSearchParams(window.location.search);
     const packetId = params.get('packetId');
+    const itemId = params.get('id');
     const index = parseInt(params.get('index'));
     const itemName = params.get('name');
 
@@ -33,8 +34,11 @@ import { compileZigCode } from './zig-compiler.js';
     let currentPacketUrls = [];
     let selectedApis = [];
     let packetApis = [];
+    let globalApis = [];
     // Map from base config_id -> selected mock id (or 'live')
     let apiMockSelections = {};
+    let grantedPermissions = new Set();
+    let apiMetadataMap = {};
 
     const DEFAULT_SYSTEM_INSTRUCTION = `You are an expert Zig developer. 
 Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
@@ -100,19 +104,25 @@ It will run in a host environment with these WIT interfaces available:
     }
 
     function enrichApiMetadata(api) {
-        // Find the API definition within the same packet
         const baseConfigId = api.config_id.split('/')[0];
         const packetApi = packetApis.find(a => a.config_id === api.config_id || a.config_id === baseConfigId);
+        const globalApi = globalApis.find(a => a.config_id === api.config_id || a.config_id === baseConfigId);
         
+        const permission = apiMetadataMap[api.config_id] || apiMetadataMap[baseConfigId];
+        const isAi = api.config_id.startsWith('chrome-ai:');
+        const hasManifestPerm = permission ? grantedPermissions.has(permission) : (isAi || !permission);
+        const isConfigured = hasManifestPerm;
         if (packetApi) {
             return {
                 ...api,
+                is_configured: isConfigured,
                 name: api.name || packetApi.name || baseConfigId.split(':').pop(),
                 mock_prompt: api.mock_prompt || packetApi.mock_prompt || ''
             };
         }
         return {
             ...api,
+            is_configured: isConfigured,
             name: api.name || baseConfigId.split(':').pop()
         };
     }
@@ -134,8 +144,9 @@ It will run in a host environment with these WIT interfaces available:
         container.innerHTML = '';
         apis.forEach((api, i) => {
             const chip = document.createElement('div');
-            chip.className = 'api-tag';
-            chip.innerHTML = `<span>🔌 ${getApiLabel(api)}</span>`;
+            chip.className = `api-tag${api.is_configured ? '' : ' unconfigured'}`;
+            const warning = api.is_configured ? '' : ' <span title="API not configured" class="warning-icon">⚠️</span>';
+            chip.innerHTML = `<span>🔌 ${getApiLabel(api)}${warning}</span>`;
             if (removable) {
                 const remove = document.createElement('span');
                 remove.className = 'api-tag-remove';
@@ -167,7 +178,33 @@ It will run in a host environment with these WIT interfaces available:
         currentPacketUrls = JSON.parse(row[1]);
         packetApis = currentPacketUrls.filter(u => u.type === 'api');
 
-        if (!isNaN(index)) {
+        // Load global APIs
+        const globalResp = await chrome.runtime.sendMessage({
+            action: 'query',
+            payload: { name: 'services', sql: "SELECT * FROM configured_services WHERE config_id LIKE 'chrome:%' OR config_id LIKE 'chrome-ai:%' ORDER BY name ASC" }
+        });
+        if (globalResp && globalResp.success) {
+            globalApis = normalizeRows(globalResp.result);
+        }
+
+        // Fetch current permissions and all API metadata for dynamic lookup
+        const [permResp, ftsResp] = await Promise.all([
+            chrome.permissions.getAll(),
+            chrome.runtime.sendMessage({
+                action: 'query',
+                payload: { name: 'services', sql: "SELECT config_id, manifest_permission FROM services_fts" }
+            })
+        ]);
+
+        grantedPermissions = new Set(permResp.permissions || []);
+        if (ftsResp && ftsResp.success) {
+            const rows = normalizeRows(ftsResp.result);
+            rows.forEach(r => apiMetadataMap[r.config_id] = r.manifest_permission);
+        }
+
+        if (itemId) {
+            currentItem = currentPacketUrls.find(u => u.id === itemId);
+        } else if (!isNaN(index)) {
             currentItem = currentPacketUrls[index];
         } else {
             currentItem = currentPacketUrls.find(u => u.name === itemName);
@@ -197,13 +234,19 @@ It will run in a host environment with these WIT interfaces available:
     }
 
     function normalizeRows(result) {
-        if (!result || !result.length || !result[0].columns) return [];
-        const columns = result[0].columns;
-        return result[0].values.map(values => {
-            const row = {};
-            columns.forEach((col, i) => row[col] = values[i]);
-            return row;
-        });
+        if (!Array.isArray(result) || result.length === 0) return [];
+        
+        // Handle both formats: array of objects OR legacy columns/values format
+        if (result[0] && Array.isArray(result[0].columns) && Array.isArray(result[0].values)) {
+            const columns = result[0].columns;
+            return result[0].values.map(values => {
+                const row = {};
+                columns.forEach((col, i) => row[col] = values[i]);
+                return row;
+            });
+        }
+        
+        return result;
     }
 
     // Initialize
@@ -235,8 +278,8 @@ It will run in a host environment with these WIT interfaces available:
             return;
         }
 
-        const filtered = packetApis.filter(a => 
-            a.name.toLowerCase().includes(query) || a.config_id.toLowerCase().includes(query) || (a.mock_prompt && a.mock_prompt.toLowerCase().includes(query))
+        const filtered = globalApis.filter(a => 
+            a.name.toLowerCase().includes(query) || a.config_id.toLowerCase().includes(query)
         );
 
         if (filtered.length > 0) {
@@ -250,7 +293,7 @@ It will run in a host environment with these WIT interfaces available:
                 `;
                 div.onclick = () => {
                     if (!selectedApis.some(a => a.config_id === api.config_id)) {
-                        selectedApis.push({ name: api.name, config_id: api.config_id, mock_prompt: api.mock_prompt });
+                        selectedApis.push({ name: api.name, config_id: api.config_id });
                         renderApiChips(editApiList, selectedApis, true);
                     }
                     apiSearchResults.classList.add('hidden');
@@ -361,6 +404,7 @@ It will run in a host environment with these WIT interfaces available:
                     headerText.textContent = originalPrompt;
                     codeBlock.innerHTML = highlightZig(zigCode);
                     renderApiChips(headerApiTags, selectedApis);
+                    renderApiSelectionDropdowns();
                     editModal.classList.add('hidden');
                     
                     // Notify sidebar
@@ -388,12 +432,31 @@ It will run in a host environment with these WIT interfaces available:
         }
     };
 
+    function updateRunButtonState() {
+        if (!runBtn) return;
+        
+        const dropdowns = document.querySelectorAll('#api-selection-dropdowns select');
+        let allSelected = true;
+        
+        dropdowns.forEach(select => {
+            if (!select.value) {
+                allSelected = false;
+            }
+        });
+        
+        runBtn.disabled = !allSelected;
+        if (runBtn.disabled) {
+            runBtn.title = "Select an interface (Mock or Live) for all required APIs to run.";
+        } else {
+            runBtn.title = "";
+        }
+    }
+
     function renderApiSelectionDropdowns() {
         const container = document.getElementById('api-selection-dropdowns');
         if (!container) return;
         container.innerHTML = '';
         
-        // Initialise defaults: prefer stored selectedApi id, fallback to first compatible mock
         selectedApis.forEach(api => {
             const baseConfigId = api.config_id.split('/')[0];
             const compatible = packetApis.filter(p => {
@@ -401,48 +464,61 @@ It will run in a host environment with these WIT interfaces available:
                 return base === baseConfigId || p.config_id === api.config_id;
             });
             
-            if (!apiMockSelections[baseConfigId]) {
-                // Default: use the stored id, or first compatible mock
-                const stored = api.id && compatible.find(p => p.id === api.id);
-                apiMockSelections[baseConfigId] = stored ? stored.id : (compatible[0]?.id || 'live');
-            }
-            
-            if (compatible.length === 0) return;
-            
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)';
+            wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);margin-bottom:8px;';
             
             const label = document.createElement('span');
+            label.style.cssText = 'font-weight: 500; min-width: 80px;';
             label.textContent = `${api.name || baseConfigId.split(':').pop()}:`;
             wrapper.appendChild(label);
             
             const select = document.createElement('select');
-            select.style.cssText = 'font-size:12px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;';
+            select.style.cssText = 'font-size:12px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;flex:1;';
             
-            compatible.forEach(mock => {
-                const opt = document.createElement('option');
-                opt.value = mock.id || '';
-                opt.textContent = mock.mock_prompt
-                    ? (mock.mock_prompt.length > 35 ? mock.mock_prompt.substring(0, 35) + '…' : mock.mock_prompt)
-                    : (mock.name || mock.config_id);
-                if (apiMockSelections[baseConfigId] === mock.id) opt.selected = true;
-                select.appendChild(opt);
-            });
+            // Placeholder
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select Interface...';
+            select.appendChild(placeholder);
+
+            if (compatible.length > 0) {
+                // Add Live option ONLY if configured
+                if (api.is_configured) {
+                    const liveOpt = document.createElement('option');
+                    liveOpt.value = 'live';
+                    liveOpt.textContent = '⚡ Live Interface';
+                    if (apiMockSelections[baseConfigId] === 'live') liveOpt.selected = true;
+                    select.appendChild(liveOpt);
+                }
+
+                // Add Mocks
+                compatible.forEach(mock => {
+                    const isActualMock = !!mock.mock_prompt;
+                    if (!isActualMock) return; // Skip "Live Only" items in packet since we have the explicit Live option above
+
+                    const opt = document.createElement('option');
+                    opt.value = mock.id || '';
+                    opt.textContent = `✨ ${mock.mock_prompt.length > 35 ? mock.mock_prompt.substring(0, 35) + '…' : mock.mock_prompt}`;
+                    if (apiMockSelections[baseConfigId] === mock.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
             
-            // Always add Live option
-            const liveOpt = document.createElement('option');
-            liveOpt.value = 'live';
-            liveOpt.textContent = '⚡ Live';
-            if (apiMockSelections[baseConfigId] === 'live') liveOpt.selected = true;
-            select.appendChild(liveOpt);
-            
+            // If we have a stored selection but it's not in the dropdown now, mark as invalid
+            if (apiMockSelections[baseConfigId] && !Array.from(select.options).some(o => o.value === apiMockSelections[baseConfigId])) {
+                apiMockSelections[baseConfigId] = '';
+            }
+
             select.onchange = () => {
                 apiMockSelections[baseConfigId] = select.value;
+                updateRunButtonState();
             };
             
             wrapper.appendChild(select);
             container.appendChild(wrapper);
         });
+
+        updateRunButtonState();
     }
 
     // Run Logic
@@ -455,7 +531,7 @@ It will run in a host environment with these WIT interfaces available:
         }
 
         const execName = currentItem.name || 'Function';
-        let terminalUrl = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(execName)}&embedded=true&track=false`);
+        let terminalUrl = chrome.runtime.getURL(`public/terminal.html?packetId=${packetId}&exec=${encodeURIComponent(execName)}&itemIndex=${index}&embedded=true&track=false`);
         
         // Pass mock selections as URL param
         if (Object.keys(apiMockSelections).length > 0) {
@@ -475,6 +551,19 @@ It will run in a host environment with these WIT interfaces available:
         if (e.data?.type === 'close-terminal') {
             terminalOverlay.classList.remove('active');
             terminalIframe.src = 'about:blank';
+        }
+    });
+
+    chrome.runtime.onMessage.addListener((msg) => {
+        if (msg.action === 'PACKET_UPDATED' && String(msg.packetId) === String(packetId)) {
+            // Refresh packet data to get any new APIs added in sidebar
+            chrome.runtime.sendMessage({ action: 'getPacket', id: packetId }).then(resp => {
+                if (resp && resp.success) {
+                    currentPacketUrls = resp.packet.urls || [];
+                    packetApis = currentPacketUrls.filter(u => u.type === 'api');
+                    renderApiSelectionDropdowns();
+                }
+            });
         }
     });
 

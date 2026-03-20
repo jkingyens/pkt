@@ -210,6 +210,17 @@
             gap: 4px;
         }
 
+        .api-tag.unconfigured {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: var(--danger);
+        }
+
+        .warning-icon {
+            margin-left: 4px;
+            cursor: help;
+        }
+
         .api-tag-remove {
             cursor: pointer;
             font-weight: bold;
@@ -285,7 +296,7 @@
         </div>
         <div class="controls">
             <div id="api-selection-dropdowns" style="display:flex;align-items:center;gap:12px;margin-right:12px;flex-wrap:wrap;"></div>
-            <button id="run-btn" class="btn-run">
+            <button id="run-btn" class="btn-run" disabled>
                 <span>▶️</span> Run Function
             </button>
         </div>

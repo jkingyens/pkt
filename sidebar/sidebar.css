@@ -1587,7 +1587,7 @@ h1 {
   gap: 8px;
 }
 
-.schema-picker-item {
+.schema-picker-item, .schema-picker-item-grid {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1596,7 +1596,25 @@ h1 {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.schema-picker-item:hover {
+.schema-picker-item-grid {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.schema-picker-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-picker-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.schema-picker-item:hover, .schema-picker-item-grid:hover {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
@@ -2321,12 +2339,27 @@ body.offline-mode {
 
 
 /* Offline Enforcement */
-.packet-page-card.disabled {
+.packet-page-card.disabled,
+.packet-page-card.unconfigured {
   opacity: 0.5;
   filter: grayscale(1);
   pointer-events: none;
   cursor: not-allowed;
   position: relative;
+}
+
+.packet-page-card.unconfigured::after {
+  content: '🔒 LOCKED';
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  font-size: 8px;
+  background: var(--error-bg);
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--danger);
+  text-transform: uppercase;
+  font-weight: bold;
 }
 
 .packet-page-card.disabled::after {
@@ -2625,6 +2658,10 @@ body:not(.dark-mode) .lock-screen {
 /* ===== USER MENU EXPANSION ===== */
 .user-body {
   padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .search-container {
@@ -2700,6 +2737,36 @@ body:not(.dark-mode) .lock-screen {
   margin-top: 1px;
 }
 
+.search-result-item .api-item-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.api-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-item-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.4;
+  padding: 4px;
+  transition: all 0.2s;
+  border-radius: 4px;
+}
+
+.api-item-remove-btn:hover {
+  opacity: 1;
+  background: var(--error-bg);
+  color: var(--danger);
+  transform: scale(1.1);
+}
+
 .section-label {
   font-size: 11px;
   font-weight: 700;
@@ -2713,6 +2780,10 @@ body:not(.dark-mode) .lock-screen {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 20px;
 }
 
 .api-item {
