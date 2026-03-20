@@ -1,0 +1,6 @@
+{
+  "database": "vendor/sqlite/sqlite3.wasm",
+  "shell": "public/assets/terminal/busybox.wasm",
+  "terminal": "public/assets/terminal/ghostty-vt.wasm",
+  "compiler": "zig/zig_small.wasm"
+}
