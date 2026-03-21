@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+    <div id="root-menu" class="view">
+        <div class="header">
+            <h2>Packets</h2>
+            <div class="actions">
+                <button id="import-btn">Import</button>
+                <input type="file" id="import-file" style="display:none" accept=".json">
+                <button id="scan-btn">Scan</button>
+                <button id="new-packet-btn">New</button>
+            </div>
+        </div>
+        <div id="scanner-modal" class="modal hidden">
+            <div class="modal-content" style="width:300px;">
+                <button id="close-scanner-btn" class="close-btn">&times;</button>
+                <h3>Scan Packet QR</h3>
+                <div id="scanner-container">
+                    <video id="scanner-video" autoplay playsinline style="width:100%; border-radius:12px; transform: scaleX(-1);"></video>
+                    <div class="scanner-overlay"></div>
+                </div>
+            </div>
+        </div>
+        <div id="packet-list"></div>
+    </div>
+
+    <div id="packet-detail" class="view hidden">
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content">
+                <button id="close-modal-btn" class="close-btn">&times;</button>
+                <h3>Share Packet</h3>
+                <div id="qrcode-container"></div>
+                <div id="qr-download-container"></div>
+            </div>
+        </div>
+        <div class="header">
+            <button id="back-btn">Back</button>
+            <h2 id="detail-title">Packet</h2>
+            <div class="actions">
+                <button id="share-btn">Share</button>
+                <button id="add-tab-btn" class="hidden">Add Tab</button>
+            </div>
+        </div>
+        <div class="mode-toggle">
+            <label for="mode-checkbox">Edit Mode</label>
+            <label class="switch">
+                <input type="checkbox" id="mode-checkbox">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div id="link-list"></div>
+    </div>
+
+    <script src="qrcode.min.js"></script>
+    <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

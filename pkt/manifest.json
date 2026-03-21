@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Packets",
+  "version": "1.0",
+  "description": "Containers for sets of links using Tab Groups and Side Panel.",
+  "permissions": [
+    "sidePanel",
+    "tabGroups",
+    "tabs",
+    "storage",
+    "activeTab",
+    "videoCapture"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open Packets Side Panel"
+  }
+}

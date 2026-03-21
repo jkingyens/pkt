@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Packets Settings</title>
+    <link rel="stylesheet" href="sidepanel.css">
+    <style>
+        body { padding: 24px; max-width: 600px; margin: 0 auto; }
+        .setting-group { margin-bottom: 24px; background: var(--surface-color); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); }
+        .setting-group h3 { margin-top: 0; margin-bottom: 16px; font-weight: 600; font-size: 16px; color: var(--text-color); }
+        select { padding: 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color); font-size: 14px; width: 100%; max-width: 200px; }
+    </style>
+</head>
+<body>
+    <div class="header" style="margin-bottom: 24px;">
+        <h2>Packets Settings</h2>
+    </div>
+
+    <div class="setting-group">
+        <h3>Theme</h3>
+        <select id="theme-select">
+            <option value="system">System Default</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+        </select>
+    </div>
+
+    <div class="setting-group">
+        <h3>Camera Permission</h3>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+            The QR scanner needs camera access. If the side panel can't request it, click below to grant it here.
+        </p>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button id="request-camera-btn">Grant Camera Access</button>
+            <span id="camera-status" style="font-size:13px; font-weight:600;"></span>
+        </div>
+    </div>
+
+    <script type="module" src="options.js"></script>
+</body>
+</html>
